@@ -74,6 +74,26 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     }
   }
 
+  const fallMs = d => 110 + 95 * Math.sqrt(d);
+
+  async function fall(moves, current, { squash = true } = {}) {
+    const results = await Promise.all(moves.map(async move => {
+      const v = viewOf(state.blocks.find(b => b.id === move.id));
+      const d = move.to - move.from;
+      // Pin the pre-fall row before the first paint of the landing snapshot.
+      v.vy = move.from;
+      if (!await tween(fallMs(d), t => { v.vy = move.from + d * t; }, Ease.in) || !current())
+        return false;
+      if (squash) {
+        const amp = Math.min(0.22, 0.1 + 0.04 * d);
+        const stamp = motion;
+        tween(320, t => { if (stamp === motion) v.sq = amp * t; }, Ease.damped);
+      }
+      return true;
+    }));
+    return results.every(Boolean);
+  }
+
   async function animate(event, run) {
     const current = () => run === generation;
     switch (event.type) {
@@ -91,20 +111,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
       case 'gravity': {
         interruptSquash();
         adopt(event.state);
-        const results = await Promise.all(event.moves.map(async move => {
-          const v = viewOf(state.blocks.find(b => b.id === move.id));
-          const d = move.to - move.from;
-          // The snapshot is already at the landing row. Pin the pre-fall row
-          // before the first paint so a block cannot flash at the destination.
-          v.vy = move.from;
-          if (!await tween(110 + 95 * Math.sqrt(d), t => { v.vy = move.from + d * t; }, Ease.in) || !current())
-            return false;
-          const amp = Math.min(0.22, 0.1 + 0.04 * d);
-          const stamp = motion;
-          tween(320, t => { if (stamp === motion) v.sq = amp * t; }, Ease.damped);
-          return true;
-        }));
-        return results.every(Boolean);
+        return fall(event.moves, current);
       }
       case 'clear': {
         // Keep the pre-clear snapshot visible until the departing blocks vanish.
@@ -172,16 +179,45 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
             }
           }
         }, Ease.lin) || !current()) return false;
+        if (event.compaction?.length) {
+          // Surviving tower faces stay in place through the clear, then fall
+          // into the gaps before rejoining the authoritative compacted pole.
+          const removed = new Set(event.blocks.map(b => b.id));
+          adopt({ ...state, blocks: state.blocks.filter(b => !removed.has(b.id)) });
+          if (!await fall(event.compaction, current, { squash: false }) || !current()) return false;
+        }
         adopt(event.state);
         stackScore(present, event.award, effects);
         return true;
       }
       case 'totem-drop':
-      case 'totem-stack':
         interruptSquash();
         adopt(event.state);
         sfx('place', { volume: 0.45, rate: 0.88 });
         return true;
+      case 'totem-stack': {
+        interruptSquash();
+        // Keep the existing pole in place while its new cap falls independently.
+        // Only join the geometry after landing, so the pole never snaps taller.
+        const incoming = event.ids.map(id => {
+          const b = event.state.blocks.find(b => b.id === id);
+          const cap = cellsOf(b).find(cell => cell.row === 0);
+          return { id: `stack:${id}`, kind: 'totem', color: b.color,
+            row: b.row, col: b.col + cap.col, len: 1, height: 1 };
+        });
+        adopt({ ...event.state, blocks: [...state.blocks, ...incoming] });
+        sfx('place', { volume: 0.45, rate: 0.88 });
+        const landed = await fall(incoming.map(b => ({ id: b.id, from: -1, to: b.row })),
+          current, { squash: false });
+        if (!landed || !current()) return false;
+        adopt(event.state);
+        const stamp = motion;
+        for (const id of event.ids) {
+          const v = viewOf(state.blocks.find(b => b.id === id));
+          tween(320, t => { if (stamp === motion) v.sq = 0.22 * t; }, Ease.damped);
+        }
+        return true;
+      }
       case 'rise':
       case 'shaped-rise': {
         interruptSquash();

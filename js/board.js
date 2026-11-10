@@ -1,7 +1,7 @@
 // Grid-space rules only. Pixel geometry and palettes belong to theme.js.
 import { cellsOf } from './block-geometry.js';
 import { isBuilding } from './play-mode.js';
-export const COLS = 9, ROWS = 10;
+export const COLS = 8, ROWS = 10;
 // Abstract color-group IDs in block data; no dependency on a visual palette.
 export const COLOR_GROUPS = 5;
 
@@ -128,23 +128,29 @@ function compactBuildingTotem(block, kept) {
 // whose bottom is the lowest surviving cell (holes collapse).
 export function clearRows(state, rows) {
   const removed = new Set(rows), blocks = [], detached = [], displayBlocks = [], survivors = [];
-  let split = false, compacted = false;
+  const compaction = [];
+  let split = false;
   const building = isBuilding(state);
   for (const b of state.blocks) {
     const cells = cellsOf(b);
     const touched = cells.some(cell => removed.has(b.row + cell.row));
     if (touched && b.kind === 'totem' && building) {
-      const gone = [], kept = [];
-      for (const cell of cells) (removed.has(b.row + cell.row) ? gone : kept).push(cell);
-      for (const [i, cell] of gone.entries()) {
+      split = true;
+      const kept = [], faces = [];
+      for (const [i, cell] of cells.entries()) {
         const fragment = { id: `fragment:${b.id}:${i}`, kind: 'totem', color: b.color,
           row: b.row + cell.row, col: b.col + cell.col, len: 1, height: 1 };
         displayBlocks.push(fragment);
-        blocks.push(fragment);
+        if (removed.has(fragment.row)) blocks.push(fragment);
+        else { kept.push(cell); faces.push(fragment); }
       }
       if (!kept.length) continue;
       compactBuildingTotem(b, kept);
-      compacted = true;
+      faces.sort((a, b) => a.row - b.row || a.col - b.col);
+      for (const [i, face] of faces.entries()) {
+        const to = b.row + i;
+        if (face.row !== to) compaction.push({ id: face.id, from: face.row, to });
+      }
       survivors.push(b);
     } else if (touched && b.kind === 'totem') {
       split = true;
@@ -162,7 +168,8 @@ export function clearRows(state, rows) {
   }
   state.blocks = survivors;
   return { rows: [...removed].sort((a, b) => a - b), blocks,
-    ...(split ? { detached, displayBlocks } : compacted ? { displayBlocks } : {}) };
+    ...(split ? { displayBlocks, ...(!building ? { detached } : {}) } : {}),
+    ...(compaction.length ? { compaction } : {}) };
 }
 
 // Shared by real rises, opening setup, and preview simulations.

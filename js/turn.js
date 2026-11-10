@@ -2,7 +2,7 @@
 import { rowSpan, settleBoard, touchingTop, hasMoves } from './board.js';
 import { createTurnScore, awardRows } from './sim.js';
 import { spawnTotem, spawnTotemLayer } from './totem-spawn.js';
-import { ENERGY_PER_LAYER, isBuilding, isTotem, usesTotems } from './play-mode.js';
+import { ENERGY_PER_LAYER, isBuilding, isTetris, usesTotems } from './play-mode.js';
 
 export function resolveTurn(state, random, emit, rise) {
   const turn = createTurnScore();
@@ -36,7 +36,7 @@ export function resolveTurn(state, random, emit, rise) {
     }
   };
   spawnRows(state.blocks.length ? 1 : 3);
-  if (isTotem(state)) {
+  if (isTetris(state)) {
     const block = spawnTotem(state, random);
     if (block) {
       emit('totem-drop', { id: block.id });

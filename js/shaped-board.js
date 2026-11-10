@@ -11,12 +11,21 @@ export function insertShapedRow(state, row) {
   const trimmed = [], survivors = [];
   for (const b of blocks) {
     if (b.kind === 'totem') {
-      // A rigid Totem never loses individual cells at a narrowing.
-      if (cellsOf(b).some(cell => {
+      const kept = [];
+      for (const cell of cellsOf(b)) {
         const { left, right } = rowSpan(state, b.row + cell.row);
-        return b.col + cell.col < left || b.col + cell.col >= right;
-      })) b.activateOnRise = true;
-      survivors.push(b);
+        if (b.col + cell.col >= left && b.col + cell.col < right) kept.push(cell);
+        else trimmed.push({ id: b.id, kind: b.kind, color: b.color,
+          row: b.row + cell.row, col: b.col + cell.col, len: 1, height: 1 });
+      }
+      if (!kept.length) continue;
+      // Rebase the surviving footprint without moving or regrowing its cells.
+      const top = Math.min(...kept.map(cell => cell.row));
+      const left = Math.min(...kept.map(cell => cell.col));
+      survivors.push({ ...b, row: b.row + top, col: b.col + left,
+        height: Math.max(...kept.map(cell => cell.row)) - top + 1,
+        len: Math.max(...kept.map(cell => cell.col)) - left + 1,
+        cells: kept.map(cell => ({ row: cell.row - top, col: cell.col - left })) });
       continue;
     }
     const { left, right } = state.shape.rows[b.row];

@@ -23,7 +23,7 @@ owns a separate copy of the state currently on screen, which may trail the engin
 | --- | --- |
 | `js/engine.js` | Authoritative state, base-state reset, command validation, snapshots, per-mode best scores/options |
 | `js/modes.js` | Classic/Shaped map registry and Classic's turn adapter |
-| `js/play-mode.js` | Standard / Totem / Totem Building identifiers |
+| `js/play-mode.js` | Standard / Tetris / Totem Building identifiers |
 | `js/turn.js` | Shared settling, scoring, rescue timing, refills and optional Totem drops |
 | `js/board.js` | Shared rectangular/shaped collision, rigid gravity, row clears and Totem removal/activation |
 | `js/block-geometry.js` | Occupied-cell and face geometry shared by rules and presentation |
@@ -82,15 +82,15 @@ visit). Best scores and options never cross mode boundaries. Setup builds a fres
 state and publishes it only after the mode hook succeeds.
 
 Classic and Shaped are maps (board outlines), registered in `GAME_MODES`. Play
-modes are `standard`, `totem`, and `totem-building`. Totem keeps one live drop.
+modes are `standard`, `tetris`, and `totem-building`. Tetris keeps one live drop.
 Totem Building spends spirit from cleared rows (3 lines per tile) to drop and
 stack 1×1 tiles. Neither play mode blasts rows when a totem reaches the top.
 Gameplay branches on `playMode`. Snapshots still expose `totemsEnabled` as
-`playMode === 'totem'` for older callers.
+`playMode === 'tetris'` for older callers. Stored `'totem'` migrates to `'tetris'`.
 
 `difficulty` and `playMode` are shared run options on `createEngine` and reset.
 Unspecified engine calls default to Easy and Standard. The browser first run
-loads Normal and Totem unless `slidey_difficulty_v2` / `slidey_play_mode` store a
+loads Normal and Tetris unless `slidey_difficulty_v2` / `slidey_play_mode` store a
 preference (`slidey_totems` still migrates). They persist across map switches.
 The popup labels maps at the top, then Mode and Difficulty selectors below a
 divider. Switching either restarts the run while keeping the popup open.
@@ -115,7 +115,7 @@ Every event has `type` and a detached `state` **after** that logical step.
 | `rise` | — | Animate the committed row and existing blocks upward |
 | `shaped-rise` | `blocks` (pre-trim, destination coordinates), `trimmed` (discarded spans) | Animate original spans upward, emit chips, adopt surviving geometry |
 | `totem-drop` | `id` | Introduce the incoming totem above the board; subsequent gravity animates its fall |
-| `totem-stack` | `ids` | Existing totems grew by one layer |
+| `totem-stack` | `ids` | Drop a new cap from above the board onto each growing totem, then join the stack |
 | `game-over` | `blockIds` | Bank score, show danger feedback, reveal result |
 | `turn-complete` | — | Finish score feedback and adopt final snapshot |
 
@@ -153,7 +153,7 @@ kind of visible event needs a presenter handler; the engine still supplies only
 the event's data. Extend those contracts when needed rather than placing new
 gameplay conditions in input or animation callbacks.
 
-The shared bounding grid is 9×10. Shaped uses `state.shape.rows`, one `{left, right}`
+The shared bounding grid is 8×10. Shaped uses `state.shape.rows`, one `{left, right}`
 span per row, with an exclusive right edge. Shared primitives treat cells outside
 these spans as unavailable, defaulting to the full rectangle for Classic. Each
 mode keeps its own candidate generator and preview search. Engine reset reconstructs base state before
@@ -197,7 +197,8 @@ wide, and differ gradually; consecutive random runs may select the same shape.
   preparation/response when its bounded search finds one; it is not a guarantee.
 
 Rendering reads shape data directly, with no imports of shaped rule functions.
-It draws the outline and bottom-width preview, clips rising blocks to playable
+It draws the playable-silhouette outline on Classic and Shaped (full rectangle
+on Classic) and the bottom-width preview, clips rising blocks to playable
 cells, and marks current exposure to the next narrowing with a dark red outline
 and matching chevrons that scale with the tile. Lifted and hovered tiles draw
 above the board silhouette so pickup and hover scale are not clipped by cells
@@ -226,12 +227,14 @@ overhangs whose supports fall later in the traversal.
   row. Choose uniformly among safe shape/column placements; if none remain, defer
   until a later turn. Lower columns beside a higher stack are eligible. A drop
   cannot trigger a row clear or scoring cascade.
-- On Shaped boards, a rise that would cut into a Totem leaves the piece whole.
-  The rise event can briefly contain that footprint outside the outline.
+- On Shaped boards, a rise chips away Totem cells outside the destination outline,
+  using the same particles as ordinary edge trimming. Remaining cells keep their
+  world positions and piece ID with rebased bounds; fully trimmed pieces disappear.
+  Trimming awards no score or spirit and never regrows cells.
 - The entire starting footprint is above the board and the highest existing
   block. Only the landing snapshot is playable. Drops land with at least one row
   of top clearance.
-- Filled rows count occupied Totem cells normally. In Totem mode, clearing any
+- Filled rows count occupied Totem cells normally. In Tetris mode, clearing any
   row touching a Totem consumes the whole piece; only the selected rows score.
   Off-row cells become detached debris. In Totem Building, only the cells in the
   filled rows leave; leftovers compact into one pole. Gravity then resolves falls.

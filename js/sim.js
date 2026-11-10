@@ -10,7 +10,7 @@ export function createState(best = 0, difficulty = 'easy', playMode = 'standard'
   playMode = resolvePlayMode({ playMode }, 'standard');
   return {
     playMode,
-    totemsEnabled: playMode === 'totem',
+    totemsEnabled: playMode === 'tetris',
     spiritualEnergy: 0,
     spiritualEnergyMax: ENERGY_PER_LAYER,
     totemSpawnBlocked: false,

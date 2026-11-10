@@ -5,10 +5,8 @@ export const POP_W = 460;
 export const POP_BTN = { x: 185, w: 380, h: 72 };
 export const MODE_RESUME_BTN = { x: 245, w: 260, h: 58 };
 
-const SHAPE_CONTROL_H = 100;
 const MODE_TITLE_Y = 56;
 const MODE_FIRST_BTN_Y = 104;
-const MODE_BTN_STEP = 84;
 const MODE_PAD_BOTTOM = 32;
 
 function placeY(rect, y) {
@@ -18,20 +16,11 @@ function placeY(rect, y) {
 // Offsets are measured from the card top so extra modes grow the card, then
 // the whole card is centered on H.
 export function modePopup(modes = []) {
-  const shapedIndex = modes.findIndex(mode => mode.id === 'shaped');
-  const buttons = (modes.length ? modes : [{ id: 'classic' }]).map((_, index) => ({
-    ...POP_BTN,
-    y: MODE_FIRST_BTN_Y + index * MODE_BTN_STEP
-      + (shapedIndex >= 0 && index > shapedIndex ? SHAPE_CONTROL_H : 0)
-  }));
-  const last = buttons[buttons.length - 1];
-  const shapedBtn = shapedIndex >= 0 ? buttons[shapedIndex] : null;
-  const control = shapedBtn
-    ? { x: 285, y: shapedBtn.y + shapedBtn.h + 32, w: 280, h: 60 }
-    : null;
-  const modesBottom = Math.max(last.y + last.h, control ? control.y + control.h : 0);
-  const dividerY = modesBottom + 28;
-  const playMode = { ...POP_BTN, y: dividerY + 40, h: 60 };
+  const map = { ...POP_BTN, y: MODE_FIRST_BTN_Y, h: 60 };
+  const control = { x: 285, y: map.y + map.h + 32, w: 280, h: 60 };
+  const dividerY = control.y + control.h + 28;
+  const modeTitleY = dividerY + 36;
+  const playMode = { ...POP_BTN, y: modeTitleY + 48, h: 60 };
   const difficulty = { ...POP_BTN, y: playMode.y + playMode.h + 40, h: 60 };
   const resume = {
     ...MODE_RESUME_BTN,
@@ -42,8 +31,10 @@ export function modePopup(modes = []) {
   return {
     card: { x: POP_X, y, w: POP_W, h },
     titleY: y + MODE_TITLE_Y,
+    modeTitleY: y + modeTitleY,
     dividerY: y + dividerY,
-    buttons: buttons.map(b => placeY(b, y)),
+    map: placeY(map, y),
+    buttons: [placeY(map, y)],
     control: placeY(control, y),
     playMode: placeY(playMode, y),
     difficulty: placeY(difficulty, y),
@@ -55,6 +46,7 @@ export const modeButton = (index, modes = []) => {
   const { buttons } = modePopup(modes);
   return buttons[index] ?? buttons[0];
 };
+export const mapControl = modes => modePopup(modes).map;
 export const shapeControl = modes => modePopup(modes).control;
 export const modeResume = modes => modePopup(modes).resume;
 export const difficultyControl = modes => modePopup(modes).difficulty;

@@ -4,13 +4,13 @@ import { cellsOf } from './block-geometry.js';
 import { CELL, BX } from './theme.js';
 import { followDrag, commitTarget } from './drag.js';
 import { layout, toLogical, toOverlay, hit, GO_RESTART, invalidateCanvas } from './canvas-layout.js';
-import { modeButton, modeResume, shapeControl, difficultyControl, playModeControl } from './mode-popup.js';
+import { mapControl, modeResume, shapeControl, difficultyControl, playModeControl } from './mode-popup.js';
 import { settingsPopup } from './settings-popup.js';
 import { setLang } from './i18n.js';
 import { playSfx, unlockAudio, isMuted, setMuted } from './audio.js';
 
-export function bindInput(canvas, { presenter, modes, moveRange, slide, restart, selectMode, shapeSelection,
-  toggleDifficulty, cyclePlayMode }) {
+export function bindInput(canvas, { presenter, modes, moveRange, slide, restart, shapeSelection,
+  toggleDifficulty, cyclePlayMode, cycleMap, cycleShape }) {
   const { present, viewOf } = presenter;
   const on = (target, type, fn, options) => target.addEventListener(type, e => {
     fn(e);
@@ -31,10 +31,10 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     if (present.menu === 'mode') {
       if (hit(difficultyControl(modes), op)) return 'btn:difficulty';
       if (hit(playModeControl(modes), op)) return 'btn:play-mode';
+      if (hit(mapControl(modes), op)) return 'btn:map';
       const control = shapeControl(modes);
-      if (control && shapeSelection && hit(control, op)) return 'shape';
-      const mode = modes.find((_, i) => hit(modeButton(i, modes), op));
-      if (mode) return 'btn:mode:' + mode.id;
+      const shaped = presenter.state.mode === 'shaped';
+      if (control && shapeSelection && shaped && hit(control, op)) return 'shape';
       if (hit(modeResume(modes), op)) return 'btn:mode-resume';
       return null;
     }
@@ -123,18 +123,19 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
         toggleDifficulty();
         return;
       }
-      const control = shapeControl(modes);
-      if (control && shapeSelection && hit(control, op)) {
-        const { options, value } = shapeSelection;
-        const index = options.findIndex(option => option.id === value);
-        const direction = op.x < control.x + 60 ? -1 : 1;
-        shapeSelection.value = options[(index + direction + options.length) % options.length].id;
+      if (hit(mapControl(modes), op)) {
         playSfx('click');
+        cycleMap();
         return;
       }
-      const mode = modes.find((_, i) => hit(modeButton(i, modes), op));
-      if (mode) { playSfx('click'); selectMode(mode.id); }
-      else if (hit(modeResume(modes), op)) { playSfx('click'); present.menu = null; }
+      const control = shapeControl(modes);
+      if (control && shapeSelection && presenter.state.mode === 'shaped' && hit(control, op)) {
+        const direction = op.x < control.x + 60 ? -1 : 1;
+        playSfx('click');
+        cycleShape(direction);
+        return;
+      }
+      if (hit(modeResume(modes), op)) { playSfx('click'); present.menu = null; }
       return;
     }
     if (presenter.state.phase === 'over') {

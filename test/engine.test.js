@@ -68,16 +68,18 @@ test('engine validates commands without changing state or consuming randomness',
 });
 
 test('one command resolves cascades, combo, level change and rise without a renderer', () => {
-  const engine = fixtureEngine(fixture([
-    block(1, 9, 0, 8), block(2, 8, 7), block(3, 8, 0, 4),
-    block(4, 7, 0, 9), block(5, 6, 4, 5)
-  ], { lines: 9 }));
-  const result = engine.dispatch({ type: 'slide', id: 2, col: 8 });
+  const engine = createEngine({ random: () => 0.2, modes: [{ ...classic,
+    reset(target) { Object.assign(target, structuredClone(fixture([
+      block(1, 9, 0, 7), block(2, 8, 6), block(3, 8, 0, 4),
+      block(4, 7, 0, 8), block(5, 6, 4, 4)
+    ], { lines: 9 }))); }
+  }] });
+  const result = engine.dispatch({ type: 'slide', id: 2, col: 7 });
   assert.equal(result.accepted, true);
   assert.equal(result instanceof Promise, false);
   assert.deepEqual(result.events.map(e => e.type),
-    ['slide', 'gravity', 'clear', 'gravity', 'clear', 'rise', 'rise', 'rise', 'gravity', 'turn-complete']);
-  assert.equal(result.state.score, 90 + 180 + 540);
+    ['slide', 'gravity', 'clear', 'gravity', 'clear', 'rise', 'rise', 'rise', 'turn-complete']);
+  assert.equal(result.state.score, 80 + 160 + 480);
   assert.equal(result.state.lines, 12);
   assert.equal(result.state.level, 2);
   assert.deepEqual(result.events.filter(e => e.type === 'clear').map(e => e.award.mult), [2, 3]);
@@ -104,18 +106,20 @@ test('a top block can be rescued by clearing; rise reaching the top allows the n
   assert.ok(touchingTop(result.state));
   const rescue = fixtureEngine(fixture([
     ...Array.from({ length: ROWS - 1 }, (_, r) => block(r + 1, r, 0)),
-    block(10, 9, 0, 8), block(11, 8, 7)
+    block(10, 9, 0, 7), block(11, 8, 6)
   ]));
-  const saved = rescue.dispatch({ type: 'slide', id: 11, col: 8 });
+  const saved = rescue.dispatch({ type: 'slide', id: 11, col: 7 });
   assert.equal(saved.state.phase, 'play');
   assert.ok(saved.events.some(e => e.type === 'clear'));
 });
 
 test('clearing the board spawns three rows so play can continue', () => {
-  const engine = fixtureEngine(fixture([
-    block(1, 9, 0, 8), block(2, 8, 7)
-  ], { nextRow: [{ col: 0, len: 3, color: 1 }] }));
-  const result = engine.dispatch({ type: 'slide', id: 2, col: 8 });
+  const engine = createEngine({ random: () => 0.2, modes: [{ ...classic,
+    reset(target) { Object.assign(target, structuredClone(fixture([
+      block(1, 9, 0, 7), block(2, 8, 6)
+    ], { nextRow: [{ col: 0, len: 3, color: 1 }] }))); }
+  }] });
+  const result = engine.dispatch({ type: 'slide', id: 2, col: 7 });
   assert.equal(result.accepted, true);
   assert.equal(result.state.phase, 'play');
   assert.equal(result.events.filter(e => e.type === 'rise').length, 3);

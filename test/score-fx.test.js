@@ -25,7 +25,7 @@ test('cascade points wait, fly once, react, then snap to the total', async () =>
   assert.equal(present.scoreFx.flight, null, 'a long cascade must not auto-bank');
   stackScore(present, awardRows(s, [8], turn), effects);
   assert.equal(present.comboFx.mult, 2);
-  assert.equal(present.scoreFx.pts, 270);
+  assert.equal(present.scoreFx.pts, 240);
 
   const done = bankScore(present, effects);
   await advance(480);
@@ -39,9 +39,9 @@ test('cascade points wait, fly once, react, then snap to the total', async () =>
   assert.ok(present.scoreScale > 1);
   assert.equal(present.displayScore, 0);
   await advance(35);
-  assert.equal(present.displayScore, 270, 'the full amount snaps in at the reaction peak');
+  assert.equal(present.displayScore, 240, 'the full amount snaps in at the reaction peak');
   await advance(75);
-  assert.equal(present.displayScore, 270);
+  assert.equal(present.displayScore, 240);
   await advance(75);
   await done;
   assert.equal(present.displayScore, s.score);
@@ -52,14 +52,14 @@ test('cascade points wait, fly once, react, then snap to the total', async () =>
   const next = bankScore(present, effects);
   for (const ms of [480, 560, 70, 150]) await advance(ms);
   await next;
-  assert.equal(present.displayScore, 360, 'later turns add only their own points');
+  assert.equal(present.displayScore, 320, 'later turns add only their own points');
 });
 
 test('restart cancels pending score transfer without changing the fresh total', async () => {
   const effects = createEffects();
   const advance = clock(effects);
   const present = createScorePresentation();
-  stackScore(present, { pts: 90, mult: 1 }, effects);
+  stackScore(present, { pts: 80, mult: 1 }, effects);
   const done = bankScore(present, effects);
   await advance(480);
   await advance(200);
@@ -74,18 +74,18 @@ test('overlapping turn completions bank an award once and leave a newer combo al
   const effects = createEffects();
   const advance = clock(effects);
   const present = createScorePresentation();
-  stackScore(present, { pts: 90, mult: 1 }, effects);
+  stackScore(present, { pts: 80, mult: 1 }, effects);
   const first = bankScore(present, effects);
   assert.equal(bankScore(present, effects), first);
   await advance(480);
-  stackScore(present, { pts: 270, mult: 2 }, effects);
+  stackScore(present, { pts: 240, mult: 2 }, effects);
   const combo = present.comboFx;
   await advance(560);
   assert.equal(await first, true);
-  assert.equal(present.displayScore, 90);
+  assert.equal(present.displayScore, 80);
   assert.equal(combo.alpha, 1, 'previous score flight cannot fade the next combo');
   const second = bankScore(present, effects);
   for (const ms of [480, 560, 70, 150]) await advance(ms);
   assert.equal(await second, true);
-  assert.equal(present.displayScore, 360);
+  assert.equal(present.displayScore, 320);
 });

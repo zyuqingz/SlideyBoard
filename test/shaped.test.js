@@ -78,12 +78,12 @@ test('all four outlines are valid, selected by RNG, and detached per run', () =>
 });
 
 test('rising trims either edge or whole blocks without moving survivors sideways or scoring', () => {
-  const shape = uniform(0, 9);
+  const shape = uniform(0, 8);
   shape.rows[8] = { left: 2, right: 7 };
-  const state = fixture([block(1, 9, 0, 1), block(2, 9, 1, 3), block(3, 9, 5, 4)], shape);
+  const state = fixture([block(1, 9, 0, 1), block(2, 9, 1, 3), block(3, 9, 5, 3)], shape);
   const motion = insertShapedRow(state, state.nextRow);
   assert.deepEqual(state.blocks.slice(0, 2), [block(2, 8, 2, 2), block(3, 8, 5, 2)]);
-  assert.deepEqual(motion.trimmed, [block(1, 8, 0), block(2, 8, 1), block(3, 8, 7, 2)]);
+  assert.deepEqual(motion.trimmed, [block(1, 8, 0), block(2, 8, 1), block(3, 8, 7, 1)]);
   assert.equal(motion.blocks.find(b => b.id === 2).len, 3);
   assert.equal(state.score, 0);
   assert.equal(state.lines, 0);
@@ -93,18 +93,18 @@ test('rising trims either edge or whole blocks without moving survivors sideways
 });
 
 test('a block crossing both boundaries becomes one surviving piece', () => {
-  const shape = uniform(0, 9);
+  const shape = uniform(0, 8);
   shape.rows[8] = { left: 2, right: 7 };
-  const state = fixture([block(1, 9, 0, 9)], shape);
+  const state = fixture([block(1, 9, 0, 8)], shape);
   const motion = insertShapedRow(state, []);
   assert.deepEqual(state.blocks, [block(1, 8, 2, 5)]);
-  assert.deepEqual(motion.trimmed, [block(1, 8, 0, 2), block(1, 8, 7, 2)]);
+  assert.deepEqual(motion.trimmed, [block(1, 8, 0, 2), block(1, 8, 7, 1)]);
   assert.deepEqual(fullRows(state), [8]);
   assert.deepEqual(settleShapedBoard(state), { cells: 0, lines: 0 }, 'gravity resolves before clearing');
 });
 
 test('gravity treats narrowing below as a ledge, and a slide can release the block', () => {
-  const shape = uniform(0, 9);
+  const shape = uniform(0, 8);
   shape.rows[9] = { left: 2, right: 7 };
   const state = fixture([block(1, 8, 1, 3)], shape);
   assert.deepEqual(computeGravity(state), []);
@@ -131,9 +131,9 @@ test('short rows clear only when all playable cells are filled; scores use width
 });
 
 test('trimmed cells earn nothing, but a supported row completed by trimming clears normally', () => {
-  const shape = uniform(0, 9);
+  const shape = uniform(0, 8);
   shape.rows[8] = { left: 2, right: 7 };
-  const state = fixture([block(1, 9, 1, 7), block(2, 7, 0)], shape,
+  const state = fixture([block(1, 9, 1, 6), block(2, 7, 0)], shape,
     { nextRow: [{ col: 2, len: 1, color: 0 }] });
   const result = fixtureEngine(state).dispatch({ type: 'slide', id: 2, col: 1 });
   const rise = result.events.find(e => e.type === 'shaped-rise');

@@ -6,20 +6,21 @@ import { createState } from '../js/sim.js';
 import { createPresenter } from '../js/presenter.js';
 import { insertShapedRow } from '../js/shaped-board.js';
 import { clearRows as clearTotemRows, computeGravity as totemGravity } from '../js/board.js';
+import { spawnTotemLayer } from '../js/totem-spawn.js';
 
 function setup({ loss = false } = {}) {
   const initial = { ...createState(), nextId: 20, nextRow: [{ col: 0, len: 1, color: 0 }],
     blocks: loss
       ? [...Array.from({ length: 10 }, (_, row) => ({ id: row + 1, row, col: 0, len: 1, color: 0 })),
         { id: 11, row: 9, col: 4, len: 1, color: 1 }]
-      : [{ id: 1, row: 9, col: 0, len: 8, color: 0 },
-        { id: 2, row: 8, col: 7, len: 1, color: 1 }]
+      : [{ id: 1, row: 9, col: 0, len: 7, color: 0 },
+        { id: 2, row: 8, col: 6, len: 1, color: 1 }]
   };
   const engine = createEngine({ random: () => 0.5,
     modes: [{ ...classic, reset(state) { Object.assign(state, structuredClone(initial)); } }] });
   const presenter = createPresenter();
   presenter.reset(engine.snapshot());
-  const result = engine.dispatch(loss ? { type: 'slide', id: 11, col: 5 } : { type: 'slide', id: 2, col: 8 });
+  const result = engine.dispatch(loss ? { type: 'slide', id: 11, col: 5 } : { type: 'slide', id: 2, col: 7 });
   return { engine, presenter, result };
 }
 
@@ -39,12 +40,12 @@ async function drain(presenter, step = 50) {
 test('slide and clear playback emit matching sfx cues', async () => {
   const cues = [];
   const initial = { ...createState(), nextId: 20, nextRow: [{ col: 0, len: 1, color: 0 }],
-    blocks: [{ id: 1, row: 9, col: 0, len: 8, color: 0 }, { id: 2, row: 8, col: 7, len: 1, color: 1 }] };
+    blocks: [{ id: 1, row: 9, col: 0, len: 7, color: 0 }, { id: 2, row: 8, col: 6, len: 1, color: 1 }] };
   const engine = createEngine({ random: () => 0.5,
     modes: [{ ...classic, reset(state) { Object.assign(state, structuredClone(initial)); } }] });
   const presenter = createPresenter({ sfx: name => cues.push(name) });
   presenter.reset(engine.snapshot());
-  const result = engine.dispatch({ type: 'slide', id: 2, col: 8 });
+  const result = engine.dispatch({ type: 'slide', id: 2, col: 7 });
   const done = presenter.play(result);
   await drain(presenter);
   assert.equal(await done, true);
@@ -61,7 +62,7 @@ test('input unlocks once the board has settled, while the score text is still pl
   assert.equal(presenter.present.displayScore, 0);
   await drain(presenter);
   assert.equal(await done, true);
-  assert.equal(presenter.present.displayScore, 90);
+  assert.equal(presenter.present.displayScore, 80);
 });
 
 test('score completion cannot replace the board during a new drag', async () => {
@@ -133,7 +134,7 @@ test('late score work cannot roll back an in-progress rise', async () => {
 });
 
 test('rapid consecutive turns reconcile every visible block before the next gesture', async () => {
-  for (const modeId of ['classic', 'shaped']) for (const playMode of ['standard', 'totem']) {
+  for (const modeId of ['classic', 'shaped']) for (const playMode of ['standard', 'tetris']) {
     let seed = 731;
     const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32);
     const engine = createEngine({ modeId, random, playMode });
@@ -181,7 +182,7 @@ test('slow and fast playback finish at the same independently completed logical 
     const savedEvents = structuredClone(result.events);
     const done = presenter.play(result);
     assert.equal(presenter.state.score, 0);
-    assert.equal(final.score, 90);
+    assert.equal(final.score, 80);
     await drain(presenter, step);
     assert.equal(await done, true);
     assert.deepEqual(presenter.state, final);
@@ -220,7 +221,7 @@ test('restart cancels every playback stage and stale continuations cannot change
       for (let t = 0; t < elapsed; t += 25) await advance(presenter, 25);
       const fresh = engine.reset();
       presenter.reset(fresh);
-      const next = engine.dispatch(loss ? { type: 'slide', id: 11, col: 6 } : { type: 'slide', id: 2, col: 8 });
+      const next = engine.dispatch(loss ? { type: 'slide', id: 11, col: 6 } : { type: 'slide', id: 2, col: 7 });
       const nextDone = presenter.play(next);
       await drain(presenter);
       await done; // Cancellation must settle the old promise too.
@@ -239,7 +240,7 @@ test('separate presenters have independent effects and cancellation', async () =
   assert.equal(await aDone, false);
   await drain(b.presenter);
   assert.equal(await bDone, true);
-  assert.equal(b.presenter.present.displayScore, 90);
+  assert.equal(b.presenter.present.displayScore, 80);
   assert.equal(a.presenter.present.displayScore, 0);
 });
 
@@ -263,10 +264,10 @@ test('restart between tween completion and its microtask cannot revive old work'
 function trimmingSetup() {
   const initial = { ...createState(), mode: 'shaped', nextId: 4,
     shape: { id: 'fixture', label: 'FIXTURE', rows: Array.from({ length: 10 }, (_, row) =>
-      row === 8 ? { left: 2, right: 7 } : { left: 0, right: 9 }) },
+      row === 8 ? { left: 2, right: 7 } : { left: 0, right: 8 }) },
     blocks: [{ id: 1, row: 9, col: 0, len: 1, color: 0 },
       { id: 2, row: 9, col: 1, len: 3, color: 1 },
-      { id: 3, row: 9, col: 5, len: 4, color: 2 }],
+      { id: 3, row: 9, col: 5, len: 3, color: 2 }],
     nextRow: [{ col: 2, len: 1, color: 3 }] };
   const final = structuredClone(initial);
   const motion = insertShapedRow(final, final.nextRow);
@@ -302,7 +303,7 @@ test('shaped rise animates original spans, removes chips, and snaps survivor col
 test('a staggered clear keeps every departing block visible until the shared shrink', async () => {
   const initial = { ...createState(), nextId: 30, nextRow: [{ col: 0, len: 1, color: 0 }],
     blocks: [
-      { id: 1, row: 9, col: 0, len: 8, color: 0 },
+      { id: 1, row: 9, col: 0, len: 7, color: 0 },
       { id: 2, row: 8, col: 0, len: 1, color: 1 },
       { id: 3, row: 6, col: 1, len: 3, color: 2 }
     ] };
@@ -310,7 +311,7 @@ test('a staggered clear keeps every departing block visible until the shared shr
     modes: [{ ...classic, reset(state) { Object.assign(state, structuredClone(initial)); } }] });
   const presenter = createPresenter();
   presenter.reset(engine.snapshot());
-  const result = engine.dispatch({ type: 'slide', id: 2, col: 8 });
+  const result = engine.dispatch({ type: 'slide', id: 2, col: 7 });
   const done = presenter.play(result);
   let sawShrink = false;
   for (let i = 0; i < 400 && presenter.busy; i++) {
@@ -352,7 +353,7 @@ test('shaped trimming freezes on pause and cannot resume stale work after reset'
 });
 
 function totemSetup() {
-  const initial = { ...createState(0, 'easy', 'totem'), mode: 'classic', nextId: 30,
+  const initial = { ...createState(0, 'easy', 'tetris'), mode: 'classic', nextId: 30,
     nextRow: [{ col: 0, len: 1, color: 0 }],
     blocks: [{ id: 1, row: 1, col: 0, len: 1, color: 4, kind: 'totem', height: 3 },
       ...Array.from({ length: 6 }, (_, i) => ({ id: i + 2, row: i + 4, col: 0, len: 1, color: 0 })),
@@ -364,6 +365,59 @@ function totemSetup() {
   const result = engine.dispatch({ type: 'slide', id: 20, col: 5 });
   return { initial: engine.snapshot(), presenter, result };
 }
+
+function stackingSetup() {
+  const initial = { ...createState(0, 'easy', 'totem-building'), blocks: [
+    { id: 1, row: 7, col: 4, len: 1, height: 3, kind: 'totem', color: 4 }
+  ] };
+  const final = structuredClone(initial);
+  const { ids } = spawnTotemLayer(final, () => 0);
+  const result = { accepted: true, state: final, events: [
+    { type: 'totem-stack', ids, state: final }, { type: 'turn-complete', state: final }
+  ] };
+  const presenter = createPresenter({ sfx: () => {} });
+  presenter.reset(initial);
+  return { initial, final, result, presenter };
+}
+
+test('stacked caps fall from above while the existing pole stays fixed, then merge on landing', async () => {
+  for (const step of [16, 250, 1000]) {
+    const { initial, final, result, presenter } = stackingSetup();
+    const saved = structuredClone(result);
+    const done = presenter.play(result);
+    const cap = presenter.state.blocks.find(b => b.id !== 1);
+    assert.equal(presenter.viewOf(cap).vy, -1);
+    assert.deepEqual(presenter.state.blocks.find(b => b.id === 1), initial.blocks[0]);
+    await advance(presenter, 100);
+    assert.ok(presenter.viewOf(cap).vy > -1 && presenter.viewOf(cap).vy < cap.row);
+    assert.equal(presenter.viewOf(initial.blocks[0]).vy, 7);
+    await drain(presenter, step);
+    assert.equal(await done, true);
+    assert.deepEqual(presenter.state, final);
+    assert.equal(presenter.viewOf(final.blocks[0]).vy, 6);
+    assert.deepEqual(result, saved);
+  }
+});
+
+test('stacked cap flight freezes on pause and cannot rejoin after a reset', async () => {
+  for (const elapsed of [100, 1000]) {
+    const { initial, result, presenter } = stackingSetup();
+    const done = presenter.play(result);
+    await advance(presenter, 80);
+    const cap = presenter.state.blocks.find(b => b.id !== 1);
+    const before = { ...presenter.viewOf(cap) };
+    presenter.present.menu = 'pause';
+    await advance(presenter, 1000);
+    assert.deepEqual(presenter.viewOf(cap), before);
+    presenter.present.menu = null;
+    presenter.update(elapsed);
+    presenter.reset(initial);
+    await advance(presenter, 1000);
+    assert.equal(await done, false);
+    assert.deepEqual(presenter.state, initial);
+    assert.equal(presenter.busy, false);
+  }
+});
 
 test('totem rise playback reaches the authoritative state at any speed', async () => {
   for (const step of [16, 250]) {
@@ -385,17 +439,110 @@ test('totem rise playback reaches the authoritative state at any speed', async (
   }
 });
 
+function buildingClearSetup(rows = [7]) {
+  const initial = { ...createState(0, 'easy', 'totem-building'), blocks: [
+    { id: 1, row: 5, col: 7, len: 1, height: 5, kind: 'totem', color: 4 },
+    ...rows.map(row => ({ id: row + 2, row, col: 0, len: 7, color: 0 }))
+  ] };
+  const final = structuredClone(initial);
+  const geometry = clearTotemRows(final, rows);
+  const cleared = structuredClone(final);
+  const moves = totemGravity(final);
+  const result = { accepted: true, state: final, events: [
+    { type: 'clear', ...geometry, award: { pts: rows.length * 80, mult: 1 }, state: cleared },
+    { type: 'gravity', moves, state: final },
+    { type: 'turn-complete', state: final }
+  ] };
+  const presenter = createPresenter({ sfx: () => {} });
+  presenter.reset(initial);
+  return { presenter, initial, result };
+}
+
+test('building clears keep surviving faces visible and drop only sections above each gap', async () => {
+  const { presenter, result } = buildingClearSetup();
+  const saved = structuredClone(result);
+  const done = presenter.play(result);
+  const faces = presenter.state.blocks.filter(b => b.kind === 'totem');
+  assert.equal(faces.length, 5, 'the entire tower remains visible at the start of a clear');
+  const kept = faces.filter(b => b.row !== 7);
+  const cleared = faces.find(b => b.row === 7);
+  const normal = presenter.state.blocks.find(b => b.kind !== 'totem');
+  await advance(presenter, 100);
+  assert.ok(presenter.viewOf(cleared).flash > 0);
+  for (const b of kept) {
+    const v = presenter.viewOf(b);
+    assert.equal(v.flash, 0);
+    assert.equal(v.s, 1);
+    assert.equal(v.vy, b.row);
+  }
+  await advance(presenter, 220);
+  assert.equal(presenter.viewOf(cleared).s, presenter.viewOf(normal).s,
+    'totem tiles use the normal blocks’ shared shrink window');
+  assert.ok(presenter.viewOf(cleared).s < 1);
+  await advance(presenter, 80);
+  assert.equal(presenter.state.blocks.length, 4, 'only surviving tower faces remain during collapse');
+  for (const b of kept) assert.equal(presenter.viewOf(b).vy, b.row, 'no jump before falling');
+  await advance(presenter, 100);
+  for (const b of kept) {
+    const v = presenter.viewOf(b);
+    assert.equal(v.s, 1);
+    if (b.row < 7) assert.ok(v.vy > b.row && v.vy < b.row + 1);
+    else assert.equal(v.vy, b.row, 'faces below the gap stay fixed');
+  }
+  await drain(presenter);
+  assert.equal(await done, true);
+  assert.deepEqual(presenter.state, result.state);
+  assert.deepEqual(result, saved);
+});
+
+test('building clear playback reconciles top, bottom, multiple, and full clears at any speed', async () => {
+  for (const rows of [[5], [9], [6, 8], [5, 6, 7, 8, 9]]) {
+    for (const step of [16, 250, 1000]) {
+      const { presenter, result } = buildingClearSetup(rows);
+      const done = presenter.play(result);
+      const faces = presenter.state.blocks.filter(b => b.kind === 'totem');
+      assert.equal(faces.length, 5);
+      for (const b of faces) assert.equal(presenter.viewOf(b).clearing, rows.includes(b.row));
+      await drain(presenter, step);
+      assert.equal(await done, true);
+      assert.deepEqual(presenter.state, result.state);
+      for (const b of presenter.state.blocks) {
+        assert.equal(presenter.viewOf(b).vy, b.row);
+        assert.equal(presenter.viewOf(b).s, 1);
+      }
+    }
+  }
+});
+
+test('building collapse pauses and cannot restore the shortened tower after reset', async () => {
+  const { presenter, initial, result } = buildingClearSetup();
+  const done = presenter.play(result);
+  await advance(presenter, 400);
+  await advance(presenter, 80);
+  const face = presenter.state.blocks.find(b => b.row === 5);
+  const before = { ...presenter.viewOf(face) };
+  presenter.present.menu = 'pause';
+  await advance(presenter, 1000);
+  assert.deepEqual(presenter.viewOf(face), before);
+  presenter.present.menu = null;
+  presenter.update(1000);
+  presenter.reset(initial);
+  await advance(presenter, 1000);
+  assert.equal(await done, false);
+  assert.deepEqual(presenter.state, initial);
+});
+
 function detachedTotemSetup() {
   const initial = { ...createState(), blocks: [
-    { id: 1, row: 7, col: 7, len: 2, height: 3, kind: 'totem', color: 4,
+    { id: 1, row: 7, col: 6, len: 2, height: 3, kind: 'totem', color: 4,
       cells: [{ row: 0, col: 1 }, { row: 1, col: 1 }, { row: 2, col: 0 }, { row: 2, col: 1 }] },
-    { id: 2, row: 9, col: 0, len: 7, color: 0 }] };
+    { id: 2, row: 9, col: 0, len: 6, color: 0 }] };
   const final = structuredClone(initial);
   const geometry = clearTotemRows(final, [9]);
   const cleared = structuredClone(final);
   const moves = totemGravity(final);
   const result = { accepted: true, state: final, events: [
-    { type: 'clear', rows: [9], ...geometry, award: { pts: 90, mult: 1 }, state: cleared },
+    { type: 'clear', rows: [9], ...geometry, award: { pts: 80, mult: 1 }, state: cleared },
     { type: 'gravity', moves, state: final },
     { type: 'turn-complete', state: final }
   ] };

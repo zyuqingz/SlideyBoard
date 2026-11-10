@@ -51,9 +51,9 @@ The rules below describe Classic's board-aware selection in both difficulties.
 
 ### Optional Totems
 
-Play modes are Standard, Totem, and Totem Building, shared by both maps. The
-browser first run loads Totem; switching restarts the game and persists across
-maps and reloads. In Totem, one rigid Tetris-style piece (L/J, T, or S/Z) can
+Play modes are Standard, Tetris, and Totem Building, shared by both maps. The
+browser first run loads Tetris; switching restarts the game and persists across
+maps and reloads. In Tetris, one rigid Tetris-style piece (L/J, T, or S/Z) can
 drop after a turn. Height is randomly 2 or 3 rows. The spawner enumerates shapes
 and columns with a clear entry path from above and at least one row of top
 clearance, then settles each candidate on a detached board. Any landing that
@@ -61,7 +61,7 @@ completes a row is rejected. One safe shape/column placement is chosen randomly;
 if none fit, spawning defers. Keep one live Totem, replacing it after it is
 cleared.
 
-A completed row touching any Totem cell removes the entire piece in Totem mode,
+A completed row touching any Totem cell removes the entire piece in Tetris mode,
 but clears and scores only the completed row. Cells outside that row detach and
 burst away; neighbouring blocks in other rows remain. Totem Building only
 removes the cells in the filled rows. Neither play mode blasts extra rows when

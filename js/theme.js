@@ -2,7 +2,7 @@
 import { COLS, ROWS } from './board.js';
 
 export const W = 750, H = 1334;
-export const CELL = 70, PAD = 3;
+export const CELL = 81, PAD = 3;
 export const BX = (W - COLS * CELL) / 2;
 export const BW = COLS * CELL, BH = ROWS * CELL;
 export const COLORS = ['#f0912b', '#97b545', '#d24b2d', '#2f9b98', '#ffd570'];

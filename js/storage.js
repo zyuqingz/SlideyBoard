@@ -30,11 +30,12 @@ export function saveDifficulty(value) {
 export function loadPlayMode() {
   try {
     const stored = localStorage.getItem('slidey_play_mode');
-    if (stored === 'standard' || stored === 'totem' || stored === 'totem-building') return stored;
+    if (stored === 'standard' || stored === 'tetris' || stored === 'totem-building') return stored;
+    if (stored === 'totem') return 'tetris';
     const legacy = localStorage.getItem('slidey_totems');
     if (legacy === 'false') return 'standard';
-    return 'totem';
-  } catch { return 'totem'; }
+    return 'tetris';
+  } catch { return 'tetris'; }
 }
 
 export function savePlayMode(value) {

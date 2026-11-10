@@ -9,13 +9,12 @@ import { ctx, layout, paintRevision, invalidateCanvas } from './canvas-layout.js
 import { rr, text, hoverOf } from './canvas-draw.js';
 import { drawOverlays } from './overlay-render.js';
 
-const PANEL_R = 28;
+const PANEL_R = 20;
 const BLOCK_R = 14;
 // Intervals inside the next-row panel, measured from the panel top.
 const NEXT_SIZE = 16;
-const NEXT_BASELINE = 30;
-const METER_TOP = 152;
-const STAT_BASELINE = 188;
+const NEXT_BASELINE = 26;
+const LEVEL_RING_R = 34;
 
 const DECO = [
   [737, .14, 10], [148, .22, 9], [710, .25, 9], [277, .78, 8], [501, .77, 8],
@@ -154,7 +153,7 @@ function drawScore(present) {
   const fit = Math.min(1, 420 / (digits * cellW * 1.28));
   ctx.scale(present.scoreScale * fit, present.scoreScale * fit);
   [...String(present.displayScore)].forEach((digit, i) => {
-    text(digit, (i - (digits - 1) / 2) * cellW, 0, 76, C.muted);
+    text(digit, (i - (digits - 1) / 2) * cellW, 0, 76, '#a493b0');
   });
   ctx.restore();
 }
@@ -178,6 +177,25 @@ function drawScorePopup(now, fx) {
   ctx.restore();
 }
 
+function drawLevelRing(cx, cy, level, prog) {
+  ctx.save();
+  ctx.strokeStyle = '#43374c';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.arc(cx, cy, LEVEL_RING_R, 0, Math.PI * 2);
+  ctx.stroke();
+  if (prog > 0) {
+    ctx.strokeStyle = '#c5adc9';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(cx, cy, LEVEL_RING_R, -Math.PI / 2, -Math.PI / 2 + prog * Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+  text(t('level'), cx, cy - LEVEL_RING_R - 16, 16, '#a493b0', 'center', 800);
+  text(String(level), cx, cy + 1, 30, C.white, 'center', 800);
+}
+
 function drawCombo(now, fx) {
   const age = Math.max(0, now - fx.t0);
   const scale = Ease.outBack(clamp(age / 240, 0, 1));
@@ -198,7 +216,7 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   lastMenu = present.menu;
   lastState = state;
   const phase = present.menu || state.phase;
-  const { VH, BY, HY, COMBO_Y, PANEL, PREV_Y } = layout;
+  const { VH, BY, COMBO_Y, PANEL, PREV_Y, PREV_H } = layout;
   ctx.fillStyle = C.bg;
   ctx.fillRect(0, 0, W, VH);
   ctx.save();
@@ -210,17 +228,25 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
     ctx.fillRect(x - s / 2, fy * VH - s / 2 + oy, s, s);
   });
 
-  if (phase !== 'pause') drawIcon(modeIcon, 92, HY, 50, hoverOf(present, 'icon:mode'));
-  drawIcon(gearIcon, 657, HY, 50, hoverOf(present, 'icon:pause'));
+  const modeCx = layout.MODE_BTN.x + layout.MODE_BTN.w / 2;
+  const pauseCx = layout.PAUSE_BTN.x + layout.PAUSE_BTN.w / 2;
+  if (phase !== 'pause') drawIcon(modeIcon, modeCx,
+    layout.MODE_BTN.y + layout.MODE_BTN.h / 2, layout.MODE_BTN.h, hoverOf(present, 'icon:mode'));
+  drawIcon(gearIcon, pauseCx,
+    layout.PAUSE_BTN.y + layout.PAUSE_BTN.h / 2, layout.PAUSE_BTN.h, hoverOf(present, 'icon:pause'));
+  drawLevelRing(layout.LEVEL_X, layout.LEVEL_Y, state.level, (state.lines % 10) / 10);
+  text(t('best'), pauseCx, layout.BEST_Y, 18, C.muted, 'center', 800);
+  text(String(Math.max(state.best, state.score)),
+    pauseCx, layout.BEST_SCORE_Y, 24, C.muted, 'center', 800);
   const playId = state.playMode || 'standard';
   if (playId !== 'standard')
     text(`${modeLabel(playId, playId)} ${t('mode')}`,
-      W / 2, layout.SCORE_Y - 56, 22, C.muted, 'center', 700);
+      W / 2, layout.MODE_Y, 22, C.muted, 'center', 700);
   drawScore(present);
   if (playId === 'totem-building') {
     const cap = state.spiritualEnergyMax;
     const fill = Math.min(1, (state.spiritualEnergy || 0) / cap);
-    const bx = W / 2 - 140, by = layout.SCORE_Y + 52, bw = 280, bh = 16;
+    const bx = W / 2 - 140, by = layout.SPIRIT_Y, bw = 280, bh = 16;
     ctx.fillStyle = C.panel;
     rr(bx, by, bw, bh, 8); ctx.fill();
     ctx.fillStyle = '#e9ba78';
@@ -236,7 +262,7 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
     const a = 0.55 + 0.25 * Math.sin(now / 400);
     ctx.globalAlpha = a;
     const hint = playId === 'totem-building' ? t('hintTotemBuilding')
-      : playId === 'totem' ? t('hintTotem')
+      : playId === 'tetris' ? t('hintTetris')
         : state.shape ? t('hintShaped') : t('hintClassic');
     text(hint, W / 2, COMBO_Y + 6, state.shape || playId !== 'standard' ? 25 : 30, '#9c89a8', 'center', 700);
     ctx.globalAlpha = 1;
@@ -253,21 +279,19 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
     for (let c = left; c < right; c++)
       ctx.fillRect(BX + c * CELL + 1, BY + r * CELL + 1, CELL - 2, CELL - 2);
   }
-  if (state.shape) {
-    ctx.strokeStyle = '#6c5c78'; ctx.lineWidth = 2;
-    ctx.beginPath();
-    const spans = state.shape.rows;
-    ctx.moveTo(BX + spans[0].left * CELL, BY);
-    for (let r = 0; r < ROWS; r++) {
-      ctx.lineTo(BX + spans[r].left * CELL, BY + r * CELL);
-      ctx.lineTo(BX + spans[r].left * CELL, BY + (r + 1) * CELL);
-    }
-    for (let r = ROWS - 1; r >= 0; r--) {
-      ctx.lineTo(BX + spans[r].right * CELL, BY + (r + 1) * CELL);
-      ctx.lineTo(BX + spans[r].right * CELL, BY + r * CELL);
-    }
-    ctx.closePath(); ctx.stroke();
+  ctx.strokeStyle = '#6c5c78'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  const span = r => state.shape?.rows[r] ?? { left: 0, right: COLS };
+  ctx.moveTo(BX + span(0).left * CELL, BY);
+  for (let r = 0; r < ROWS; r++) {
+    ctx.lineTo(BX + span(r).left * CELL, BY + r * CELL);
+    ctx.lineTo(BX + span(r).left * CELL, BY + (r + 1) * CELL);
   }
+  for (let r = ROWS - 1; r >= 0; r--) {
+    ctx.lineTo(BX + span(r).right * CELL, BY + (r + 1) * CELL);
+    ctx.lineTo(BX + span(r).right * CELL, BY + r * CELL);
+  }
+  ctx.closePath(); ctx.stroke();
 
   if (state.phase !== 'over' && state.blocks.some(b => b.row === 0)) {
     const { left, right } = state.shape?.rows[0] ?? { left: 0, right: COLS };
@@ -343,27 +367,18 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
 
   ctx.fillStyle = C.panel;
   rr(PANEL.x, PANEL.y, PANEL.w, PANEL.h, PANEL_R); ctx.fill();
-  text(state.shape ? `${modeLabel(state.shape.id, state.shape.label)} · ${t('nextRow')}`
-    : t('nextRow'),
-    W / 2, PANEL.y + NEXT_BASELINE, NEXT_SIZE, C.muted, 'center', 800);
+  text(t('nextRow'), W / 2, PANEL.y + NEXT_BASELINE, NEXT_SIZE, C.muted, 'center', 800);
   ctx.fillStyle = C.slot;
   const bottom = state.shape?.rows[ROWS - 1] ?? { left: 0, right: COLS };
   for (let c = bottom.left; c < bottom.right; c++) {
-    rr(BX + c * CELL + 1, PREV_Y + 1, CELL - 2, CELL - 2, 12);
+    rr(BX + c * CELL + 1, PREV_Y + 1, CELL - 2, PREV_H - 2, 8);
     ctx.fill();
   }
   for (const s of state.nextRow) {
     ctx.fillStyle = COLORS[s.color];
-    rr(BX + s.col * CELL + PAD, PREV_Y + PAD, s.len * CELL - 2 * PAD, CELL - 2 * PAD, BLOCK_R);
+    rr(BX + s.col * CELL + PAD, PREV_Y + PAD, s.len * CELL - 2 * PAD, PREV_H - 2 * PAD, 8);
     ctx.fill();
   }
-  text(t('best'), PANEL.x + 42, PANEL.y + STAT_BASELINE, 26, C.muted, 'left', 800);
-  text(String(Math.max(state.best, state.score)), PANEL.x + 120, PANEL.y + STAT_BASELINE, 30, '#a493b0', 'left', 800);
-  text(t('level'), PANEL.x + PANEL.w - 80, PANEL.y + STAT_BASELINE, 26, C.muted, 'right', 800);
-  text(String(state.level), PANEL.x + PANEL.w - 42, PANEL.y + STAT_BASELINE, 30, '#a493b0', 'right', 800);
-  const prog = (state.lines % 10) / 10;
-  ctx.fillStyle = C.slot; rr(PANEL.x + 42, PANEL.y + METER_TOP, PANEL.w - 84, 8, 4); ctx.fill();
-  if (prog > 0) { ctx.fillStyle = '#6c5c78'; rr(PANEL.x + 42, PANEL.y + METER_TOP, (PANEL.w - 84) * prog, 8, 4); ctx.fill(); }
 
   // Keep feedback above the board and particles, but below modal overlays.
   if (present.scoreFx) drawScorePopup(now, present.scoreFx);

@@ -95,15 +95,15 @@ test('combo stacks across rows and a later batch in the same turn', () => {
   s.best = 1000;
   const st = createTurnScore();
   awardRows(s, [1, 2], st);
-  // 9*10*2*1 + 9*10*2*2 = 540, lines 12, level stays 2
-  assert.equal(s.score, 540);
+  // 8*10*2*1 + 8*10*2*2 = 480, lines 12, level stays 2
+  assert.equal(s.score, 480);
   assert.equal(s.level, 2);
   assert.equal(s.best, 1000);
   awardRows(s, [3], st);
-  // next combo is 3: 540 + 9*10*2*3 = 1080
-  assert.equal(s.score, 1080);
+  // next combo is 3: 480 + 8*10*2*3 = 960
+  assert.equal(s.score, 960);
   assert.equal(st.combo, 3);
-  assert.equal(s.best, 1080);
+  assert.equal(s.best, 1000);
   assert.equal(s.lines, 13);
   assert.equal(s.level, 2);
 });
@@ -295,9 +295,9 @@ test('empty and immovable boards still get valid previews without mutation', () 
   for (const occupied of [false, true]) {
     const s = createState();
     if (occupied) {
-      // Alternating eight-cell blocks support one another all the way to the top.
+      // Alternating seven-cell blocks support one another all the way to the top.
       s.blocks = Array.from({ length: ROWS }, (_, row) => ({
-        id: row + 1, row, col: row % 2, len: 8, color: row % 5
+        id: row + 1, row, col: row % 2, len: 7, color: row % 5
       }));
       s.nextId = ROWS + 1;
     }

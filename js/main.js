@@ -43,21 +43,30 @@ function cyclePlayMode() {
   savePlayMode(playMode);
 }
 
+function cycleMap() {
+  const modes = engine.modes;
+  const index = modes.findIndex(mode => mode.id === engine.snapshot().mode);
+  const next = modes[(index < 0 ? 0 : index + 1) % modes.length];
+  input.cancelDrag();
+  activeShapeSelection = shapeSelection.value;
+  presenter.reset(engine.reset(next.id, { best: loadBest(next.id),
+    modeOptions: next.id === 'shaped' ? { shapeId: activeShapeSelection } : {} }));
+  presenter.present.menu = 'mode';
+}
+
+function cycleShape(direction) {
+  if (engine.snapshot().mode !== 'shaped') return;
+  const { options, value } = shapeSelection;
+  const index = options.findIndex(option => option.id === value);
+  shapeSelection.value = options[(index + direction + options.length) % options.length].id;
+  activeShapeSelection = shapeSelection.value;
+  resetOptions({ modeOptions: { shapeId: activeShapeSelection } });
+}
+
 function resetOptions(options) {
   input.cancelDrag();
   presenter.reset(engine.reset(undefined, options));
   presenter.present.menu = 'mode';
-}
-
-function selectMode(id) {
-  if (id === engine.snapshot().mode && (id !== 'shaped' || activeShapeSelection === shapeSelection.value)) {
-    presenter.present.menu = null;
-    return;
-  }
-  input.cancelDrag();
-  activeShapeSelection = shapeSelection.value;
-  presenter.reset(engine.reset(id, { best: loadBest(id),
-    modeOptions: id === 'shaped' ? { shapeId: activeShapeSelection } : {} }));
 }
 
 function slide(id, col) {
@@ -74,7 +83,7 @@ function slide(id, col) {
 
 const input = bindInput(canvas, {
   presenter, modes: engine.modes, moveRange: id => engine.moveRange(id),
-  slide, restart, selectMode, shapeSelection, toggleDifficulty, cyclePlayMode
+  slide, restart, shapeSelection, toggleDifficulty, cyclePlayMode, cycleMap, cycleShape
 });
 
 let last = performance.now();
