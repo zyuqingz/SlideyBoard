@@ -51,27 +51,26 @@ The rules below describe Classic's board-aware selection in both difficulties.
 
 ### Optional Totems
 
-Totems use a Spawn Totems checkbox shared by both modes. They default to On;
-switching the setting restarts the game and persists across modes and reloads.
-When On, one rigid Tetris-style Totem (L/J, T, or S/Z) can drop after a turn. Height
-is randomly 2 or 3 rows. The spawner enumerates shapes and columns with a clear
-entry path from above and at least one row of top clearance, then settles each
-candidate on a detached board. Any landing that completes a row is rejected.
-One safe shape/column placement is chosen randomly; if none fit, spawning defers.
-Keep one live Totem, replacing it after clearing or activation.
+Play modes are Standard, Totem, and Totem Building, shared by both maps. The
+browser first run loads Totem; switching restarts the game and persists across
+maps and reloads. In Totem, one rigid Tetris-style piece (L/J, T, or S/Z) can
+drop after a turn. Height is randomly 2 or 3 rows. The spawner enumerates shapes
+and columns with a clear entry path from above and at least one row of top
+clearance, then settles each candidate on a detached board. Any landing that
+completes a row is rejected. One safe shape/column placement is chosen randomly;
+if none fit, spawning defers. Keep one live Totem, replacing it after it is
+cleared.
 
-A completed row touching any Totem cell removes the entire piece, but clears and
-scores only the completed row. Cells outside that row detach and burst away;
-neighbouring blocks in other rows remain. No shortened Totem survives.
-They retain their top-edge row blasts; a shaped rise that would cut into the piece
-also triggers its whole-piece blast rather than trimming it.
+A completed row touching any Totem cell removes the entire piece in Totem mode,
+but clears and scores only the completed row. Cells outside that row detach and
+burst away; neighbouring blocks in other rows remain. Totem Building only
+removes the cells in the filled rows. Neither play mode blasts extra rows when
+a totem reaches the top; a shaped rise that would cut into the piece leaves it
+whole instead of trimming it.
 
-Enabling Totems keeps the base mode's board-aware row selection. Shared collision,
+Enabling Totems keeps the base map's board-aware row selection. Shared collision,
 gravity and clearing routines handle occupied-cell geometry and row-only clears
 in live turns and search.
-Top-edge blasts in search use repeatable representative targets without consuming
-the live RNG; actual turns choose random occupied rows. Search does not predict
-future drops or every blast outcome.
 
 `generateRowCandidate` is the random candidate factory and builds the four starting rows.
 The level influence now caps at level 11 to prevent the distribution from

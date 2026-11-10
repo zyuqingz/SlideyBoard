@@ -67,27 +67,6 @@ function drawShapeControl(modes, selection, present) {
   drawSelector(b, label, hoverOf(present, 'shape'));
 }
 
-function drawCheckbox(b, label, checked, hover) {
-  const size = 30, x = b.x + 16, y = b.y + (b.h - size) / 2;
-  ctx.save();
-  if (hover > 0) {
-    ctx.fillStyle = `rgba(197,173,201,${0.07 * hover})`;
-    rr(b.x, b.y, b.w, b.h, 12); ctx.fill();
-  }
-  ctx.fillStyle = checked ? COLORS[3] : C.panel;
-  rr(x, y, size, size, 7); ctx.fill();
-  ctx.strokeStyle = checked ? COLORS[3] : '#6c5c78'; ctx.lineWidth = 2;
-  rr(x, y, size, size, 7); ctx.stroke();
-  if (checked) {
-    ctx.strokeStyle = C.white; ctx.lineWidth = 3;
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.beginPath(); ctx.moveTo(x + 7, y + 15);
-    ctx.lineTo(x + 13, y + 21); ctx.lineTo(x + 23, y + 9); ctx.stroke();
-  }
-  text(label, x + size + 16, b.y + b.h / 2 + 1, 24, '#c5adc9', 'left');
-  ctx.restore();
-}
-
 export function drawOverlays(now, state, present, modes, shapeSelection) {
   const phase = present.menu || state.phase;
   const { VH, OY } = layout;
@@ -112,18 +91,23 @@ export function drawOverlays(now, state, present, modes, shapeSelection) {
     ctx.fillRect(0, -OY, W, VH);
     const pop = modePopup(modes);
     drawCard(pop.card.x, pop.card.y, pop.card.w, pop.card.h);
-    text(t('mode'), W / 2, pop.titleY, 48, C.white);
+    text(t('map'), W / 2, pop.titleY, 48, C.white);
     modes.forEach((mode, i) => drawButton(pop.buttons[i], modeLabel(mode.id, mode.label), COLORS[3], 34,
       hoverOf(present, 'btn:mode:' + mode.id)));
     drawShapeControl(modes, shapeSelection, present);
     ctx.strokeStyle = '#43374c'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(pop.difficulty.x, pop.dividerY);
-    ctx.lineTo(pop.difficulty.x + pop.difficulty.w, pop.dividerY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(pop.playMode.x, pop.dividerY);
+    ctx.lineTo(pop.playMode.x + pop.playMode.w, pop.dividerY); ctx.stroke();
+    const playId = state.playMode || 'standard';
+    text(t('mode'), pop.playMode.x, pop.playMode.y - 14, 16, C.muted, 'left');
+    drawSelector(pop.playMode, t(playId), hoverOf(present, 'btn:play-mode'),
+      playId === 'standard' ? C.panel : COLORS[4],
+      playId === 'standard' ? '#c5adc9' : C.white,
+      playId === 'standard' ? '#43374c' : '#d4a05a');
     const normal = state.difficulty === 'normal';
     text(t('difficulty'), pop.difficulty.x, pop.difficulty.y - 14, 16, C.muted, 'left');
     drawSelector(pop.difficulty, t(normal ? 'normal' : 'easy'), hoverOf(present, 'btn:difficulty'),
       normal ? '#b83242' : C.panel, normal ? C.white : '#c5adc9', normal ? '#db5363' : '#43374c');
-    drawCheckbox(pop.totems, t('totems'), state.totemsEnabled, hoverOf(present, 'btn:totems'));
     drawButton(pop.resume, t('resume'), COLORS[1], 28, hoverOf(present, 'btn:mode-resume'));
   }
   if (phase === 'over') {

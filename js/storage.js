@@ -27,11 +27,16 @@ export function saveDifficulty(value) {
   try { localStorage.setItem(DIFFICULTY_KEY, value); } catch {}
 }
 
-export function loadTotems() {
-  try { return localStorage.getItem('slidey_totems') !== 'false'; }
-  catch { return true; }
+export function loadPlayMode() {
+  try {
+    const stored = localStorage.getItem('slidey_play_mode');
+    if (stored === 'standard' || stored === 'totem' || stored === 'totem-building') return stored;
+    const legacy = localStorage.getItem('slidey_totems');
+    if (legacy === 'false') return 'standard';
+    return 'totem';
+  } catch { return 'totem'; }
 }
 
-export function saveTotems(value) {
-  try { localStorage.setItem('slidey_totems', String(value)); } catch {}
+export function savePlayMode(value) {
+  try { localStorage.setItem('slidey_play_mode', value); } catch {}
 }

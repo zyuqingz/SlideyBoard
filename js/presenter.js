@@ -177,22 +177,11 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
         return true;
       }
       case 'totem-drop':
+      case 'totem-stack':
         interruptSquash();
         adopt(event.state);
         sfx('place', { volume: 0.45, rate: 0.88 });
         return true;
-      case 'totem-activate': {
-        interruptSquash();
-        const v = viewOf(event.block);
-        if (!await tween(280, p => {
-          v.flash = p;
-          v.s = 1 + Math.sin(p * Math.PI) * 0.15;
-        }, Ease.out) || !current()) return false;
-        burstBlock(event.block);
-        sfx('clear', { volume: 0.55, rate: 0.84 });
-        adopt(event.state);
-        return true;
-      }
       case 'rise':
       case 'shaped-rise': {
         interruptSquash();

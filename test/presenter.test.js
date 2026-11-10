@@ -133,10 +133,10 @@ test('late score work cannot roll back an in-progress rise', async () => {
 });
 
 test('rapid consecutive turns reconcile every visible block before the next gesture', async () => {
-  for (const modeId of ['classic', 'shaped']) for (const totemsEnabled of [false, true]) {
+  for (const modeId of ['classic', 'shaped']) for (const playMode of ['standard', 'totem']) {
     let seed = 731;
     const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32);
-    const engine = createEngine({ modeId, random, totemsEnabled });
+    const engine = createEngine({ modeId, random, playMode });
     const presenter = createPresenter({ sfx: () => {} });
     presenter.reset(engine.snapshot());
     const pending = [];
@@ -352,7 +352,7 @@ test('shaped trimming freezes on pause and cannot resume stale work after reset'
 });
 
 function totemSetup() {
-  const initial = { ...createState(), mode: 'classic', totemsEnabled: true, nextId: 30,
+  const initial = { ...createState(0, 'easy', 'totem'), mode: 'classic', nextId: 30,
     nextRow: [{ col: 0, len: 1, color: 0 }],
     blocks: [{ id: 1, row: 1, col: 0, len: 1, color: 4, kind: 'totem', height: 3 },
       ...Array.from({ length: 6 }, (_, i) => ({ id: i + 2, row: i + 4, col: 0, len: 1, color: 0 })),
@@ -365,11 +365,11 @@ function totemSetup() {
   return { initial: engine.snapshot(), presenter, result };
 }
 
-test('totem activation and replacement drop animate to the authoritative state at any speed', async () => {
+test('totem rise playback reaches the authoritative state at any speed', async () => {
   for (const step of [16, 250]) {
     const { presenter, result } = totemSetup();
-    assert.ok(result.events.some(e => e.type === 'totem-activate'));
-    assert.ok(result.events.some(e => e.type === 'totem-drop'));
+    assert.ok(!result.events.some(e => e.type === 'totem-activate'));
+    assert.ok(result.events.some(e => e.type === 'rise'));
     const saved = structuredClone(result);
     const done = presenter.play(result);
     await drain(presenter, step);

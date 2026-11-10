@@ -212,16 +212,33 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
 
   if (phase !== 'pause') drawIcon(modeIcon, 92, HY, 50, hoverOf(present, 'icon:mode'));
   drawIcon(gearIcon, 657, HY, 50, hoverOf(present, 'icon:pause'));
-  const activeMode = modes.find(mode => mode.id === state.mode);
-  text(`${modeLabel(state.mode, activeMode?.label ?? state.mode)} ${t('mode')}`,
-    W / 2, layout.SCORE_Y - 56, 22, C.muted, 'center', 700);
+  const playId = state.playMode || 'standard';
+  if (playId !== 'standard')
+    text(`${modeLabel(playId, playId)} ${t('mode')}`,
+      W / 2, layout.SCORE_Y - 56, 22, C.muted, 'center', 700);
   drawScore(present);
+  if (playId === 'totem-building') {
+    const cap = state.spiritualEnergyMax;
+    const fill = Math.min(1, (state.spiritualEnergy || 0) / cap);
+    const bx = W / 2 - 140, by = layout.SCORE_Y + 52, bw = 280, bh = 16;
+    ctx.fillStyle = C.panel;
+    rr(bx, by, bw, bh, 8); ctx.fill();
+    ctx.fillStyle = '#e9ba78';
+    if (fill > 0) { rr(bx, by, Math.max(10, bw * fill), bh, 8); ctx.fill(); }
+    ctx.strokeStyle = '#43374c'; ctx.lineWidth = 2;
+    rr(bx, by, bw, bh, 8); ctx.stroke();
+    text(t('energy'), bx - 12, by + bh / 2 + 1, 16, C.muted, 'right');
+    if (state.totemSpawnBlocked)
+      text(t('waitingForSpace'), W / 2, by + 28, 18, '#e9ba78');
+  }
 
   if (!present.scoreFx && !state.hasMoved && state.phase !== 'over') {
     const a = 0.55 + 0.25 * Math.sin(now / 400);
     ctx.globalAlpha = a;
-    text(state.totemsEnabled ? t('hintTotem') : state.shape ? t('hintShaped') : t('hintClassic'),
-      W / 2, COMBO_Y + 6, state.shape || state.totemsEnabled ? 25 : 30, '#9c89a8', 'center', 700);
+    const hint = playId === 'totem-building' ? t('hintTotemBuilding')
+      : playId === 'totem' ? t('hintTotem')
+        : state.shape ? t('hintShaped') : t('hintClassic');
+    text(hint, W / 2, COMBO_Y + 6, state.shape || playId !== 'standard' ? 25 : 30, '#9c89a8', 'center', 700);
     ctx.globalAlpha = 1;
   }
 

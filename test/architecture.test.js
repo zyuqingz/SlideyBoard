@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 test('the engine dependency graph cannot reach visual modules or browser APIs', async () => {
   const allowed = new Set(['engine.js', 'modes.js', 'sim.js', 'board.js', 'spawn.js', 'difficulty.js',
     'shapes.js', 'shaped-board.js', 'shaped-spawn.js', 'shaped-mode.js',
-    'totem-spawn.js', 'turn.js', 'block-geometry.js']);
+    'totem-spawn.js', 'turn.js', 'block-geometry.js', 'play-mode.js']);
   const seen = new Set();
   async function visit(name) {
     if (seen.has(name)) return;

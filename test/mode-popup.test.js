@@ -40,13 +40,13 @@ test('classic sits last among mode buttons, above resume', () => {
 
 test('difficulty sits below all modes and shape controls with a larger gap', () => {
   for (const modes of [[classic], [shaped, extra, classic], [classic, extra, shaped]]) {
-    const { card, buttons, control, dividerY, difficulty, totems, resume } = modePopup(modes);
-    for (const button of buttons) assert.ok(difficulty.y - button.y - button.h >= 40);
-    if (control) assert.ok(difficulty.y > control.y + control.h + 28);
+    const { card, buttons, control, dividerY, playMode, difficulty, resume } = modePopup(modes);
+    for (const button of buttons) assert.ok(playMode.y - button.y - button.h >= 40);
+    if (control) assert.ok(playMode.y > control.y + control.h + 28);
     assert.ok(dividerY > Math.max(...buttons.map(b => b.y + b.h), control ? control.y + control.h : 0));
-    assert.ok(dividerY < difficulty.y - 24);
-    assert.ok(difficulty.y + difficulty.h < totems.y);
-    assert.ok(totems.y + totems.h + 20 < resume.y);
+    assert.ok(dividerY < playMode.y - 24);
+    assert.ok(playMode.y + playMode.h < difficulty.y);
+    assert.ok(difficulty.y + difficulty.h + 20 < resume.y);
     assert.ok(resume.y + resume.h < card.y + card.h);
     assert.ok(card.y >= 0 && card.y + card.h <= H);
   }

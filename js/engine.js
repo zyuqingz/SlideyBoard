@@ -1,6 +1,7 @@
 // Public headless API. Owns authoritative state; callers only receive copies.
 import { createState } from './sim.js';
 import { GAME_MODES } from './modes.js';
+import { resolvePlayMode } from './play-mode.js';
 
 /**
  * A mode supplies { id, label, reset(state, random, options), moveRange(state, block),
@@ -9,7 +10,8 @@ import { GAME_MODES } from './modes.js';
  * from the browser. Supplying the same RNG stream and commands reproduces a game.
  */
 export function createEngine({ best = 0, random = Math.random, modes = GAME_MODES,
-  modeId, modeOptions = {}, difficulty = 'easy', totemsEnabled = false } = {}) {
+  modeId, modeOptions = {}, difficulty = 'easy', playMode, totemsEnabled } = {}) {
+  let currentPlayMode = resolvePlayMode({ playMode, totemsEnabled }, 'standard');
   const registry = new Map(modes.map(mode => [mode.id, mode]));
   modeId = modeId ?? (registry.has('shaped') ? 'shaped' : modes[0]?.id);
   const bests = new Map([[modeId, best]]);
@@ -25,8 +27,9 @@ export function createEngine({ best = 0, random = Math.random, modes = GAME_MODE
     const nextOptions = structuredClone(config.modeOptions ?? options.get(id) ?? {});
     // The engine initializes base state; modes only construct their opening.
     // Publish after setup succeeds so an invalid option cannot erase a live run.
+    currentPlayMode = resolvePlayMode(config, currentPlayMode);
     const fresh = createState(nextBest, config.difficulty ?? state?.difficulty ?? difficulty,
-      config.totemsEnabled ?? state?.totemsEnabled ?? totemsEnabled);
+      currentPlayMode);
     nextMode.reset(fresh, random, structuredClone(nextOptions));
     fresh.mode = id;
     if (mode) bests.set(mode.id, state.best);

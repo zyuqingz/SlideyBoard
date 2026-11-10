@@ -4,13 +4,13 @@ import { cellsOf } from './block-geometry.js';
 import { CELL, BX } from './theme.js';
 import { followDrag, commitTarget } from './drag.js';
 import { layout, toLogical, toOverlay, hit, GO_RESTART, invalidateCanvas } from './canvas-layout.js';
-import { modeButton, modeResume, shapeControl, difficultyControl, totemControl } from './mode-popup.js';
+import { modeButton, modeResume, shapeControl, difficultyControl, playModeControl } from './mode-popup.js';
 import { settingsPopup } from './settings-popup.js';
 import { setLang } from './i18n.js';
 import { playSfx, unlockAudio, isMuted, setMuted } from './audio.js';
 
 export function bindInput(canvas, { presenter, modes, moveRange, slide, restart, selectMode, shapeSelection,
-  toggleDifficulty, toggleTotems }) {
+  toggleDifficulty, cyclePlayMode }) {
   const { present, viewOf } = presenter;
   const on = (target, type, fn, options) => target.addEventListener(type, e => {
     fn(e);
@@ -30,7 +30,7 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     }
     if (present.menu === 'mode') {
       if (hit(difficultyControl(modes), op)) return 'btn:difficulty';
-      if (hit(totemControl(modes), op)) return 'btn:totems';
+      if (hit(playModeControl(modes), op)) return 'btn:play-mode';
       const control = shapeControl(modes);
       if (control && shapeSelection && hit(control, op)) return 'shape';
       const mode = modes.find((_, i) => hit(modeButton(i, modes), op));
@@ -113,9 +113,9 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
       return;
     }
     if (present.menu === 'mode') {
-      if (hit(totemControl(modes), op)) {
+      if (hit(playModeControl(modes), op)) {
         playSfx('click');
-        toggleTotems();
+        cyclePlayMode();
         return;
       }
       if (hit(difficultyControl(modes), op)) {

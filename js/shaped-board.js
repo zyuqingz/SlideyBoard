@@ -11,8 +11,7 @@ export function insertShapedRow(state, row) {
   const trimmed = [], survivors = [];
   for (const b of blocks) {
     if (b.kind === 'totem') {
-      // A rigid Totem never loses individual cells at a narrowing. Trigger its
-      // whole-piece blast before gravity when the outline would cut into it.
+      // A rigid Totem never loses individual cells at a narrowing.
       if (cellsOf(b).some(cell => {
         const { left, right } = rowSpan(state, b.row + cell.row);
         return b.col + cell.col < left || b.col + cell.col >= right;

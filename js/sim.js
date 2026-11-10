@@ -2,12 +2,18 @@
 import { COLS, insertRow, levelForLines, settleBoard } from './board.js';
 import { generateRowCandidate, generateNextRow } from './spawn.js';
 import { normalizeDifficulty } from './difficulty.js';
+import { ENERGY_PER_LAYER, resolvePlayMode } from './play-mode.js';
 
 const START_ROWS = 4;
 
-export function createState(best = 0, difficulty = 'easy', totemsEnabled = false) {
+export function createState(best = 0, difficulty = 'easy', playMode = 'standard') {
+  playMode = resolvePlayMode({ playMode }, 'standard');
   return {
-    totemsEnabled: !!totemsEnabled,
+    playMode,
+    totemsEnabled: playMode === 'totem',
+    spiritualEnergy: 0,
+    spiritualEnergyMax: ENERGY_PER_LAYER,
+    totemSpawnBlocked: false,
     difficulty: normalizeDifficulty(difficulty),
     blocks: [],
     nextRow: [],

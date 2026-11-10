@@ -31,11 +31,11 @@ export function modePopup(modes = []) {
     : null;
   const modesBottom = Math.max(last.y + last.h, control ? control.y + control.h : 0);
   const dividerY = modesBottom + 28;
-  const difficulty = { ...POP_BTN, y: dividerY + 40, h: 60 };
-  const totems = { x: difficulty.x, y: difficulty.y + difficulty.h + 16, w: difficulty.w, h: 60 };
+  const playMode = { ...POP_BTN, y: dividerY + 40, h: 60 };
+  const difficulty = { ...POP_BTN, y: playMode.y + playMode.h + 40, h: 60 };
   const resume = {
     ...MODE_RESUME_BTN,
-    y: totems.y + totems.h + 28
+    y: difficulty.y + difficulty.h + 28
   };
   const h = resume.y + resume.h + MODE_PAD_BOTTOM;
   const y = Math.round((H - h) / 2);
@@ -45,8 +45,8 @@ export function modePopup(modes = []) {
     dividerY: y + dividerY,
     buttons: buttons.map(b => placeY(b, y)),
     control: placeY(control, y),
+    playMode: placeY(playMode, y),
     difficulty: placeY(difficulty, y),
-    totems: placeY(totems, y),
     resume: placeY(resume, y)
   };
 }
@@ -58,4 +58,4 @@ export const modeButton = (index, modes = []) => {
 export const shapeControl = modes => modePopup(modes).control;
 export const modeResume = modes => modePopup(modes).resume;
 export const difficultyControl = modes => modePopup(modes).difficulty;
-export const totemControl = modes => modePopup(modes).totems;
+export const playModeControl = modes => modePopup(modes).playMode;

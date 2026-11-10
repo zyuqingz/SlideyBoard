@@ -6,7 +6,8 @@ import { createPresenter } from './presenter.js';
 import { bindInput } from './input.js';
 import { layout, bindCanvas } from './canvas-layout.js';
 import { draw } from './render.js';
-import { loadBest, saveBest, loadDifficulty, saveDifficulty, loadTotems, saveTotems } from './storage.js';
+import { loadBest, saveBest, loadDifficulty, saveDifficulty, loadPlayMode, savePlayMode } from './storage.js';
+import { nextPlayMode } from './play-mode.js';
 import { loadLang } from './i18n.js';
 import { SHAPES } from './shapes.js';
 
@@ -20,7 +21,7 @@ const canvas = document.getElementById('game');
 bindCanvas(canvas);
 loadLang();
 const engine = createEngine({ modeId: 'shaped', best: loadBest('shaped'),
-  difficulty: loadDifficulty(), totemsEnabled: loadTotems(),
+  difficulty: loadDifficulty(), playMode: loadPlayMode(),
   modeOptions: { shapeId: activeShapeSelection } });
 const presenter = createPresenter({ boardY: () => layout.BY });
 presenter.reset(engine.snapshot());
@@ -36,10 +37,10 @@ function toggleDifficulty() {
   saveDifficulty(difficulty);
 }
 
-function toggleTotems() {
-  const totemsEnabled = !engine.snapshot().totemsEnabled;
-  resetOptions({ totemsEnabled });
-  saveTotems(totemsEnabled);
+function cyclePlayMode() {
+  const playMode = nextPlayMode(engine.snapshot().playMode);
+  resetOptions({ playMode });
+  savePlayMode(playMode);
 }
 
 function resetOptions(options) {
@@ -73,7 +74,7 @@ function slide(id, col) {
 
 const input = bindInput(canvas, {
   presenter, modes: engine.modes, moveRange: id => engine.moveRange(id),
-  slide, restart, selectMode, shapeSelection, toggleDifficulty, toggleTotems
+  slide, restart, selectMode, shapeSelection, toggleDifficulty, cyclePlayMode
 });
 
 let last = performance.now();
@@ -103,7 +104,7 @@ window.__slidey = {
       combo: present.comboFx?.mult || 0, level: state.level, lines: state.lines,
       busy: presenter.busy, over: state.phase === 'over', paused: present.menu === 'pause',
       modeOpen: present.menu === 'mode', mode: state.mode, best: state.best,
-      difficulty: state.difficulty, totemsEnabled: state.totemsEnabled
+      difficulty: state.difficulty, playMode: state.playMode
     };
   },
   get layout() {

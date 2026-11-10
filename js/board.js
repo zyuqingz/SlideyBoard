@@ -1,5 +1,6 @@
 // Grid-space rules only. Pixel geometry and palettes belong to theme.js.
 import { cellsOf } from './block-geometry.js';
+import { isBuilding } from './play-mode.js';
 export const COLS = 9, ROWS = 10;
 // Abstract color-group IDs in block data; no dependency on a visual palette.
 export const COLOR_GROUPS = 5;
@@ -110,16 +111,44 @@ export function hasMoves(state) {
   });
 }
 
-// A touched Totem is consumed, but only the requested rows clear and score.
-// Its off-row cells are detached debris, not additional row-clear targets.
+function compactBuildingTotem(block, kept) {
+  const world = kept.map(cell => ({ row: block.row + cell.row, col: block.col + cell.col }))
+    .sort((a, b) => a.row - b.row || a.col - b.col);
+  const height = world.length;
+  const bottom = world.at(-1).row;
+  const col = Math.min(...world.map(cell => cell.col));
+  block.row = bottom - height + 1;
+  block.col = col;
+  block.len = 1;
+  block.height = height;
+  block.cells = Array.from({ length: height }, (_, i) => ({ row: i, col: 0 }));
+}
+
+// Totem mode consumes the whole piece; Building keeps leftover cells as one pole
+// whose bottom is the lowest surviving cell (holes collapse).
 export function clearRows(state, rows) {
   const removed = new Set(rows), blocks = [], detached = [], displayBlocks = [], survivors = [];
-  let split = false;
+  let split = false, compacted = false;
+  const building = isBuilding(state);
   for (const b of state.blocks) {
-    const touched = cellsOf(b).some(cell => removed.has(b.row + cell.row));
-    if (touched && b.kind === 'totem') {
+    const cells = cellsOf(b);
+    const touched = cells.some(cell => removed.has(b.row + cell.row));
+    if (touched && b.kind === 'totem' && building) {
+      const gone = [], kept = [];
+      for (const cell of cells) (removed.has(b.row + cell.row) ? gone : kept).push(cell);
+      for (const [i, cell] of gone.entries()) {
+        const fragment = { id: `fragment:${b.id}:${i}`, kind: 'totem', color: b.color,
+          row: b.row + cell.row, col: b.col + cell.col, len: 1, height: 1 };
+        displayBlocks.push(fragment);
+        blocks.push(fragment);
+      }
+      if (!kept.length) continue;
+      compactBuildingTotem(b, kept);
+      compacted = true;
+      survivors.push(b);
+    } else if (touched && b.kind === 'totem') {
       split = true;
-      for (const [i, cell] of cellsOf(b).entries()) {
+      for (const [i, cell] of cells.entries()) {
         const fragment = { id: `fragment:${b.id}:${i}`, kind: 'totem', color: b.color,
           row: b.row + cell.row, col: b.col + cell.col, len: 1, height: 1 };
         displayBlocks.push(fragment);
@@ -133,26 +162,7 @@ export function clearRows(state, rows) {
   }
   state.blocks = survivors;
   return { rows: [...removed].sort((a, b) => a - b), blocks,
-    ...(split ? { detached, displayBlocks } : {}) };
-}
-
-export function chooseTotemRows(state, height, random) {
-  const pool = buildGrid(state).flatMap((row, i) => row.some(Boolean) ? [i] : []);
-  const rows = [];
-  while (rows.length < height && pool.length)
-    rows.push(pool.splice(Math.floor(random() * pool.length), 1)[0]);
-  return rows.sort((a, b) => a - b);
-}
-
-// Live turns supply their RNG; search uses a repeatable representative blast.
-// Negative rows belong to incoming drops, not rising Totems ready to activate.
-function activateTotems(state, random = () => 0.5, onStep = () => {}) {
-  for (const b of state.blocks.filter(b => b.kind === 'totem' && (b.row === 0 || b.activateOnRise))) {
-    state.blocks = state.blocks.filter(block => block.id !== b.id);
-    onStep('totem-activate', { block: b });
-    const rows = chooseTotemRows(state, b.height, random);
-    if (rows.length) onStep('clear', { rows, ...clearRows(state, rows) });
-  }
+    ...(split ? { detached, displayBlocks } : compacted ? { displayBlocks } : {}) };
 }
 
 // Shared by real rises, opening setup, and preview simulations.
@@ -167,12 +177,8 @@ export function insertRow(state, row) {
 }
 
 // Setup/search settle immediately; live turns use onStep for scoring and events.
-export function settleBoard(board, onStep = () => {}, random) {
+export function settleBoard(board, onStep = () => {}) {
   let cleared = 0;
-  activateTotems(board, random, (type, data) => {
-    if (type === 'clear') cleared += data.rows.length;
-    onStep(type, data);
-  });
   for (;;) {
     const moves = computeGravity(board);
     if (moves.length) onStep('gravity', { moves });
