@@ -37,6 +37,31 @@ async function drain(presenter, step = 50) {
   assert.equal(pending(), false, 'score text must finish');
 }
 
+test('pickup holds hover scale and slot-in eases toward rest', async () => {
+  const { presenter } = setup();
+  const b = presenter.state.blocks[1], v = presenter.viewOf(b);
+  presenter.pickup(b);
+  assert.equal(v.slot, 1);
+  const done = presenter.snapBack(b);
+  presenter.update(16);
+  assert.ok(v.slot > 0.9, 'cubic ease-in holds the hover size at the start');
+  await drain(presenter);
+  assert.equal(await done, true);
+  assert.equal(v.slot, 0);
+});
+
+test('slide restores pickup pop after adopt then eases slot', async () => {
+  const { presenter, result } = setup();
+  const b = presenter.state.blocks[1], v = presenter.viewOf(b);
+  presenter.pickup(b);
+  const done = presenter.play(result);
+  presenter.update(16);
+  assert.ok(v.slot > 0.9, 'adopt must not leave the sliding block at rest scale');
+  await drain(presenter);
+  assert.equal(await done, true);
+  assert.equal(v.slot, 0);
+});
+
 test('slide and clear playback emit matching sfx cues', async () => {
   const cues = [];
   const initial = { ...createState(), nextId: 20, nextRow: [{ col: 0, len: 1, color: 0 }],

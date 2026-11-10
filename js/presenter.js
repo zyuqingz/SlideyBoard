@@ -26,8 +26,8 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
 
   function viewOf(block) {
     if (!views.has(block.id)) views.set(block.id, {
-      vx: block.col, vy: block.row, flash: 0, s: 1, sq: 0, detached: false, rotation: 0,
-      danger: 0, clearing: false, lift: 0
+      vx: block.col, vy: block.row, flash: 0, s: 1, sq: 0, slot: 0, detached: false, rotation: 0,
+      danger: 0, clearing: false
     });
     return views.get(block.id);
   }
@@ -38,7 +38,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     // A snapshot is a geometry boundary. Only an explicit animation may offset
     // it; cached views must never retain a removed block's scale or old position.
     for (const b of state.blocks) Object.assign(viewOf(b), {
-      vx: b.col, vy: b.row, s: 1, flash: 0, clearing: false, detached: false, rotation: 0
+      vx: b.col, vy: b.row, s: 1, flash: 0, slot: 0, clearing: false, detached: false, rotation: 0
     });
     for (const id of views.keys()) if (!keep.has(id)) views.delete(id);
   }
@@ -101,10 +101,13 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
         interruptSquash();
         const from = viewOf(state.blocks.find(b => b.id === event.id)).vx;
         adopt(event.state);
-        const v = viewOf(state.blocks.find(b => b.id === event.id));
+        const moved = state.blocks.find(b => b.id === event.id);
+        const v = viewOf(moved);
         v.vx = from;
+        pickup(moved);
         const dist = Math.abs(event.to - from);
         sfx('slide', { volume: 0.45 + 0.15 * Math.min(1, dist / 4), rate: 0.88 });
+        slotIn(v);
         return tween(85 + 65 * Math.min(1, dist),
           p => { v.vx = from + (event.to - from) * p; }, Ease.out);
       }
@@ -283,6 +286,17 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     }
   }
 
+  function pickup(block) {
+    viewOf(block).slot = 1;
+  }
+
+  // Cubic ease-in keeps the hover size, then accelerates into the cell.
+  function slotIn(v) {
+    const from = v.slot;
+    if (from <= 0) return;
+    return tween(200, p => { v.slot = from * (1 - p); }, Ease.inCubic);
+  }
+
   async function snapBack(block) {
     if (busy) return false;
     block = state.blocks.find(b => b.id === block.id);
@@ -293,6 +307,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     const v = viewOf(block), from = v.vx;
     busy = true;
     try {
+      slotIn(v);
       return await tween(85 + 65 * Math.min(1, Math.abs(block.col - from)),
         p => { v.vx = from + (block.col - from) * p; }, Ease.out);
     } finally {
@@ -316,15 +331,9 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     // Menus pause visual playback; the logical turn was already resolved.
     if (present.menu) return hoverChanged;
     effects.update(ms);
-    for (const b of state.blocks) {
-      const v = viewOf(b);
-      const target = present.drag?.blockId === b.id ? 1 : 0;
-      v.lift += (target - v.lift) * (1 - Math.exp(-34 * ms / 1000));
-      if (Math.abs(target - v.lift) < 0.001) v.lift = target;
-    }
     return true;
   }
 
-  return { reset, play, snapBack, update, viewOf, present, effects,
+  return { reset, play, pickup, snapBack, update, viewOf, present, effects,
     get state() { return state; }, get busy() { return busy; } };
 }

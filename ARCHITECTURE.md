@@ -90,7 +90,7 @@ Gameplay branches on `playMode`. Snapshots still expose `totemsEnabled` as
 
 `difficulty` and `playMode` are shared run options on `createEngine` and reset.
 Unspecified engine calls default to Easy and Standard. The browser first run
-loads Normal and Tetris unless `slidey_difficulty_v2` / `slidey_play_mode` store a
+loads Normal and Totem Building unless `slidey_difficulty_v2` / `slidey_play_mode` store a
 preference (`slidey_totems` still migrates). They persist across map switches.
 The popup labels maps at the top, then Mode and Difficulty selectors below a
 divider. Switching either restarts the run while keeping the popup open.

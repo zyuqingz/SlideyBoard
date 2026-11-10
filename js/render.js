@@ -84,10 +84,10 @@ function drawCeilingWarn(b, v, x, y, shape) {
 
 function drawBlock(b, v, hover = 0, shape = null) {
   if (v.s <= 0) return;
-  const lift = v.lift;
   const x = BX + v.vx * CELL + PAD, y = layout.BY + v.vy * CELL + PAD;
   const w = b.len * CELL - 2 * PAD, h = (b.height ?? 1) * CELL - 2 * PAD;
-  const scale = v.s * (1 + 0.07 * hover);
+  const pop = Math.max(v.slot, hover);
+  const scale = v.s * (1 + 0.07 * pop);
   ctx.save();
   if (v.rotation) {
     ctx.translate(x + w / 2, y + h / 2);
@@ -102,14 +102,6 @@ function drawBlock(b, v, hover = 0, shape = null) {
   if (v.sq && !v.clearing) {
     const sx = 1 + v.sq * 0.6 / b.len, sy = 1 - v.sq;
     ctx.translate(x + w / 2, y + h); ctx.scale(sx, sy); ctx.translate(-(x + w / 2), -(y + h));
-  }
-  if (lift > 0) {
-    ctx.fillStyle = `rgba(0,0,0,${0.3 * lift})`;
-    for (const face of facesOf(b)) {
-      rr(x + face.col * CELL + 2 * lift, y + face.row * CELL + 6 * lift,
-        face.len * CELL - 2 * PAD, CELL - 2 * PAD, BLOCK_R); ctx.fill();
-    }
-    ctx.translate(0, -14 * lift);
   }
   // Each face uses exactly the same cell bounds and gaps as a normal block.
   // Apply highlights per cell too, so animation never draws an outer container.
@@ -314,6 +306,13 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
         corridor.add(key);
         ctx.fillRect(BX + c * CELL + 1, BY + row * CELL + 1, CELL - 2, CELL - 2);
       }
+    const homeX = BX + drag.col0 * CELL + PAD, homeY = BY + dragged.row * CELL + PAD;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 2;
+    for (const face of facesOf(dragged)) {
+      rr(homeX + face.col * CELL, homeY + face.row * CELL,
+        face.len * CELL - 2 * PAD, CELL - 2 * PAD, BLOCK_R); ctx.stroke();
+    }
     ctx.fillStyle = COLORS[dragged.color];
     ctx.globalAlpha = 0.18;
     const x = BX + drag.target * CELL + PAD, y = BY + dragged.row * CELL + PAD;
@@ -322,12 +321,6 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
         face.len * CELL - 2 * PAD, CELL - 2 * PAD, BLOCK_R); ctx.fill();
     }
     ctx.globalAlpha = 1;
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-    ctx.lineWidth = 2;
-    for (const face of facesOf(dragged)) {
-      rr(x + face.col * CELL, y + face.row * CELL,
-        face.len * CELL - 2 * PAD, CELL - 2 * PAD, BLOCK_R); ctx.stroke();
-    }
   }
 
   ctx.save();
@@ -338,22 +331,12 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   } else ctx.rect(BX - 10, BY - 40, BW + 20, BH + 40);
   ctx.clip();
   const warnShape = state.phase === 'play' ? state.shape : null;
-   const aboveBoard = b => b.id === drag?.blockId || viewOf(b).lift > 0 || viewOf(b).detached
-    || hoverOf(present, 'block:' + b.id) > 0;
+  const aboveBoard = b => b.id === drag?.blockId || viewOf(b).detached
+    || viewOf(b).slot > 0 || hoverOf(present, 'block:' + b.id) > 0;
   for (const b of state.blocks) if (!aboveBoard(b))
     drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape);
-  if (dragged) {
-    const x = BX + drag.col0 * CELL;
-    const y = BY + dragged.row * CELL;
-    ctx.strokeStyle = 'rgba(255,255,255,0.16)';
-    ctx.lineWidth = 2;
-    for (const face of facesOf(dragged)) {
-      rr(x + PAD + face.col * CELL, y + PAD + face.row * CELL,
-        face.len * CELL - 2 * PAD, CELL - 2 * PAD, BLOCK_R); ctx.stroke();
-    }
-  }
   ctx.restore();
-  // Lifted and hovered tiles draw above the board silhouette so scale is not clipped.
+  // Active and hovered tiles draw last so their feedback is not clipped.
   for (const b of state.blocks) if (aboveBoard(b))
     drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape);
 

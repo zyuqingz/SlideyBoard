@@ -52,7 +52,7 @@ The rules below describe Classic's board-aware selection in both difficulties.
 ### Optional Totems
 
 Play modes are Standard, Tetris, and Totem Building, shared by both maps. The
-browser first run loads Tetris; switching restarts the game and persists across
+browser first run loads Totem Building; switching restarts the game and persists across
 maps and reloads. In Tetris, one rigid Tetris-style piece (L/J, T, or S/Z) can
 drop after a turn. Height is randomly 2 or 3 rows. The spawner enumerates shapes
 and columns with a clear entry path from above and at least one row of top

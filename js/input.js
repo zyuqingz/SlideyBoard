@@ -44,7 +44,6 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     }
     if (hit(layout.MODE_BTN, p)) return 'icon:mode';
     if (hit(layout.PAUSE_BTN, p)) return 'icon:pause';
-    if (presenter.busy) return null;
     const b = blockAt(p);
     return b ? 'block:' + b.id : null;
   }
@@ -62,8 +61,14 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return null;
     const span = presenter.state.shape?.rows[row];
     if (span && (col < span.left || col >= span.right)) return null;
-    return presenter.state.blocks.find(b => cellsOf(b)
-      .some(cell => row === b.row + cell.row && col === b.col + cell.col));
+    const x = (p.x - BX) / CELL, y = (p.y - layout.BY) / CELL;
+    return presenter.state.blocks.find(b => {
+      const v = viewOf(b);
+      return cellsOf(b).some(cell => {
+        const left = v.vx + cell.col, top = v.vy + cell.row;
+        return x >= left && x < left + 1 && y >= top && y < top + 1;
+      });
+    });
   }
 
   function releasePointer(drag) {
@@ -76,7 +81,10 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     if (!drag) return;
     present.drag = null;
     const b = presenter.state.blocks.find(b => b.id === drag.blockId);
-    if (b) viewOf(b).vx = b.col;
+    if (b) {
+      viewOf(b).vx = b.col;
+      viewOf(b).slot = 0;
+    }
     releasePointer(drag);
   }
 
@@ -151,6 +159,7 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     if (!range) return;
     const [min, max] = range;
     present.hoverKey = 'block:' + b.id;
+    presenter.pickup(b);
     present.drag = { blockId: b.id, id: e.pointerId, lastX: p.x, col0: b.col, target: b.col, min, max };
     playSfx('pickup', { volume: 0.5, rate: 0.88 });
     canvas.style.cursor = 'grabbing';
@@ -176,6 +185,8 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     releasePointer(drag);
     const b = presenter.state.blocks.find(b => b.id === drag.blockId);
     if (!b) return;
+    setHover(e.pointerType === 'touch' ? null : e);
+    if (present.hoverKey === 'block:' + b.id) present.hoverAmt[present.hoverKey] = 1;
     if (drag.target === drag.col0) {
       presenter.snapBack(b);
     } else if (!slide(b.id, drag.target)) {

@@ -34,8 +34,9 @@ export function loadPlayMode() {
     if (stored === 'totem') return 'tetris';
     const legacy = localStorage.getItem('slidey_totems');
     if (legacy === 'false') return 'standard';
-    return 'tetris';
-  } catch { return 'tetris'; }
+    if (legacy) return 'tetris';
+    return 'totem-building';
+  } catch { return 'totem-building'; }
 }
 
 export function savePlayMode(value) {
