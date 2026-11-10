@@ -59,6 +59,32 @@ function firstMove(engine) {
   return null;
 }
 
+test('a live tetromino with no ordinary tiles rises one row, not three', () => {
+  const initial = fixture([piece(1, 7, 0, ['##', '##'])]);
+  const [min, max] = totemSlideRange(initial, initial.blocks[0]);
+  assert.ok(min !== max);
+  const result = engineFor(initial).dispatch({ type: 'slide', id: 1, col: min === 0 ? max : min });
+  assert.equal(result.events.filter(e => e.type === 'rise').length, 1);
+});
+
+test('Tetris waits three turns between drops at level 1', () => {
+  const engine = createEngine({ modeId: 'classic', playMode: 'tetris', random: seeded(3) });
+  assert.equal(engine.snapshot().tetrisDropIn, 3);
+  let drops = 0;
+  for (let i = 0; i < 3; i++) {
+    const command = firstMove(engine);
+    assert.ok(command);
+    const result = engine.dispatch(command);
+    drops += result.events.filter(e => e.type === 'totem-drop').length;
+    if (i < 2) {
+      assert.equal(drops, 0);
+      assert.equal(engine.snapshot().tetrisDropIn, 2 - i);
+    }
+  }
+  assert.equal(drops, 1);
+  assert.equal(engine.snapshot().tetrisDropIn, 3);
+});
+
 test('Totems default off, persist across maps/restarts, and can be disabled without changing difficulty', () => {
   const engine = createEngine({ random: seeded(71), difficulty: 'normal' });
   assert.equal(engine.snapshot().totemsEnabled, false);
@@ -66,11 +92,12 @@ test('Totems default off, persist across maps/restarts, and can be disabled with
   assert.deepEqual(engine.modes.map(mode => mode.id), ['shaped', 'classic']);
   assert.equal(engine.reset(undefined, { playMode: 'tetris' }).totemsEnabled, true);
   assert.equal(engine.snapshot().playMode, 'tetris');
-  for (const modeId of ['classic', 'shaped']) {
-    assert.equal(engine.reset(modeId).totemsEnabled, true);
-    assert.equal(engine.reset().totemsEnabled, true);
-    assert.equal(engine.snapshot().difficulty, 'normal');
-  }
+  assert.equal(engine.snapshot().mode, 'classic');
+  assert.equal(engine.reset('shaped').mode, 'classic');
+  assert.equal(engine.reset('shaped').playMode, 'tetris');
+  assert.equal(engine.reset('classic').totemsEnabled, true);
+  assert.equal(engine.reset().totemsEnabled, true);
+  assert.equal(engine.snapshot().difficulty, 'normal');
   const disabled = engine.reset(undefined, { playMode: 'standard' });
   assert.equal(disabled.totemsEnabled, false);
   assert.equal(disabled.difficulty, 'normal');
@@ -130,7 +157,7 @@ test('Shaped trimming handles both edges, whole Totems, and Building poles witho
 });
 
 test('Totem preview search uses detached cell geometry and keeps the displayed row committed', () => {
-  for (const modeId of ['classic', 'shaped']) {
+  for (const modeId of ['classic']) {
     const engine = createEngine({ modeId, playMode: 'tetris', random: seeded(12),
       modeOptions: { shapeId: 'funnel' } });
     let state;
@@ -192,7 +219,7 @@ test('irregular collision uses occupied cells, including notches and overhang su
   valid(overhang);
 });
 
-test('irregular Totems are consumed but only full rows clear and score', () => {
+test('irregular Totems keep leftover connected groups as smiling shards', () => {
   for (const rows of [['#..', '###'], ['#.', '#.', '##']]) {
     const height = rows.length, col = 8 - rows[0].length;
     const totem = piece(1, 10 - height, col, rows);
@@ -200,13 +227,16 @@ test('irregular Totems are consumed but only full rows clear and score', () => {
     assert.deepEqual(totemFullRows(state), [9]);
     const events = [];
     assert.equal(settleBoard(state, (type, data) => events.push({ type, ...data })), 1);
-    assert.equal(events.length, 1);
-    assert.deepEqual(events[0].rows, [9]);
-    assert.equal(events[0].blocks.filter(b => b.kind === 'totem').length, rows[0].length);
-    assert.equal(events[0].detached.length, 4 - rows[0].length);
-    assert.ok(events[0].blocks.every(b => b.row === 9));
-    assert.ok(events[0].detached.every(b => b.row !== 9));
-    assert.deepEqual(state.blocks, []);
+    const clears = events.filter(e => e.type === 'clear');
+    assert.equal(clears.length, 1);
+    assert.deepEqual(clears[0].rows, [9]);
+    assert.equal(clears[0].blocks.filter(b => b.kind === 'totem').length, rows[0].length);
+    assert.ok(clears[0].blocks.every(b => b.row === 9));
+    const leftovers = state.blocks.filter(b => b.face === 'smile');
+    const leftoverCells = leftovers.reduce((n, b) => n + (b.cells?.length ?? b.len), 0);
+    assert.equal(leftoverCells, 4 - rows[0].length);
+    assert.equal(leftovers.length, 1);
+    assert.ok(leftovers.every(b => b.kind === undefined && b.face === 'smile'));
 
     const initial = fixture([piece(1, 10 - height, col, rows), block(2, 9, 0, col - 1),
       block(3, 8, col - 2)]);
@@ -253,9 +283,15 @@ test('touching any Totem row removes its cells without extending the clear to ne
     assert.ok(!state.blocks.some(b => b.id === 1));
     assert.deepEqual(geometry.rows, rows);
     assert.equal(geometry.blocks.filter(b => b.kind === 'totem').length, rows.length);
-    assert.equal(geometry.detached.length, 3 - rows.length);
-    assert.deepEqual(state.blocks.map(b => b.row), [7, 8, 9].filter(row => !rows.includes(row)));
-    assert.equal(geometry.displayBlocks.filter(b => b.kind === 'totem').length, 3);
+    const leftoverRows = [7, 8, 9].filter(row => !rows.includes(row));
+    const leftovers = state.blocks.filter(b => b.face === 'smile');
+    const leftoverCells = leftovers.flatMap(b =>
+      (b.cells ?? [{ row: 0 }]).map(cell => b.row + cell.row)).sort();
+    assert.deepEqual(leftoverCells, leftoverRows);
+    const groups = leftoverRows.reduce((n, row, i) =>
+      n + (i === 0 || row !== leftoverRows[i - 1] + 1 ? 1 : 0), 0);
+    assert.equal(leftovers.length, leftoverRows.length ? groups : 0);
+    assert.equal(geometry.displayBlocks.filter(b => b.kind === 'totem').length, rows.length);
     assert.equal(before.height, 3);
     valid(state);
     totemGravity(state);
@@ -263,16 +299,24 @@ test('touching any Totem row removes its cells without extending the clear to ne
   }
 });
 
-test('off-row Totem debris does not clear neighbouring blocks or trigger another Totem', () => {
+test('off-row Totem leftovers become independent tiles and do not trigger another Totem', () => {
   const untouched = piece(3, 6, 0, ['#.', '#.', '##']);
   const state = fixture([piece(1, 7, 6, ['.#', '.#', '##']), block(2, 8, 3, 3), untouched]);
   const before = structuredClone(state);
   const clear = clearTotemRows(state, [9]);
   assert.deepEqual(clear.rows, [9]);
-  assert.deepEqual(state.blocks, before.blocks.slice(1));
-  assert.deepEqual(clear.detached.map(b => [b.row, b.col]), [[7, 7], [8, 7]]);
+  const leftovers = state.blocks.filter(b => b.face === 'smile');
+  assert.equal(leftovers.length, 1);
+  assert.deepEqual(leftovers[0].cells, [{ row: 0, col: 0 }, { row: 1, col: 0 }]);
+  assert.deepEqual([leftovers[0].row, leftovers[0].col], [7, 7]);
+  assert.equal(leftovers[0].kind, undefined);
+  assert.ok(state.blocks.some(b => b.id === untouched.id));
+  assert.ok(!state.blocks.some(b => b.id === 1));
+  const leftoverIds = leftovers.map(b => b.id);
   clear.displayBlocks[0].row = 0;
-  assert.deepEqual(state.blocks, before.blocks.slice(1));
+  assert.deepEqual(state.blocks.filter(b => leftoverIds.includes(b.id)).map(b => [b.row, b.col]),
+    [[7, 7]]);
+  assert.equal(before.blocks[0].id, 1);
 });
 
 test('2–3 row drops start above the board and land without overlap or automatic clears', () => {
@@ -339,12 +383,11 @@ test('ordinary blocks retain the rescue turn at the top, then top out if still s
   assert.ok(!result.events.some(e => e.type === 'rise' || e.type === 'totem-drop'));
 });
 
-test('optional Totems are deterministic in both modes, all shapes, and both difficulties', () => {
+test('optional Totems are deterministic on classic for both difficulties', () => {
   let drops = 0;
-  for (const shape of [null, ...SHAPES]) for (const difficulty of ['easy', 'normal']) {
+  for (const difficulty of ['easy', 'normal']) {
     const seed = 123;
-    const config = { modeId: shape ? 'shaped' : 'classic', playMode: 'tetris', difficulty,
-      modeOptions: shape ? { shapeId: shape.id } : {} };
+    const config = { modeId: 'classic', playMode: 'tetris', difficulty };
     const a = createEngine({ ...config, random: seeded(seed) });
     const b = createEngine({ ...config, random: seeded(seed) });
     let shapeDrops = 0;
@@ -374,9 +417,9 @@ test('optional Totems are deterministic in both modes, all shapes, and both diff
       assert.ok(!result.events.some(e => e.type === 'totem-activate'));
     }
     assert.ok(!a.reset('classic').blocks.some(b => b.kind === 'totem'));
-    assert.ok(a.reset('shaped').shape);
+    assert.equal(a.reset('shaped').mode, 'classic');
     assert.equal(a.reset('classic').shape, undefined);
-    assert.ok(shapeDrops > 0, `${shape?.id ?? 'classic'} ${difficulty} spawns a Totem`);
+    assert.ok(shapeDrops > 0, `classic ${difficulty} spawns a Totem`);
   }
   assert.ok(drops > 0);
 });
@@ -439,5 +482,4 @@ test('Totem Building clears only the totem tiles in the filled rows', () => {
   assert.equal(remaining.height, 2);
   assert.equal(remaining.row, 8);
   assert.equal(geometry.blocks.filter(b => b.kind === 'totem').length, 1);
-  assert.equal(geometry.detached, undefined);
 });

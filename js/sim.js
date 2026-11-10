@@ -2,7 +2,7 @@
 import { COLS, insertRow, levelForLines, settleBoard } from './board.js';
 import { generateRowCandidate, generateNextRow } from './spawn.js';
 import { normalizeDifficulty } from './difficulty.js';
-import { ENERGY_PER_LAYER, resolvePlayMode } from './play-mode.js';
+import { ENERGY_PER_LAYER, resolvePlayMode, tetrisDropInterval } from './play-mode.js';
 
 const START_ROWS = 4;
 
@@ -14,6 +14,8 @@ export function createState(best = 0, difficulty = 'easy', playMode = 'standard'
     spiritualEnergy: 0,
     spiritualEnergyMax: ENERGY_PER_LAYER,
     totemSpawnBlocked: false,
+    // Turns until the next tetromino. Reset at spawn; does not tick while one is live.
+    tetrisDropIn: playMode === 'tetris' ? tetrisDropInterval(1) : 0,
     difficulty: normalizeDifficulty(difficulty),
     blocks: [],
     nextRow: [],

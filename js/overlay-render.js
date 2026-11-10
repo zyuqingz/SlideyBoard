@@ -106,9 +106,13 @@ export function drawOverlays(now, state, present, modes, shapeSelection) {
     drawCard(pop.card.x, pop.card.y, pop.card.w, pop.card.h);
     text(t('map'), W / 2, pop.titleY, 36, C.white);
     const current = modes.find(mode => mode.id === state.mode) ?? modes[0];
+    const mapLocked = state.playMode === 'tetris';
     const mapChrome = MAP_CHROME[current.id] ?? MAP_CHROME.classic;
-    drawSelector(pop.map, modeLabel(current.id, current.label), hoverOf(present, 'btn:map'),
-      mapChrome.fill, mapChrome.ink, mapChrome.border);
+    drawSelector(pop.map, modeLabel(current.id, current.label),
+      mapLocked ? 0 : hoverOf(present, 'btn:map'),
+      mapLocked ? '#100d14' : mapChrome.fill,
+      mapLocked ? '#3a3144' : mapChrome.ink,
+      mapLocked ? '#241c2a' : mapChrome.border);
     drawShapeControl(modes, shapeSelection, present, state.mode === 'shaped');
     ctx.strokeStyle = '#43374c'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(pop.playMode.x, pop.dividerY);

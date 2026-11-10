@@ -19,6 +19,21 @@ export function heightOf(block) {
   return block.height ?? 1;
 }
 
+// Unique occupied rows from ordinary tiles and smiling shards.
+// Live tetrominos (`kind === 'totem'`) are ignored so a piece on an empty
+// board still gets a normal one-row rise, not the empty-board refill.
+export function occupiedTileRows(state) {
+  const rows = new Set();
+  for (const b of state.blocks) {
+    if (b.kind === 'totem') continue;
+    for (const cell of cellsOf(b)) {
+      const r = b.row + cell.row;
+      if (r >= 0 && r < ROWS) rows.add(r);
+    }
+  }
+  return rows.size;
+}
+
 export function rowSpan(state, row) {
   return state.shape?.rows[row] ?? { left: 0, right: COLS };
 }
@@ -124,10 +139,57 @@ function compactBuildingTotem(block, kept) {
   block.cells = Array.from({ length: height }, (_, i) => ({ row: i, col: 0 }));
 }
 
-// Totem mode consumes the whole piece; Building keeps leftover cells as one pole
-// whose bottom is the lowest surviving cell (holes collapse).
+function takeNextId(state) {
+  const numeric = state.blocks.map(block => block.id).filter(Number.isInteger);
+  if (!Number.isInteger(state.nextId) || numeric.includes(state.nextId))
+    state.nextId = (numeric.length ? Math.max(...numeric) : 0) + 1;
+  return state.nextId++;
+}
+
+function connectedGroups(cells) {
+  const key = cell => `${cell.row}:${cell.col}`;
+  const index = new Map(cells.map(cell => [key(cell), cell]));
+  const seen = new Set(), groups = [];
+  for (const start of cells) {
+    if (seen.has(key(start))) continue;
+    const group = [];
+    const stack = [start];
+    seen.add(key(start));
+    while (stack.length) {
+      const cur = stack.pop();
+      group.push(cur);
+      for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const next = index.get(`${cur.row + dr}:${cur.col + dc}`);
+        if (!next || seen.has(key(next))) continue;
+        seen.add(key(next));
+        stack.push(next);
+      }
+    }
+    groups.push(group);
+  }
+  return groups;
+}
+
+function smilingShard(state, world, color) {
+  world.sort((a, b) => a.row - b.row || a.col - b.col);
+  const top = world[0].row;
+  const left = Math.min(...world.map(cell => cell.col));
+  return {
+    id: takeNextId(state),
+    row: top,
+    col: left,
+    len: Math.max(...world.map(cell => cell.col)) - left + 1,
+    height: Math.max(...world.map(cell => cell.row)) - top + 1,
+    color,
+    face: 'smile',
+    cells: world.map(cell => ({ row: cell.row - top, col: cell.col - left }))
+  };
+}
+
+// Tetris leftovers keep orthogonally connected groups as smiling shards.
+// Building keeps leftover cells as one pole (holes collapse).
 export function clearRows(state, rows) {
-  const removed = new Set(rows), blocks = [], detached = [], displayBlocks = [], survivors = [];
+  const removed = new Set(rows), blocks = [], displayBlocks = [], survivors = [];
   const compaction = [];
   let split = false;
   const building = isBuilding(state);
@@ -152,13 +214,22 @@ export function clearRows(state, rows) {
         if (face.row !== to) compaction.push({ id: face.id, from: face.row, to });
       }
       survivors.push(b);
-    } else if (touched && b.kind === 'totem') {
+    } else if (touched && (b.kind === 'totem' || b.face === 'smile')) {
       split = true;
+      const kept = [];
       for (const [i, cell] of cells.entries()) {
-        const fragment = { id: `fragment:${b.id}:${i}`, kind: 'totem', color: b.color,
-          row: b.row + cell.row, col: b.col + cell.col, len: 1, height: 1 };
-        displayBlocks.push(fragment);
-        (removed.has(fragment.row) ? blocks : detached).push({ ...fragment });
+        const world = { row: b.row + cell.row, col: b.col + cell.col };
+        if (removed.has(world.row)) {
+          const fragment = { id: `fragment:${b.id}:${i}`, kind: 'totem', color: b.color,
+            ...world, len: 1, height: 1 };
+          displayBlocks.push(fragment);
+          blocks.push(fragment);
+        } else kept.push(world);
+      }
+      for (const group of connectedGroups(kept)) {
+        const shard = smilingShard(state, group, b.color);
+        displayBlocks.push(structuredClone(shard));
+        survivors.push(shard);
       }
     } else {
       displayBlocks.push(structuredClone(b));
@@ -168,7 +239,7 @@ export function clearRows(state, rows) {
   }
   state.blocks = survivors;
   return { rows: [...removed].sort((a, b) => a - b), blocks,
-    ...(split ? { displayBlocks, ...(!building ? { detached } : {}) } : {}),
+    ...(split ? { displayBlocks } : {}),
     ...(compaction.length ? { compaction } : {}) };
 }
 

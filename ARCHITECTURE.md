@@ -219,8 +219,10 @@ gravity, picking, particles, and rendering use occupied cells, so notches remain
 empty and can contain other blocks. Gravity repeats bottom-up passes to settle
 overhangs whose supports fall later in the traversal.
 
-- After an accepted turn, sample height 2 or 3 and enumerate that height's shape/
-  column placements. Keep one live totem, replacing it after whole-piece clearing.
+- After an accepted turn, level 1 waits 3 slides between drops (`tetrisDropIn`);
+  later levels drop every turn. A counter at the top of the board shows the wait.
+  Sample height 2 or 3 and enumerate that height's shape/column placements. Keep
+  one live totem, replacing it after the piece is cleared.
   Every intermediate footprint from above the board must fit the
   playable outline and avoid other pieces. Landings need one row of top clearance.
 - Settle each candidate on a detached board and reject any that produces a full
@@ -234,24 +236,27 @@ overhangs whose supports fall later in the traversal.
 - The entire starting footprint is above the board and the highest existing
   block. Only the landing snapshot is playable. Drops land with at least one row
   of top clearance.
-- Filled rows count occupied Totem cells normally. In Tetris mode, clearing any
-  row touching a Totem consumes the whole piece; only the selected rows score.
-  Off-row cells become detached debris. In Totem Building, only the cells in the
-  filled rows leave; leftovers compact into one pole. Gravity then resolves falls.
+- Filled rows count occupied Totem cells normally. In Tetris mode, only cells in
+  the filled rows leave; leftover cells stay in orthogonally connected groups as
+  smiling shards (intact tetrominos keep a grimace). A new tetromino can still
+  spawn. Only the selected rows score. In Totem Building, leftovers compact into
+  one pole. Gravity then resolves falls.
 - A totem that reaches row zero does not clear extra rows. Ordinary top-out keeps
   the rescue-turn timing: settle the slide and check the ceiling before the next
-  rise. Empty boards refill; immovable boards end with `no-moves`. The bottom-row
-  preview is committed exactly.
+  rise. Empty boards refill with three rows (one on Shaped). A live tetromino
+  with no ordinary tiles still gets a single rise, not the empty-board dump.
+  Immovable boards end with
+  `no-moves`. The bottom-row preview is committed exactly.
 - Both maps retain their board-aware previews, which use shared occupied-cell
   collision and row-clearing/removal rules.
 
 `clear` supplies only the selected rows and their pre-removal blocks. For a touched
-Totem, `displayBlocks` replaces it with temporary per-cell IDs; `blocks` contains
-its in-row cells and `detached` contains its off-row cells. Only in-row cells
-flash and shrink. Off-row faces stay unlit, fly apart when the row bursts, and
-burst into particles without awarding points or lines. Detached faces render above
-the board clip. Playback waits for their departure before adopting the clear state;
-pause and reset apply to the same visual clock and cancellation generation.
+Tetris piece, `displayBlocks` shows in-row cells as temporary fragments and leftover
+cells as smiling shards grouped by remaining orthogonal connections. `blocks`
+contains only the in-row cells. Those flash and shrink. Intact tetrominos draw a
+grimace plus rear connectors; leftover shards smile and keep connectors on cells
+that still touch.
+Pause and reset apply to the same visual clock and cancellation generation.
 Canvas rendering draws carved faces with the same dimensions, corner radius,
 and gaps as normal one-cell blocks. Drag ghosts and hit testing follow occupied
 cells rather than filling the bounding rectangle.
@@ -292,10 +297,10 @@ Run `npm test`. Coverage includes existing board/spawn/score behavior, legal-com
 validation, cascading combos, Classic loss timing, deterministic multi-turn parity
 with the old logical sequence, mode injection, snapshot isolation, playback speed
 independence, pause/resume, restart cancellation and dependency boundaries.
-Totem tests cover notches/overhang collisions, row-only clears and off-row debris, safe drops,
+Totem tests cover notches/overhang collisions, row-only clears and leftover smiling tiles, safe drops,
 seeded multi-turn geometry for both difficulties and every shape, play-mode persistence,
 committed previews, no top-edge row blast, Totem Building spirit tiles,
-and split clear/debris/drop playback including pause and restart cancellation.
+and split clear/shard/drop playback including pause and restart cancellation.
 Regression tests also cover mirrored drag thresholds, stationary/repeated pointer
 events, direction reversal, board bounds, blocked-storage audio import, seeded
 engine resets and per-mode best-score/options isolation.

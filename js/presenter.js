@@ -26,7 +26,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
 
   function viewOf(block) {
     if (!views.has(block.id)) views.set(block.id, {
-      vx: block.col, vy: block.row, flash: 0, s: 1, sq: 0, slot: 0, detached: false, rotation: 0,
+      vx: block.col, vy: block.row, flash: 0, s: 1, sq: 0, slot: 0,
       danger: 0, clearing: false
     });
     return views.get(block.id);
@@ -38,7 +38,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     // A snapshot is a geometry boundary. Only an explicit animation may offset
     // it; cached views must never retain a removed block's scale or old position.
     for (const b of state.blocks) Object.assign(viewOf(b), {
-      vx: b.col, vy: b.row, s: 1, flash: 0, slot: 0, clearing: false, detached: false, rotation: 0
+      vx: b.col, vy: b.row, s: 1, flash: 0, slot: 0, clearing: false
     });
     for (const id of views.keys()) if (!keep.has(id)) views.delete(id);
   }
@@ -123,9 +123,6 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
         // and leave a hole until the slowest block finished.
         interruptSquash();
         if (event.displayBlocks) adopt({ ...state, blocks: event.displayBlocks });
-        const detached = (event.detached ?? []).map((b, i) => ({ b, v: viewOf(b), burst: false,
-          dx: (b.col + 0.5 < COLS / 2 ? -1 : 1) * (1.7 + i % 3 * 0.45),
-          lift: 2.8 + i % 3 * 0.5 }));
         const rowOrder = event.rows.slice().sort((a, b) => b - a);
         const clears = event.blocks.map(b => ({ b, v: viewOf(b), burst: false,
           delay: Math.abs(b.col + b.len / 2 - COLS / 2) / (COLS / 2) * 70
@@ -133,9 +130,8 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
         for (const { v } of clears) v.clearing = true;
         const duration = 320 + Math.max(0, ...clears.map(c => c.delay));
         const shrink = 150;
-        const total = duration + (detached.length ? 300 : 0);
-        if (!await tween(total, t => {
-          const elapsed = t * total;
+        if (!await tween(duration, t => {
+          const elapsed = t * duration;
           const flashEnd = duration - shrink;
           for (const clear of clears) {
             const { b, v, delay } = clear;
@@ -157,28 +153,6 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
                   if (mult > 1) sfx('combo', { volume: 0.38, rate: 0.82 });
                 }
               }
-            }
-          }
-          // Off-row faces never flash or use the row's shrink. They break away
-          // when the row bursts, travel independently, then burst at their new position.
-          for (const fragment of detached) {
-            const { b, v, dx, lift } = fragment;
-            if (elapsed < flashEnd || fragment.burst) continue;
-            v.detached = true;
-            const q = clamp((elapsed - flashEnd) / (total - flashEnd), 0, 1);
-            const seconds = q * (total - flashEnd) / 1000;
-            // Ballistic flight in grid units: constant outward velocity and
-            // downward acceleration. Burst debris continues under particle gravity.
-            v.vx = b.col + dx * q;
-            v.vy = b.row - lift * 3 * seconds + 0.5 * 60 * seconds * seconds;
-            v.rotation = Math.sign(dx) * q * Math.PI * 1.5;
-            if (q >= 0.85) {
-              fragment.burst = true;
-              v.s = 0;
-              burstBlock({ ...b, col: v.vx, row: v.vy }, 3, {
-                x: dx * CELL / ((total - flashEnd) / 1000),
-                y: (-lift * 3 + 60 * seconds) * CELL
-              });
             }
           }
         }, Ease.lin) || !current()) return false;

@@ -1,6 +1,6 @@
 // Shaped row insertion trims edges; all collision and clearing rules are shared.
 import { ROWS, rowSpan, settleBoard } from './board.js';
-import { cellsOf } from './block-geometry.js';
+import { cellsOf, isCarved } from './block-geometry.js';
 
 // Caller must resolve top-out first. Return pre-trim geometry and discarded cells
 // as facts for presentation; only survivors enter the authoritative board.
@@ -10,7 +10,7 @@ export function insertShapedRow(state, row) {
   const fresh = row.map(spec => ({ ...spec, id: state.nextId++, row: ROWS - 1 }));
   const trimmed = [], survivors = [];
   for (const b of blocks) {
-    if (b.kind === 'totem') {
+    if (isCarved(b)) {
       const kept = [];
       for (const cell of cellsOf(b)) {
         const { left, right } = rowSpan(state, b.row + cell.row);

@@ -576,47 +576,34 @@ function detachedTotemSetup() {
   return { presenter, initial, result };
 }
 
-test('only in-row Totem cells flash; off-row faces detach and burst independently', async () => {
+test('only in-row Totem cells flash; leftover cells stay as smiling tiles', async () => {
   const { presenter, result } = detachedTotemSetup();
   const saved = structuredClone(result);
   const done = presenter.play(result);
-  const pieces = presenter.state.blocks.filter(b => b.kind === 'totem');
-  assert.equal(pieces.length, 4);
-  for (const b of pieces) assert.equal(presenter.viewOf(b).clearing, b.row === 9);
-  const offRow = pieces.filter(b => b.row !== 9);
+  const smiles = presenter.state.blocks.filter(b => b.face === 'smile');
+  const clearing = presenter.state.blocks.filter(b => b.kind === 'totem');
+  assert.equal(smiles.length, 1);
+  assert.equal(smiles[0].cells.length, 2);
+  assert.equal(clearing.length, 2);
+  for (const b of smiles) {
+    assert.equal(presenter.viewOf(b).clearing, false);
+  }
+  for (const b of clearing) assert.equal(presenter.viewOf(b).clearing, true);
   await advance(presenter, 100);
-  for (const b of offRow) {
+  for (const b of smiles) {
     assert.equal(presenter.viewOf(b).flash, 0);
     assert.equal(presenter.viewOf(b).s, 1);
     assert.equal(presenter.viewOf(b).vy, b.row);
   }
-  assert.ok(pieces.filter(b => b.row === 9).every(b => presenter.viewOf(b).flash > 0));
-  await advance(presenter, 170);
-  for (const b of offRow) {
-    const v = presenter.viewOf(b);
-    assert.equal(v.flash, 0);
-    assert.equal(v.s, 1);
-    assert.equal(v.detached, true);
-    assert.notEqual(v.vx, b.col);
-    assert.notEqual(v.vy, b.row);
-    assert.notEqual(v.rotation, 0);
-  }
-  let bursts = 0;
-  const spawn = presenter.effects.spawnParticle;
-  presenter.effects.spawnParticle = fields => { bursts++; spawn(fields); };
-  await advance(presenter, 400);
-  assert.ok(bursts > offRow.length * 3, 'detached faces use a denser burst than ordinary blocks');
-  for (const b of offRow) {
-    assert.equal(presenter.viewOf(b).s, 0);
-    assert.ok(presenter.viewOf(b).vy > b.row, 'gravity brings the tumbling face below its launch position');
-  }
+  assert.ok(clearing.every(b => presenter.viewOf(b).flash > 0));
   await drain(presenter);
   assert.equal(await done, true);
-  assert.deepEqual(presenter.state.blocks, []);
+  assert.ok(presenter.state.blocks.every(b => b.kind !== 'totem'));
+  assert.ok(presenter.state.blocks.some(b => b.face === 'smile'));
   assert.deepEqual(result, saved);
 });
 
-test('detached Totem playback pauses, cancels cleanly, and matches at fast speeds', async () => {
+test('leftover Totem tiles pause, cancel cleanly, and match at fast speeds', async () => {
   for (const step of [16, 250, 1000]) {
     const { presenter, result } = detachedTotemSetup();
     const done = presenter.play(result);
@@ -626,12 +613,12 @@ test('detached Totem playback pauses, cancels cleanly, and matches at fast speed
   }
   const { presenter, initial, result } = detachedTotemSetup();
   const done = presenter.play(result);
-  await advance(presenter, 270);
-  const debris = presenter.state.blocks.find(b => b.kind === 'totem' && b.row === 7);
-  const before = { ...presenter.viewOf(debris) };
+  await advance(presenter, 100);
+  const leftover = presenter.state.blocks.find(b => b.face === 'smile' && b.row === 7);
+  const before = { ...presenter.viewOf(leftover) };
   presenter.present.menu = 'pause';
   await advance(presenter, 1000);
-  assert.deepEqual(presenter.viewOf(debris), before);
+  assert.deepEqual(presenter.viewOf(leftover), before);
   presenter.reset(initial);
   await advance(presenter, 1000);
   assert.equal(await done, false);

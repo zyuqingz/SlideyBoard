@@ -1,8 +1,8 @@
 // Shared turn lifecycle. Modes supply insertion/preview rules, options add drops.
-import { rowSpan, settleBoard, touchingTop, hasMoves } from './board.js';
+import { rowSpan, settleBoard, touchingTop, hasMoves, occupiedTileRows } from './board.js';
 import { createTurnScore, awardRows } from './sim.js';
 import { spawnTotem, spawnTotemLayer } from './totem-spawn.js';
-import { ENERGY_PER_LAYER, isBuilding, isTetris, usesTotems } from './play-mode.js';
+import { ENERGY_PER_LAYER, isBuilding, isTetris, usesTotems, tetrisDropInterval } from './play-mode.js';
 
 export function resolveTurn(state, random, emit, rise) {
   const turn = createTurnScore();
@@ -37,10 +37,17 @@ export function resolveTurn(state, random, emit, rise) {
   };
   spawnRows(state.blocks.length ? 1 : 3);
   if (isTetris(state)) {
-    const block = spawnTotem(state, random);
-    if (block) {
-      emit('totem-drop', { id: block.id });
-      settle();
+    const live = state.blocks.some(b => b.kind === 'totem');
+    if (!live) {
+      const wait = Number.isInteger(state.tetrisDropIn) ? state.tetrisDropIn : tetrisDropInterval(state.level);
+      if (wait <= 1) {
+        const block = spawnTotem(state, random);
+        if (block) {
+          state.tetrisDropIn = tetrisDropInterval(state.level);
+          emit('totem-drop', { id: block.id });
+          settle();
+        } else state.tetrisDropIn = 1;
+      } else state.tetrisDropIn = wait - 1;
     }
   } else if (isBuilding(state)) {
     state.spiritualEnergy += cleared;
@@ -60,6 +67,7 @@ export function resolveTurn(state, random, emit, rise) {
     }
     if (spawned) settle();
   }
-  if (!state.blocks.length) spawnRows(state.shape ? 1 : 3);
+  if (!occupiedTileRows(state))
+    spawnRows(state.blocks.length ? 1 : (state.shape ? 1 : 3));
   if ((state.shape || usesTotems(state)) && !hasMoves(state)) endGame('no-moves');
 }

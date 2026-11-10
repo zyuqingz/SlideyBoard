@@ -31,7 +31,7 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     if (present.menu === 'mode') {
       if (hit(difficultyControl(modes), op)) return 'btn:difficulty';
       if (hit(playModeControl(modes), op)) return 'btn:play-mode';
-      if (hit(mapControl(modes), op)) return 'btn:map';
+      if (presenter.state.playMode !== 'tetris' && hit(mapControl(modes), op)) return 'btn:map';
       const control = shapeControl(modes);
       const shaped = presenter.state.mode === 'shaped';
       if (control && shapeSelection && shaped && hit(control, op)) return 'shape';
@@ -131,7 +131,7 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
         toggleDifficulty();
         return;
       }
-      if (hit(mapControl(modes), op)) {
+      if (presenter.state.playMode !== 'tetris' && hit(mapControl(modes), op)) {
         playSfx('click');
         cycleMap();
         return;

@@ -1,7 +1,7 @@
 // Board, HUD and effects drawing. Reads state. Does not change the board.
 
 import { COLS, ROWS } from './board.js';
-import { facesOf } from './block-geometry.js';
+import { facesOf, isCarved } from './block-geometry.js';
 import { W, CELL, PAD, BX, BW, BH, COLORS, C, FONT } from './theme.js';
 import { Ease } from './fx.js';
 import { t, modeLabel } from './i18n.js';
@@ -46,14 +46,14 @@ function drawIcon(icon, cx, cy, size = 50, light = 0) {
 const CEILING_WARN = '#6b1218';
 
 function drawCeilingWarn(b, v, x, y, shape) {
-  if (b.kind === 'totem') {
+  if (isCarved(b)) {
     for (const face of facesOf(b))
-      drawCeilingWarn({ ...b, kind: 'face', row: b.row + face.row, len: 1, height: 1 },
+      drawCeilingWarn({ id: b.id, kind: 'face', row: b.row + face.row, col: b.col, len: 1, height: 1 },
         { ...v, vx: v.vx + face.col, vy: v.vy + face.row },
         x + face.col * CELL, y + face.row * CELL, shape);
     return;
   }
-  if (!shape || b.row <= 0 || v.vy !== b.row || v.clearing || v.detached) return;
+  if (!shape || b.row <= 0 || v.vy !== b.row || v.clearing) return;
   const { left, right } = shape.rows[b.row - 1];
   ctx.strokeStyle = CEILING_WARN;
   ctx.lineJoin = 'round';
@@ -89,11 +89,6 @@ function drawBlock(b, v, hover = 0, shape = null) {
   const pop = Math.max(v.slot, hover);
   const scale = v.s * (1 + 0.07 * pop);
   ctx.save();
-  if (v.rotation) {
-    ctx.translate(x + w / 2, y + h / 2);
-    ctx.rotate(v.rotation);
-    ctx.translate(-(x + w / 2), -(y + h / 2));
-  }
   if (scale !== 1) {
     ctx.translate(x + w / 2, y + h / 2);
     ctx.scale(scale, scale);
@@ -105,26 +100,53 @@ function drawBlock(b, v, hover = 0, shape = null) {
   }
   // Each face uses exactly the same cell bounds and gaps as a normal block.
   // Apply highlights per cell too, so animation never draws an outer container.
-  for (const face of facesOf(b)) {
+  const faces = facesOf(b);
+  const cellH = CELL - 2 * PAD;
+  const faceW = CELL - 2 * PAD;
+  if (isCarved(b) && faces.length > 1) {
+    ctx.fillStyle = '#c48a4a';
+    for (const a of faces) for (const n of faces) {
+      if (a.row === n.row && n.col === a.col + 1) {
+        const sx = x + a.col * CELL + faceW * 0.55;
+        const sy = y + a.row * CELL + cellH * 0.22;
+        rr(sx, sy, CELL * 0.7, cellH * 0.56, 8); ctx.fill();
+      }
+      if (a.col === n.col && n.row === a.row + 1) {
+        const sx = x + a.col * CELL + faceW * 0.22;
+        const sy = y + a.row * CELL + cellH * 0.55;
+        rr(sx, sy, faceW * 0.56, CELL * 0.7, 8); ctx.fill();
+      }
+    }
+  }
+  for (const face of faces) {
     const sx = x + face.col * CELL, sy = y + face.row * CELL;
-    const faceW = face.len * CELL - 2 * PAD, cellH = CELL - 2 * PAD;
-    ctx.fillStyle = b.kind === 'totem' ? '#e9ba78' : COLORS[b.color];
-    rr(sx, sy, faceW, cellH, BLOCK_R); ctx.fill();
-    if (b.kind === 'totem') {
+    const w = face.len * CELL - 2 * PAD;
+    ctx.fillStyle = isCarved(b) ? '#e9ba78' : COLORS[b.color];
+    rr(sx, sy, w, cellH, BLOCK_R); ctx.fill();
+    if (isCarved(b)) {
       ctx.fillStyle = '#583d37';
-      rr(sx + faceW * 0.22, sy + 20, 9, 10, 3); ctx.fill();
-      rr(sx + faceW * 0.65, sy + 20, 9, 10, 3); ctx.fill();
-      rr(sx + faceW * 0.32, sy + 39, faceW * 0.36, 6, 3); ctx.fill();
+      rr(sx + w * 0.22, sy + 20, 9, 10, 3); ctx.fill();
+      rr(sx + w * 0.65, sy + 20, 9, 10, 3); ctx.fill();
+      if (b.face === 'smile') {
+        ctx.strokeStyle = '#583d37';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(sx + w * 0.5, sy + 36, w * 0.16, 0.15 * Math.PI, 0.85 * Math.PI);
+        ctx.stroke();
+      } else {
+        rr(sx + w * 0.32, sy + 39, w * 0.36, 6, 3); ctx.fill();
+      }
     }
     if (v.flash > 0) {
       ctx.fillStyle = `rgba(255,255,255,${Math.min(0.85, 0.85 * v.flash)})`;
-      rr(sx, sy, faceW, cellH, BLOCK_R); ctx.fill();
+      rr(sx, sy, w, cellH, BLOCK_R); ctx.fill();
     }
     if (v.danger > 0) {
       ctx.fillStyle = `rgba(40,0,10,${0.45 * v.danger})`;
-      rr(sx, sy, faceW, cellH, BLOCK_R); ctx.fill();
+      rr(sx, sy, w, cellH, BLOCK_R); ctx.fill();
       ctx.strokeStyle = `rgba(255,90,70,${v.danger})`; ctx.lineWidth = 4;
-      rr(sx + 2, sy + 2, faceW - 4, cellH - 4, BLOCK_R - 1); ctx.stroke();
+      rr(sx + 2, sy + 2, w - 4, cellH - 4, BLOCK_R - 1); ctx.stroke();
     }
   }
   drawCeilingWarn(b, v, x, y, shape);
@@ -132,9 +154,16 @@ function drawBlock(b, v, hover = 0, shape = null) {
 }
 
 let digitWidth, digitRevision = -1;
-function drawScore(present) {
+function hudSlots(playId) {
+  const building = playId === 'totem-building';
+  const scoreY = building ? layout.SPIRIT_Y : layout.SCORE_Y;
+  const spiritY = building ? layout.SCORE_Y : layout.SPIRIT_Y;
+  return { scoreY, spiritY, bestY: scoreY + 50, bestScoreY: scoreY + 74 };
+}
+
+function drawScore(present, scoreY) {
   ctx.save();
-  ctx.translate(W / 2, layout.SCORE_Y);
+  ctx.translate(W / 2, scoreY);
   ctx.font = `800 76px ${FONT}`;
   if (digitRevision !== paintRevision) {
     digitWidth = Math.max(...[...'0123456789'].map(d => ctx.measureText(d).width));
@@ -150,11 +179,11 @@ function drawScore(present) {
   ctx.restore();
 }
 
-function drawScorePopup(now, fx) {
+function drawScorePopup(now, fx, scoreY) {
   const age = Math.max(0, now - fx.t0);
   const p = fx.flight ?? 0;
   const x = W / 2;
-  const y = layout.COMBO_Y + (layout.SCORE_Y - layout.COMBO_Y) * p;
+  const y = layout.COMBO_Y + (scoreY - layout.COMBO_Y) * p;
   const scale = fx.flight === null ? Ease.outBack(clamp(age / 220, 0, 1)) : 1;
   ctx.save();
   // Dissolve text and glow before they overlap the total score's center.
@@ -227,18 +256,19 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   drawIcon(gearIcon, pauseCx,
     layout.PAUSE_BTN.y + layout.PAUSE_BTN.h / 2, layout.PAUSE_BTN.h, hoverOf(present, 'icon:pause'));
   drawLevelRing(layout.LEVEL_X, layout.LEVEL_Y, state.level, (state.lines % 10) / 10);
-  text(t('best'), pauseCx, layout.BEST_Y, 18, C.muted, 'center', 800);
-  text(String(Math.max(state.best, state.score)),
-    pauseCx, layout.BEST_SCORE_Y, 24, C.muted, 'center', 800);
   const playId = state.playMode || 'standard';
+  const slots = hudSlots(playId);
+  text(t('best'), W / 2, slots.bestY, 18, C.muted, 'center', 800);
+  text(String(Math.max(state.best, state.score)),
+    W / 2, slots.bestScoreY, 24, C.muted, 'center', 800);
   if (playId !== 'standard')
     text(`${modeLabel(playId, playId)} ${t('mode')}`,
       W / 2, layout.MODE_Y, 22, C.muted, 'center', 700);
-  drawScore(present);
+  drawScore(present, slots.scoreY);
   if (playId === 'totem-building') {
     const cap = state.spiritualEnergyMax;
     const fill = Math.min(1, (state.spiritualEnergy || 0) / cap);
-    const bx = W / 2 - 140, by = layout.SPIRIT_Y, bw = 280, bh = 16;
+    const bx = W / 2 - 140, by = slots.spiritY, bw = 280, bh = 16;
     ctx.fillStyle = C.panel;
     rr(bx, by, bw, bh, 8); ctx.fill();
     ctx.fillStyle = '#e9ba78';
@@ -248,6 +278,11 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
     text(t('energy'), bx - 12, by + bh / 2 + 1, 16, C.muted, 'right');
     if (state.totemSpawnBlocked)
       text(t('waitingForSpace'), W / 2, by + 28, 18, '#e9ba78');
+  }
+  if (playId === 'tetris' && state.phase === 'play'
+    && !state.blocks.some(b => b.kind === 'totem')) {
+    const n = Number.isInteger(state.tetrisDropIn) ? state.tetrisDropIn : 1;
+    text(`${t('nextDrop')}  ${n}`, W / 2, layout.DROP_Y, 22, '#e9ba78', 'center', 800);
   }
 
   if (!present.scoreFx && !state.hasMoved && state.phase !== 'over') {
@@ -331,7 +366,7 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   } else ctx.rect(BX - 10, BY - 40, BW + 20, BH + 40);
   ctx.clip();
   const warnShape = state.phase === 'play' ? state.shape : null;
-  const aboveBoard = b => b.id === drag?.blockId || viewOf(b).detached
+  const aboveBoard = b => b.id === drag?.blockId
     || viewOf(b).slot > 0 || hoverOf(present, 'block:' + b.id) > 0;
   for (const b of state.blocks) if (!aboveBoard(b))
     drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape);
@@ -364,7 +399,7 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   }
 
   // Keep feedback above the board and particles, but below modal overlays.
-  if (present.scoreFx) drawScorePopup(now, present.scoreFx);
+  if (present.scoreFx) drawScorePopup(now, present.scoreFx, slots.scoreY);
   if (present.comboFx) drawCombo(now, present.comboFx);
   ctx.restore();
 

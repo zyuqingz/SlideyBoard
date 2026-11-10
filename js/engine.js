@@ -21,13 +21,14 @@ export function createEngine({ best = 0, random = Math.random, modes = GAME_MODE
   const snapshot = () => structuredClone(state);
 
   function reset(id = mode?.id ?? modeId, config = {}) {
+    currentPlayMode = resolvePlayMode(config, currentPlayMode);
+    if (currentPlayMode === 'tetris' && registry.has('classic')) id = 'classic';
     const nextMode = registry.get(id);
     if (!nextMode) throw new Error(`Unknown game mode: ${id}`);
     const nextBest = config.best ?? (id === mode?.id ? state.best : bests.get(id) ?? 0);
     const nextOptions = structuredClone(config.modeOptions ?? options.get(id) ?? {});
     // The engine initializes base state; modes only construct their opening.
     // Publish after setup succeeds so an invalid option cannot erase a live run.
-    currentPlayMode = resolvePlayMode(config, currentPlayMode);
     const fresh = createState(nextBest, config.difficulty ?? state?.difficulty ?? difficulty,
       currentPlayMode);
     nextMode.reset(fresh, random, structuredClone(nextOptions));

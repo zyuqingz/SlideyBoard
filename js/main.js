@@ -44,6 +44,7 @@ function cyclePlayMode() {
 }
 
 function cycleMap() {
+  if (engine.snapshot().playMode === 'tetris') return;
   const modes = engine.modes;
   const index = modes.findIndex(mode => mode.id === engine.snapshot().mode);
   const next = modes[(index < 0 ? 0 : index + 1) % modes.length];

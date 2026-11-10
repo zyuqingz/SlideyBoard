@@ -113,6 +113,29 @@ test('a top block can be rescued by clearing; rise reaching the top allows the n
   assert.ok(saved.events.some(e => e.type === 'clear'));
 });
 
+test('one remaining tile row spawns one row, with or without a totem', () => {
+  const oneRow = createEngine({ random: () => 0.2, modes: [{ ...classic,
+    reset(target) { Object.assign(target, structuredClone(fixture([
+      block(1, 9, 0, 3)
+    ], { nextRow: [{ col: 0, len: 2, color: 1 }] }))); }
+  }] });
+  const thinned = oneRow.dispatch({ type: 'slide', id: 1, col: 1 });
+  assert.equal(thinned.accepted, true);
+  assert.equal(thinned.state.phase, 'play');
+  assert.equal(thinned.events.filter(e => e.type === 'rise').length, 1);
+
+  const withTotem = createEngine({ random: () => 0.2, playMode: 'tetris', modes: [{ ...classic,
+    reset(target) { Object.assign(target, structuredClone(fixture([
+      { id: 1, row: 7, col: 0, len: 1, height: 3, kind: 'totem', color: 4 },
+      block(2, 9, 4, 3)
+    ], { playMode: 'tetris', totemsEnabled: true,
+      nextRow: [{ col: 2, len: 2, color: 1 }] }))); }
+  }] });
+  const ignored = withTotem.dispatch({ type: 'slide', id: 2, col: 5 });
+  assert.equal(ignored.accepted, true);
+  assert.equal(ignored.events.filter(e => e.type === 'rise').length, 1);
+});
+
 test('clearing the board spawns three rows so play can continue', () => {
   const engine = createEngine({ random: () => 0.2, modes: [{ ...classic,
     reset(target) { Object.assign(target, structuredClone(fixture([
@@ -150,6 +173,16 @@ test('the default mode is Shaped and Classic is last in the menu', () => {
   assert.deepEqual(engine.modes.map(m => m.id), ['shaped', 'classic']);
 });
 
+test('Tetris locks the map to Classic', () => {
+  const engine = createEngine({ random: () => 0.5, modeId: 'shaped', playMode: 'tetris' });
+  assert.equal(engine.snapshot().mode, 'classic');
+  assert.equal(engine.snapshot().playMode, 'tetris');
+  assert.equal(engine.reset('shaped').mode, 'classic');
+  const standard = engine.reset('shaped', { playMode: 'standard' });
+  assert.equal(standard.playMode, 'standard');
+  assert.equal(standard.mode, 'shaped');
+});
+
 test('a new mode owns its turn policy and is discoverable without renderer changes', () => {
   const practice = { ...classic, id: 'practice', label: 'PRACTICE',
     reset(state) { Object.assign(state, fixture([block(1, 9, 0)])); },
@@ -184,10 +217,11 @@ function legacyTurn(state, command, random) {
     state.newBest = state.score > state.bestAtStart && state.score > 0;
     state.phase = 'over';
   } else {
-    const incoming = state.blocks.length === 0 ? 3 : 1;
+    const incoming = state.blocks.length ? 1 : 3;
     for (let i = 0; i < incoming; i++) { rise(state, random); settle(); }
-    if (state.phase === 'play' && state.blocks.length === 0) {
-      for (let i = 0; i < 3; i++) { rise(state, random); settle(); }
+    if (state.phase === 'play' && !state.blocks.some(b => b.kind !== 'totem')) {
+      const extra = state.blocks.length ? 1 : 3;
+      for (let i = 0; i < extra; i++) { rise(state, random); settle(); }
     }
   }
 }

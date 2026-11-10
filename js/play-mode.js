@@ -1,5 +1,9 @@
 export const PLAY_MODES = Object.freeze(['standard', 'tetris', 'totem-building']);
 export const ENERGY_PER_LAYER = 3;
+// Turns between tetromino drops. Level 1 is slower so the board can settle.
+export function tetrisDropInterval(level) {
+  return (level || 1) <= 1 ? 3 : 1;
+}
 
 export function resolvePlayMode({ playMode, totemsEnabled } = {}, fallback = 'standard') {
   if (playMode === 'totem') playMode = 'tetris';
