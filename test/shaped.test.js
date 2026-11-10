@@ -5,8 +5,8 @@ import { createState } from '../js/sim.js';
 import { SHAPES, chooseShape } from '../js/shapes.js';
 import { shaped } from '../js/shaped-mode.js';
 import { ROWS, COLS, buildGrid, touchingTop } from '../js/board.js';
-import { copyShapedBoard, shapedSlideRange, hasShapedMoves, shapedGravity,
-  shapedFullRows, insertShapedRow, settleShapedBoard } from '../js/shaped-board.js';
+import { copyBoard, slideRange, hasMoves, computeGravity, fullRows } from '../js/board.js';
+import { insertShapedRow, settleShapedBoard } from '../js/shaped-board.js';
 import { generateShapedCandidate, generateShapedNextRow } from '../js/shaped-spawn.js';
 
 function seeded(seed) {
@@ -27,7 +27,7 @@ function fixtureEngine(state) {
 }
 function choices(state) {
   return state.blocks.flatMap(b => {
-    const [min, max] = shapedSlideRange(state, b);
+    const [min, max] = slideRange(state, b);
     return Array.from({ length: max - min + 1 }, (_, i) => min + i)
       .filter(col => col !== b.col).map(col => ({ type: 'slide', id: b.id, col }));
   });
@@ -47,9 +47,9 @@ function valid(state, settled = false) {
   }
   assert.equal(buildGrid(state).flat().filter(Boolean).length, cells.size);
   if (settled) {
-    assert.deepEqual(shapedFullRows(state), []);
-    assert.deepEqual(shapedGravity(copyShapedBoard(state)), []);
-    if (state.phase === 'play') assert.ok(hasShapedMoves(state));
+    assert.deepEqual(fullRows(state), []);
+    assert.deepEqual(computeGravity(copyBoard(state)), []);
+    if (state.phase === 'play') assert.ok(hasMoves(state));
   }
 }
 function validPreview(state) {
@@ -99,7 +99,7 @@ test('a block crossing both boundaries becomes one surviving piece', () => {
   const motion = insertShapedRow(state, []);
   assert.deepEqual(state.blocks, [block(1, 8, 2, 5)]);
   assert.deepEqual(motion.trimmed, [block(1, 8, 0, 2), block(1, 8, 7, 2)]);
-  assert.deepEqual(shapedFullRows(state), [8]);
+  assert.deepEqual(fullRows(state), [8]);
   assert.deepEqual(settleShapedBoard(state), { cells: 0, lines: 0 }, 'gravity resolves before clearing');
 });
 
@@ -107,13 +107,13 @@ test('gravity treats narrowing below as a ledge, and a slide can release the blo
   const shape = uniform(0, 9);
   shape.rows[9] = { left: 2, right: 7 };
   const state = fixture([block(1, 8, 1, 3)], shape);
-  assert.deepEqual(shapedGravity(state), []);
+  assert.deepEqual(computeGravity(state), []);
   assert.equal(state.blocks[0].len, 3);
   state.blocks[0].col = 2;
-  assert.deepEqual(shapedGravity(state), [{ id: 1, from: 8, to: 9 }]);
-  assert.deepEqual(shapedSlideRange(state, state.blocks[0]), [2, 4]);
+  assert.deepEqual(computeGravity(state), [{ id: 1, from: 8, to: 9 }]);
+  assert.deepEqual(slideRange(state, state.blocks[0]), [2, 4]);
   state.blocks.push(block(2, 9, 6));
-  assert.deepEqual(shapedSlideRange(state, state.blocks[0]), [2, 3]);
+  assert.deepEqual(slideRange(state, state.blocks[0]), [2, 3]);
 });
 
 test('short rows clear only when all playable cells are filled; scores use width and pre-bump level', () => {
@@ -178,7 +178,7 @@ test('shape-aware candidate and preview search are bounded, deterministic, and n
     assert.deepEqual(preview, generateShapedNextRow(state, seeded(43)));
     assert.deepEqual(state, before);
     validPreview({ ...state, nextRow: preview });
-    const copy = copyShapedBoard(state);
+    const copy = copyBoard(state);
     copy.shape.rows[0].left = 99;
     assert.deepEqual(state, before);
   }
@@ -278,14 +278,14 @@ test('preview search finds surviving preparation and response moves on each shap
       return rng();
     } }).snapshot();
     const survives = choices(state).some(move => {
-      const next = copyShapedBoard(state);
+      const next = copyBoard(state);
       next.blocks.find(b => b.id === move.id).col = move.col;
       settleShapedBoard(next);
       if (touchingTop(next)) return false;
       insertShapedRow(next, state.nextRow);
       settleShapedBoard(next);
       return !next.blocks.length || choices(next).some(response => {
-        const after = copyShapedBoard(next);
+        const after = copyBoard(next);
         after.blocks.find(b => b.id === response.id).col = response.col;
         settleShapedBoard(after);
         return !touchingTop(after);

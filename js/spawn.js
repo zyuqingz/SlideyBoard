@@ -3,6 +3,7 @@ import {
   COLS, ROWS, COLOR_GROUPS, buildGrid, copyBoard, insertRow, levelForLines,
   settleBoard, slideRange, touchingTop
 } from './board.js';
+import { generateHardRow } from './difficulty.js';
 
 // Search budget and difficulty tuning live together; no hidden per-player state.
 const SEARCH = Object.freeze({
@@ -55,7 +56,8 @@ function rowWeights(level) {
 
 // Used for opening rows and as input to the preview search, never as a second
 // preview policy. Sampling without replacement guarantees bounded RNG calls.
-export function generateRowCandidate(level, random = Math.random) {
+export function generateRowCandidate(level, random = Math.random, difficulty = 'normal') {
+  if (difficulty === 'hard') return generateHardRow(level, random);
   const weights = rowWeights(level);
   const gapCount = weightedIndex(random, weights.gaps) + 1;
   const columns = Array.from({ length: COLS }, (_, i) => i);
@@ -134,12 +136,12 @@ function rowKey(row) {
   return row.map(block => `${block.col}:${block.len}:${block.color}`).join(',');
 }
 
-function generateCandidates(level, relief, random) {
+function generateCandidates(level, relief, random, difficulty) {
   const candidates = [];
   const seen = new Set();
   for (let i = 0; i < SEARCH.candidateAttempts; i++) {
     const gentle = relief && i % DIFFICULTY.reliefCandidateInterval === 0;
-    const row = generateRowCandidate(gentle ? 1 : level, random);
+    const row = generateRowCandidate(gentle ? 1 : level, random, difficulty);
     const key = rowKey(row);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -202,8 +204,8 @@ export function generateNextRow(state, random = Math.random) {
   const preparations = preparationBoards(board);
   // No legal turn means no useful continuation to simulate. Still return a valid
   // preview, rather than inventing a no-op move that the player cannot perform.
-  if (!preparations.length) return generateRowCandidate(levelForLines(lines), random);
-  const candidates = generateCandidates(levelForLines(lines), context.relief, random);
+  if (!preparations.length) return generateRowCandidate(levelForLines(lines), random, state.difficulty);
+  const candidates = generateCandidates(levelForLines(lines), context.relief, random, state.difficulty);
   const evaluated = candidates.map(candidate => evaluateCandidate(candidate, preparations, context));
   return selectCandidate(evaluated, context.relief, random);
 }

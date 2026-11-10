@@ -1,11 +1,14 @@
 // Game state, scoring, and lifecycle. Board rules and spawn policy are independent.
 import { COLS, insertRow, levelForLines, settleBoard } from './board.js';
 import { generateRowCandidate, generateNextRow } from './spawn.js';
+import { normalizeDifficulty } from './difficulty.js';
 
 const START_ROWS = 4;
 
-export function createState(best = 0) {
+export function createState(best = 0, difficulty = 'normal', totemsEnabled = false) {
   return {
+    totemsEnabled: !!totemsEnabled,
+    difficulty: normalizeDifficulty(difficulty),
     blocks: [],
     nextRow: [],
     score: 0,
@@ -48,7 +51,7 @@ export function rise(state, random = Math.random) {
 // Called with fresh base state by the engine, or by headless setup/search tests.
 export function setupClassic(state, random = Math.random) {
   for (let i = 0; i < START_ROWS; i++) {
-    insertRow(state, generateRowCandidate(state.level, random));
+    insertRow(state, generateRowCandidate(state.level, random, state.difficulty));
     settleBoard(state);
   }
   state.nextRow = generateNextRow(state, random);

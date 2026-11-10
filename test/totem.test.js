@@ -2,9 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEngine } from '../js/engine.js';
 import { createState } from '../js/sim.js';
-import { totem } from '../js/totem-mode.js';
-import { totemGrid, totemGravity, totemSlideRange, totemFullRows, clearTotemRows } from '../js/totem-board.js';
-import { spawnTotem, chooseTotemRows } from '../js/totem-spawn.js';
+import { classic } from '../js/modes.js';
+import { shaped } from '../js/shaped-mode.js';
+import { buildGrid as totemGrid, computeGravity as totemGravity, slideRange as totemSlideRange,
+  fullRows as totemFullRows, clearRows as clearTotemRows, chooseTotemRows } from '../js/board.js';
+import { spawnTotem } from '../js/totem-spawn.js';
+import { SHAPES } from '../js/shapes.js';
+import { insertShapedRow } from '../js/shaped-board.js';
+import { generateNextRow } from '../js/spawn.js';
+import { generateShapedNextRow } from '../js/shaped-spawn.js';
 
 const block = (id, row, col, len = 1) => ({ id, row, col, len, color: 0 });
 const pole = (id, row, col, height) => ({ ...block(id, row, col), kind: 'totem', height });
@@ -12,10 +18,10 @@ function seeded(seed) {
   return () => { seed = Math.imul(seed, 1664525) + 1013904223 | 0; return (seed >>> 0) / 4294967296; };
 }
 function fixture(blocks) {
-  return { ...createState(), blocks, nextId: 100, nextRow: [{ col: 0, len: 1, color: 0 }] };
+  return { ...createState(), totemsEnabled: true, blocks, nextId: 100, nextRow: [{ col: 0, len: 1, color: 0 }] };
 }
 function engineFor(state) {
-  return createEngine({ modeId: 'totem', random: seeded(123), modes: [{ ...totem,
+  return createEngine({ modeId: 'classic', random: seeded(123), modes: [{ ...classic,
     reset(target) { Object.assign(target, structuredClone(state)); }
   }] });
 }
@@ -31,12 +37,119 @@ function valid(state) {
     }
     for (let r = b.row; r < b.row + (b.height ?? 1); r++) {
       for (let c = b.col; c < b.col + b.len; c++) {
+        if (state.shape && r >= 0) {
+          const { left, right } = state.shape.rows[r];
+          assert.ok(c >= left && c < right, `outside shape at ${r}:${c}`);
+        }
         const key = `${r}:${c}`;
         assert.ok(!cells.has(key), `overlap at ${key}`); cells.add(key);
       }
     }
   }
 }
+
+function firstMove(engine) {
+  for (const block of engine.snapshot().blocks) {
+    const [min, max] = engine.moveRange(block.id);
+    if (min !== max) return { type: 'slide', id: block.id, col: min === block.col ? max : min };
+  }
+  return null;
+}
+
+test('Totems default off, persist across modes/restarts, and can be disabled without changing difficulty', () => {
+  const engine = createEngine({ random: seeded(71), difficulty: 'hard' });
+  assert.equal(engine.snapshot().totemsEnabled, false);
+  assert.deepEqual(engine.modes.map(mode => mode.id), ['shaped', 'classic']);
+  assert.equal(engine.reset(undefined, { totemsEnabled: true }).totemsEnabled, true);
+  for (const modeId of ['classic', 'shaped']) {
+    assert.equal(engine.reset(modeId).totemsEnabled, true);
+    assert.equal(engine.reset().totemsEnabled, true);
+    assert.equal(engine.snapshot().difficulty, 'hard');
+  }
+  const disabled = engine.reset(undefined, { totemsEnabled: false });
+  assert.equal(disabled.totemsEnabled, false);
+  assert.equal(disabled.difficulty, 'hard');
+  assert.ok(disabled.blocks.every(b => b.kind !== 'totem'));
+  for (const modeId of ['classic', 'shaped']) {
+    engine.reset(modeId);
+    for (let i = 0; i < 10 && engine.snapshot().phase === 'play'; i++) {
+      const command = firstMove(engine);
+      if (!command) break;
+      const result = engine.dispatch(command);
+      assert.ok(result.accepted);
+      assert.ok(result.events.every(event => event.type !== 'totem-drop'));
+      assert.ok(result.state.blocks.every(b => b.kind !== 'totem'));
+    }
+  }
+});
+
+test('Shaped Totems collide across their full height and trim only exposed cells on rise', () => {
+  const shape = structuredClone(SHAPES.find(shape => shape.id === 'corridor'));
+  const state = { ...fixture([pole(1, 6, 3, 3)]), shape };
+  assert.deepEqual(totemSlideRange(state, state.blocks[0]), [3, 5]);
+  const motion = insertShapedRow(state, [{ col: 0, len: 2, color: 0 }]);
+  assert.deepEqual(motion.trimmed.map(b => [b.row, b.height]), [[5, 1]]);
+  const remaining = state.blocks.find(b => b.id === 1);
+  assert.equal(remaining.row, 6);
+  assert.equal(remaining.height, 2);
+  assert.equal(state.score, 0);
+  assert.equal(state.lines, 0);
+  valid(state);
+  totemGravity(state);
+  valid(state);
+});
+
+test('Shaped Totem blasts use playable row widths for score', () => {
+  const shape = structuredClone(SHAPES.find(shape => shape.id === 'funnel'));
+  const state = { ...fixture([pole(1, 1, 4, 2),
+    ...Array.from({ length: 7 }, (_, i) => block(i + 2, i + 3, 4)), block(30, 9, 7)]), shape };
+  const engine = createEngine({ modes: [{ ...shaped,
+    reset(target) { Object.assign(target, structuredClone(state)); }
+  }], random: seeded(123) });
+  const result = engine.dispatch({ type: 'slide', id: 30, col: 8 });
+  const index = result.events.findIndex(event => event.type === 'totem-activate');
+  assert.ok(index > 0);
+  assert.equal(result.events[index - 1].type, 'shaped-rise');
+  const clear = result.events[index + 1];
+  assert.equal(clear.type, 'clear');
+  assert.equal(clear.rows.length, 2);
+  assert.equal(clear.award.pts, clear.rows.reduce((sum, row, i) => {
+    const { left, right } = shape.rows[row];
+    return sum + (right - left) * 10 * (i + 1);
+  }, 0));
+  valid(result.state);
+});
+
+test('Totem preview search uses detached vertical geometry and keeps the displayed row committed', () => {
+  for (const modeId of ['classic', 'shaped']) {
+    const engine = createEngine({ modeId, totemsEnabled: true, random: seeded(12),
+      modeOptions: { shapeId: 'funnel' } });
+    let state;
+    for (let i = 0; i < 10; i++) {
+      engine.dispatch(firstMove(engine));
+      state = engine.snapshot();
+      if (state.blocks.some(b => b.kind === 'totem')) break;
+    }
+    assert.ok(state.blocks.some(b => b.kind === 'totem'));
+    const before = structuredClone(state);
+    const generate = modeId === 'shaped' ? generateShapedNextRow : generateNextRow;
+    assert.deepEqual(generate(state, seeded(22)), generate(state, seeded(22)));
+    assert.deepEqual(state, before);
+    const result = engine.dispatch(firstMove(engine));
+    const rise = result.events.find(event => ['rise', 'shaped-rise'].includes(event.type));
+    assert.ok(rise);
+    const incoming = rise.state.blocks.filter(b => b.row === 9)
+      .map(({ col, len, color }) => ({ col, len, color }));
+    assert.deepEqual(incoming, before.nextRow);
+  }
+});
+
+test('Shaped drops defer when no unobstructed entry column reaches the highest stack', () => {
+  const shape = structuredClone(SHAPES.find(shape => shape.id === 'corridor'));
+  const state = { ...fixture([block(1, 7, 2)]), shape };
+  assert.equal(spawnTotem(state, () => 0), null);
+  assert.equal(state.blocks.length, 1);
+});
 
 test('a vertical totem occupies every cell, falls rigidly, and slides only through full-height gaps', () => {
   const state = fixture([pole(1, 1, 4, 3), block(2, 9, 4), block(3, 7, 2), block(4, 8, 6)]);
@@ -58,6 +171,10 @@ test('normal row clears shorten a totem, including clearing its middle or severa
     const geometry = clearTotemRows(state, rows);
     const remaining = state.blocks.find(b => b.id === 1);
     assert.equal(remaining?.height ?? 0, 3 - rows.length);
+    if (remaining) {
+      const kept = [7, 8, 9].filter(row => !rows.includes(row));
+      assert.equal(remaining.row, kept.at(-1) - remaining.height + 1);
+    }
     assert.equal(geometry.blocks.filter(b => b.kind === 'totem').length, rows.length);
     assert.equal(geometry.displayBlocks.filter(b => b.kind === 'totem').length, 3);
     assert.equal(before.height, 3);
@@ -148,12 +265,16 @@ test('ordinary blocks retain the rescue turn at the top, then top out if still s
   assert.ok(!result.events.some(e => e.type === 'rise' || e.type === 'totem-drop'));
 });
 
-test('seeded Totem games are deterministic, maintain valid geometry, and isolate mode resets', () => {
+test('optional Totems are deterministic in both modes, all shapes, and both difficulties', () => {
   let drops = 0, activations = 0;
-  for (let seed = 1; seed <= 20; seed++) {
-    const a = createEngine({ modeId: 'totem', random: seeded(seed) });
-    const b = createEngine({ modeId: 'totem', random: seeded(seed) });
-    for (let turn = 0; turn < 80; turn++) {
+  for (const shape of [null, ...SHAPES]) for (const difficulty of ['normal', 'hard']) {
+    const seed = 123;
+    const config = { modeId: shape ? 'shaped' : 'classic', totemsEnabled: true, difficulty,
+      modeOptions: shape ? { shapeId: shape.id } : {} };
+    const a = createEngine({ ...config, random: seeded(seed) });
+    const b = createEngine({ ...config, random: seeded(seed) });
+    let shapeDrops = 0;
+    for (let turn = 0; turn < 60; turn++) {
       const state = a.snapshot();
       assert.deepEqual(state, b.snapshot());
       valid(state);
@@ -172,11 +293,13 @@ test('seeded Totem games are deterministic, maintain valid geometry, and isolate
       assert.deepEqual(result, b.dispatch(command));
       for (const event of result.events) valid(event.state);
       drops += result.events.filter(e => e.type === 'totem-drop').length;
+      shapeDrops += result.events.filter(e => e.type === 'totem-drop').length;
       activations += result.events.filter(e => e.type === 'totem-activate').length;
     }
     assert.ok(!a.reset('classic').blocks.some(b => b.kind === 'totem'));
     assert.ok(a.reset('shaped').shape);
-    assert.equal(a.reset('totem').shape, undefined);
+    assert.equal(a.reset('classic').shape, undefined);
+    assert.ok(shapeDrops > 0, `${shape?.id ?? 'classic'} ${difficulty} spawns a Totem`);
   }
   assert.ok(drops > 0);
   assert.ok(activations > 0);

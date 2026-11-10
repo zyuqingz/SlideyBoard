@@ -5,8 +5,7 @@ import { classic } from '../js/modes.js';
 import { createState } from '../js/sim.js';
 import { createPresenter } from '../js/presenter.js';
 import { insertShapedRow } from '../js/shaped-board.js';
-import { totem } from '../js/totem-mode.js';
-import { clearTotemRows, totemGravity } from '../js/totem-board.js';
+import { clearRows as clearTotemRows, computeGravity as totemGravity } from '../js/board.js';
 
 function setup({ loss = false } = {}) {
   const initial = { ...createState(), nextId: 20, nextRow: [{ col: 0, len: 1, color: 0 }],
@@ -134,10 +133,10 @@ test('late score work cannot roll back an in-progress rise', async () => {
 });
 
 test('rapid consecutive turns reconcile every visible block before the next gesture', async () => {
-  for (const modeId of ['classic', 'shaped', 'totem']) {
+  for (const modeId of ['classic', 'shaped']) for (const totemsEnabled of [false, true]) {
     let seed = 731;
     const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32);
-    const engine = createEngine({ modeId, random });
+    const engine = createEngine({ modeId, random, totemsEnabled });
     const presenter = createPresenter({ sfx: () => {} });
     presenter.reset(engine.snapshot());
     const pending = [];
@@ -353,13 +352,13 @@ test('shaped trimming freezes on pause and cannot resume stale work after reset'
 });
 
 function totemSetup() {
-  const initial = { ...createState(), mode: 'totem', nextId: 30,
+  const initial = { ...createState(), mode: 'classic', totemsEnabled: true, nextId: 30,
     nextRow: [{ col: 0, len: 1, color: 0 }],
     blocks: [{ id: 1, row: 1, col: 0, len: 1, color: 4, kind: 'totem', height: 3 },
       ...Array.from({ length: 6 }, (_, i) => ({ id: i + 2, row: i + 4, col: 0, len: 1, color: 0 })),
       { id: 20, row: 9, col: 4, len: 1, color: 1 }] };
-  const engine = createEngine({ modeId: 'totem', random: () => 0.5,
-    modes: [{ ...totem, reset(state) { Object.assign(state, structuredClone(initial)); } }] });
+  const engine = createEngine({ modeId: 'classic', random: () => 0.5,
+    modes: [{ ...classic, reset(state) { Object.assign(state, structuredClone(initial)); } }] });
   const presenter = createPresenter();
   presenter.reset(engine.snapshot());
   const result = engine.dispatch({ type: 'slide', id: 20, col: 5 });

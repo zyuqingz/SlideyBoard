@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { H } from '../js/theme.js';
+import { MODE_RESUME_BTN, modePopup } from '../js/mode-popup.js';
 import { settingsPopup } from '../js/settings-popup.js';
 
 test('settings popup card is vertically centered', () => {
@@ -19,5 +20,12 @@ test('settings language buttons sit side by side inside the card', () => {
   for (const b of [en, zh, sound, restart, resume]) {
     assert.ok(b.y + b.h <= card.y + card.h);
     assert.ok(b.x >= card.x && b.x + b.w <= card.x + card.w);
+    assert.equal(b.h, MODE_RESUME_BTN.h);
+  }
+  const modeResume = modePopup().resume;
+  for (const b of [sound, restart, resume]) {
+    assert.equal(b.w, modeResume.w);
+    assert.equal(b.h, modeResume.h);
+    assert.equal(b.x, modeResume.x);
   }
 });

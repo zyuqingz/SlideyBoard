@@ -3,12 +3,13 @@ import { COLS, ROWS } from './board.js';
 import { CELL, BX } from './theme.js';
 import { followDrag, commitTarget } from './drag.js';
 import { layout, toLogical, toOverlay, hit, GO_RESTART, invalidateCanvas } from './canvas-layout.js';
-import { modeButton, modeResume, shapeControl } from './mode-popup.js';
+import { modeButton, modeResume, shapeControl, difficultyControl, totemControl } from './mode-popup.js';
 import { settingsPopup } from './settings-popup.js';
 import { setLang } from './i18n.js';
 import { playSfx, unlockAudio, isMuted, setMuted } from './audio.js';
 
-export function bindInput(canvas, { presenter, modes, moveRange, slide, restart, selectMode, shapeSelection }) {
+export function bindInput(canvas, { presenter, modes, moveRange, slide, restart, selectMode, shapeSelection,
+  toggleDifficulty, toggleTotems }) {
   const { present, viewOf } = presenter;
   const on = (target, type, fn, options) => target.addEventListener(type, e => {
     fn(e);
@@ -27,6 +28,8 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
       return null;
     }
     if (present.menu === 'mode') {
+      if (hit(difficultyControl(modes), op)) return 'btn:difficulty';
+      if (hit(totemControl(modes), op)) return 'btn:totems';
       const control = shapeControl(modes);
       if (control && shapeSelection && hit(control, op)) return 'shape';
       const mode = modes.find((_, i) => hit(modeButton(i, modes), op));
@@ -109,6 +112,16 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
       return;
     }
     if (present.menu === 'mode') {
+      if (hit(totemControl(modes), op)) {
+        playSfx('click');
+        toggleTotems();
+        return;
+      }
+      if (hit(difficultyControl(modes), op)) {
+        playSfx('click');
+        toggleDifficulty();
+        return;
+      }
       const control = shapeControl(modes);
       if (control && shapeSelection && hit(control, op)) {
         const { options, value } = shapeSelection;

@@ -6,26 +6,46 @@ import { createPresenter } from './presenter.js';
 import { bindInput } from './input.js';
 import { layout, bindCanvas } from './canvas-layout.js';
 import { draw } from './render.js';
-import { loadBest, saveBest } from './storage.js';
+import { loadBest, saveBest, loadDifficulty, saveDifficulty, loadTotems, saveTotems } from './storage.js';
 import { loadLang } from './i18n.js';
 import { SHAPES } from './shapes.js';
 
 const shapeSelection = {
-  value: 'random',
+  value: 'funnel',
   options: [{ id: 'random', label: 'RANDOM' }, ...SHAPES.map(({ id, label }) => ({ id, label }))]
 };
-let activeShapeSelection = 'random';
+let activeShapeSelection = 'funnel';
 
 const canvas = document.getElementById('game');
 bindCanvas(canvas);
 loadLang();
-const engine = createEngine({ modeId: 'shaped', best: loadBest('shaped') });
+const engine = createEngine({ modeId: 'shaped', best: loadBest('shaped'),
+  difficulty: loadDifficulty(), totemsEnabled: loadTotems(),
+  modeOptions: { shapeId: activeShapeSelection } });
 const presenter = createPresenter({ boardY: () => layout.BY });
 presenter.reset(engine.snapshot());
 
 function restart() {
   input.cancelDrag();
   presenter.reset(engine.reset());
+}
+
+function toggleDifficulty() {
+  const difficulty = engine.snapshot().difficulty === 'hard' ? 'normal' : 'hard';
+  resetOptions({ difficulty });
+  saveDifficulty(difficulty);
+}
+
+function toggleTotems() {
+  const totemsEnabled = !engine.snapshot().totemsEnabled;
+  resetOptions({ totemsEnabled });
+  saveTotems(totemsEnabled);
+}
+
+function resetOptions(options) {
+  input.cancelDrag();
+  presenter.reset(engine.reset(undefined, options));
+  presenter.present.menu = 'mode';
 }
 
 function selectMode(id) {
@@ -53,7 +73,7 @@ function slide(id, col) {
 
 const input = bindInput(canvas, {
   presenter, modes: engine.modes, moveRange: id => engine.moveRange(id),
-  slide, restart, selectMode, shapeSelection
+  slide, restart, selectMode, shapeSelection, toggleDifficulty, toggleTotems
 });
 
 let last = performance.now();
@@ -82,7 +102,8 @@ window.__slidey = {
       scoreAnimating: !!(present.scoreFx || present.scoreScale !== 1),
       combo: present.comboFx?.mult || 0, level: state.level, lines: state.lines,
       busy: presenter.busy, over: state.phase === 'over', paused: present.menu === 'pause',
-      modeOpen: present.menu === 'mode', mode: state.mode, best: state.best
+      modeOpen: present.menu === 'mode', mode: state.mode, best: state.best,
+      difficulty: state.difficulty, totemsEnabled: state.totemsEnabled
     };
   },
   get layout() {

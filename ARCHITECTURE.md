@@ -22,17 +22,17 @@ owns a separate copy of the state currently on screen, which may trail the engin
 | Module | Owns |
 | --- | --- |
 | `js/engine.js` | Authoritative state, base-state reset, command validation, snapshots, per-mode best scores/options |
-| `js/modes.js` | Mode registry and Classic's turn order / loss policy |
-| `js/board.js` | Grid dimensions, abstract color groups, gravity, collision and clear primitives |
+| `js/modes.js` | Classic/Shaped registry and Classic's turn adapter |
+| `js/turn.js` | Shared settling, scoring, rescue timing, refills and optional Totem drops |
+| `js/board.js` | Shared rectangular/shaped collision, rigid gravity, segment clears and Totem activation |
 | `js/sim.js` | State creation, scoring, opening setup, preview commitment |
 | `js/spawn.js` | Classic row generation and board-aware preview search |
 | `js/shapes.js` | Four fixed outlines and per-run random shape selection |
-| `js/shaped-board.js` | Shaped-only collision, ledge gravity, trimming and settling |
+| `js/shaped-board.js` | Shaped rise trimming and cell-counted search settling |
 | `js/shaped-spawn.js` | Shaped candidate generation and bounded continuation search |
-| `js/shaped-mode.js` | Shaped lifecycle, width-based scoring, refill and loss policy |
-| `js/totem-board.js` | Vertical collision, rigid gravity, segment clearing and compaction |
-| `js/totem-spawn.js` | Totem-safe drop placement, row preview and random blast targets |
-| `js/totem-mode.js` | Totem lifecycle, top-edge activation, scoring and loss policy |
+| `js/shaped-mode.js` | Shape selection, opening and shaped turn adapter |
+| `js/totem-spawn.js` | Optional Totem drop placement, including shaped entry-path checks |
+| `js/difficulty.js` | Shared Hard row geometry and difficulty normalization |
 | `js/presenter.js` | Shown state, animated block views, event playback, playback cancellation |
 | `js/fx.js`, `js/score-fx.js` | Instance-local visual clocks, particles, score feedback |
 | `js/render.js` | Board, HUD and effects drawing; cached paused paints and digit widths |
@@ -46,7 +46,7 @@ owns a separate copy of the state currently on screen, which may trail the engin
 | `js/input.js` | Browser gestures, hit testing, drag preview, menu interaction |
 | `js/drag.js` | Symmetric direction-aware drag commitment and pointer gain |
 | `js/audio.js` | Sound cues, guarded browser-storage access, mute persistence |
-| `js/storage.js` | Local storage adapter, per-mode best-score keys |
+| `js/storage.js` | Per-mode best scores and shared difficulty/Totem preferences |
 | `js/main.js` | Browser composition and visual frame loop |
 
 Gameplay modules never import visual modules, DOM APIs, clocks, storage, or
@@ -70,7 +70,7 @@ const fresh = game.reset();
 const shaped = game.reset('shaped', { best: 700, modeOptions: { shapeId: 'diamond' } });
 ```
 
-Shaped is the default mode; the menu order is Shaped, Totem, Classic. With a custom
+Shaped is the default mode; the menu order is Shaped, Classic. With a custom
 registry that excludes Shaped, the first registered mode is the default.
 `best` and `modeOptions` supplied at creation belong only to the initial mode.
 `reset()` restarts the current mode with its latest best score and saved options.
@@ -78,6 +78,16 @@ registry that excludes Shaped, the first registered mode is the default.
 omitted values reuse that mode's in-memory values (zero / empty options on its first
 visit). Best scores and options never cross mode boundaries. Setup builds a fresh
 state and publishes it only after the mode hook succeeds.
+
+`difficulty: 'normal' | 'hard'` and `totemsEnabled: boolean` are shared run options,
+accepted by both `createEngine` and the reset config. Unspecified engine calls
+default to Normal and Totems Off. The browser first run loads Hard and Totems On
+unless `slidey_difficulty` / `slidey_totems` already store a preference. They persist
+across mode switches/restarts, and are exposed in snapshots.
+The popup groups shared options below a divider, with an arrow selector for
+difficulty and a clickable checkbox row for Totem spawning. Switching either option
+restarts the run while keeping the popup open; browser preferences are saved under
+`slidey_difficulty` and `slidey_totems`.
 
 `seededRandom` is an injected function returning a number in `[0, 1)`; it defaults
 to `Math.random`. Identical RNG streams and commands reproduce identical results.
@@ -138,9 +148,9 @@ the event's data. Extend those contracts when needed rather than placing new
 gameplay conditions in input or animation callbacks.
 
 The shared bounding grid is 9×10. Shaped uses `state.shape.rows`, one `{left, right}`
-span per row, with an exclusive right edge. Its dedicated primitives treat cells
-outside these spans as unavailable. Classic retains its rectangular primitives,
-generator, scoring and turn policy. Engine reset reconstructs base state before
+span per row, with an exclusive right edge. Shared primitives treat cells outside
+these spans as unavailable, defaulting to the full rectangle for Classic. Each
+mode keeps its own candidate generator and preview search. Engine reset reconstructs base state before
 calling the mode, so shape and loss metadata cannot leak between modes.
 Mode hooks initialize only their geometry and preview; Classic uses `setupClassic`.
 All modes share `awardRows` bookkeeping. Shaped supplies playable row widths; the
@@ -149,7 +159,8 @@ entire clear batch scores at its pre-update level before lines and level advance
 ### Shaped mode
 
 By default, each reset independently selects Funnel, Hourglass, Diamond, or Winding
-Corridor with equal probability using the injected gameplay RNG. The mode popup
+Corridor with equal probability using the injected gameplay RNG when `shapeId` is
+`random` or omitted. The browser first run starts Funnel. The mode popup
 also has a cycling shape selector below SHAPED; selecting a shape and pressing
 SHAPED starts that configuration. Resume keeps the current run. The preference
 lasts for the browser session and restarts retain a fixed selection, while Random
@@ -181,15 +192,18 @@ wide, and differ gradually; consecutive random runs may select the same shape.
 
 Rendering reads shape data directly, with no imports of shaped rule functions.
 It draws the outline and bottom-width preview, clips rising blocks to playable
-cells, and marks current exposure to the next narrowing with amber chevrons.
+cells, and marks current exposure to the next narrowing with a dark red outline
+and matching chevrons that scale with the tile. Lifted and hovered tiles draw
+above the board silhouette so pickup and hover scale are not clipped by cells
+outside the shape.
 During `shaped-rise`, the presenter temporarily shows pre-trim blocks, animates
 them upward, emits particles for discarded spans, and snaps to the authoritative
 survivors. Cancellation uses the same playback generation guard as other events.
 Best scores use the existing `slidey_best_shaped` storage key.
 
-### Totem Mode
+### Optional Totems
 
-Totem Mode uses the rectangular 9×10 board and its own geometry and turn policy.
+Totems are an On/Off modifier for both Classic and Shaped, not a registered mode.
 Normal blocks keep `{ row, col, len, color, id }`; totems add `kind: 'totem'` and
 `height: 1..3`, with `len: 1`. Spawned height is 2 or 3; remaining height can be 1
 after a partial clear. `row` is the top segment. A totem moves horizontally
@@ -202,6 +216,11 @@ the whole piece until its bottom segment meets support.
   it after consumption or complete clearing. If the sampled height cannot fit
   above that stack with top clearance, defer the drop until a later turn rather
   than choosing a lower column. An empty board uses the floor as support.
+- On Shaped boards the entire drop path must stay inside playable cells. Defer
+  when no column can reach the highest stack from above without crossing an edge.
+  Horizontal movement checks every segment against its row's span. Rising trims
+  an exposed top segment without score; lower segments enter cells the same piece
+  already occupied, so the remaining Totem stays contiguous.
 - The entire starting footprint is above the board and the highest existing
   block. Only the landing snapshot is playable; entering from above never counts
   as top-edge activation. Drops land with at least one row of top clearance.
@@ -217,8 +236,11 @@ the whole piece until its bottom segment meets support.
 - Ordinary top-out keeps the rescue-turn timing: settle the slide and check the
   ceiling before the next rise. Empty boards refill; immovable boards end with
   `no-moves`. The bottom-row preview is committed exactly.
-- Preview generation reuses only the random horizontal row candidate generator.
-  It does not run Classic's horizontal-only continuation search on vertical data.
+- Both modes retain their board-aware previews, which now use shared vertical
+  collision and segment-clearing rules. Search simulates top-edge activation with
+  a deterministic representative blast (`random = () => 0.5`) on detached copies.
+  Live blasts use the injected gameplay RNG. Search does not forecast future drops
+  or all possible random blast targets, so surviving continuations remain estimates.
 
 For partial clears, `clear` additionally supplies `displayBlocks`: a detached
 pre-clear board with temporary per-cell totem IDs. The presenter animates departing
@@ -226,8 +248,8 @@ cells, then adopts the shorter authoritative totem. Canvas rendering draws carve
 separate faces with the same dimensions, corner radius, and gaps as normal
 one-cell blocks, without an enclosing container or connecting bands. Hit testing
 uses the full height.
-Pause and cancellation use the existing presenter lifecycle. Mode selection comes
-from the registry, with best scores stored under `slidey_best_totem`.
+Pause and cancellation use the existing presenter lifecycle. Best scores belong
+to the base mode; the retired Totem mode's score key is no longer read or written.
 
 ## Playback and lifecycle
 
@@ -264,7 +286,8 @@ validation, cascading combos, Classic loss timing, deterministic multi-turn pari
 with the old logical sequence, mode injection, snapshot isolation, playback speed
 independence, pause/resume, restart cancellation and dependency boundaries.
 Totem tests cover full-height collisions, all partial-clear positions, safe drops,
-height-based random blasts, seeded multi-turn geometry, mode isolation, and
+height-based random blasts, seeded multi-turn geometry for both difficulties and
+every shape, toggle persistence, committed previews, shaped trimming/scoring, and
 partial-clear/drop/activation playback including pause and restart cancellation.
 Regression tests also cover mirrored drag thresholds, stationary/repeated pointer
 events, direction reversal, board bounds, blocked-storage audio import, seeded

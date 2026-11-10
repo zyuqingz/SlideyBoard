@@ -37,3 +37,17 @@ test('classic sits last among mode buttons, above resume', () => {
   assert.equal(modes[buttons.length - 1].id, 'classic');
   assert.ok(lastMode.y + lastMode.h < resume.y);
 });
+
+test('difficulty sits below all modes and shape controls with a larger gap', () => {
+  for (const modes of [[classic], [shaped, extra, classic], [classic, extra, shaped]]) {
+    const { card, buttons, control, dividerY, difficulty, totems, resume } = modePopup(modes);
+    for (const button of buttons) assert.ok(difficulty.y - button.y - button.h >= 40);
+    if (control) assert.ok(difficulty.y > control.y + control.h + 28);
+    assert.ok(dividerY > Math.max(...buttons.map(b => b.y + b.h), control ? control.y + control.h : 0));
+    assert.ok(dividerY < difficulty.y - 24);
+    assert.ok(difficulty.y + difficulty.h < totems.y);
+    assert.ok(totems.y + totems.h + 20 < resume.y);
+    assert.ok(resume.y + resume.h < card.y + card.h);
+    assert.ok(card.y >= 0 && card.y + card.h <= H);
+  }
+});

@@ -28,6 +28,40 @@ assume that Block Blast always supplies solvable pieces.
 
 ## Current behavior
 
+### Shared difficulty
+
+The mode popup offers **Normal / Hard** below all mode buttons. The first run
+starts on Hard. The preference is saved and applies to Classic and Shaped,
+including opening rows, previews, and refills. Switching it restarts the current
+game; the popup stays open. Restarting or selecting another mode retains the
+difficulty.
+
+Normal keeps each mode's original distribution. Hard uses one shared row factory
+in `js/difficulty.js`, restricted to the incoming span for Shaped boards:
+
+- Leave one or two adjacent empty cells, favoring one increasingly with level.
+- Avoid positioning gaps where they force isolated occupied cells.
+- Strongly favor lengths 2–4 and avoid splits that unnecessarily leave a singleton.
+- Retain occasional single-tile blocks and the existing mode-specific preview
+  search and survival checks. Shaped edge trimming can still create short pieces.
+
+This raises density and reduces flexible one-cell fillers by the same spawning
+rules across all modes; each mode's distinct mechanics still affect play balance.
+The rules below describe Classic's board-aware selection in both difficulties.
+
+### Optional Totems
+
+Totems use a Spawn Totems checkbox shared by both modes. They default to On;
+switching the setting restarts the game and persists across modes and reloads.
+When On, one vertical Totem can drop after a turn, provided the highest stack and
+board outline allow a clear entry path. Totems retain their top-edge row blasts.
+
+Enabling Totems keeps the base mode's board-aware row selection. Shared collision,
+gravity and clearing routines handle vertical pieces in live turns and search.
+Top-edge blasts in search use repeatable representative targets without consuming
+the live RNG; actual turns choose random occupied rows. Search does not predict
+future drops or every blast outcome. Shaped rises can trim Totem segments.
+
 `generateRowCandidate` is the random candidate factory and builds the four starting rows.
 The level influence now caps at level 11 to prevent the distribution from
 eventually collapsing toward almost exclusively one-gap rows. Sampling is bounded,
@@ -59,7 +93,7 @@ not yet resolved the incoming row's cascades at that point.
 
 ### Limits and tuning
 
-- `js/board.js`: shared gravity, slides, row insertion, immediate settling, and
+- `js/board.js`: shared gravity, slides, row insertion, immediate settling, Totem activation, and
   level calculation. Setup and search reuse the same rules as live turns.
 - `js/spawn.js`: candidate generation, move search, evaluation, and weighted
   selection. `SEARCH`, `DIFFICULTY`, and `SCORE` hold the tuning constants.
@@ -67,7 +101,7 @@ not yet resolved the incoming row's cascades at that point.
   and committing the displayed preview. The engine owns base-state resets.
   Every preview goes through `generateNextRow`; there is no legacy random-preview
   path or compatibility alias.
-- `js/modes.js`: Classic's turn order; `js/engine.js`: headless command validation
+- `js/turn.js`: shared turn order and optional Totem drops; `js/engine.js`: headless command validation
   and detached event snapshots. Visual playback does not drive spawning or rules.
 
 When no surviving preparation move exists, the selector returns a valid random

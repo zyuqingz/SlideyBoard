@@ -2,9 +2,10 @@ import { H } from './theme.js';
 
 export const POP_X = 145;
 export const POP_W = 460;
-export const POP_BTN = { x: 225, w: 300, h: 72 };
+export const POP_BTN = { x: 185, w: 380, h: 72 };
+export const MODE_RESUME_BTN = { x: 245, w: 260, h: 58 };
 
-const SHAPE_CONTROL_H = 116;
+const SHAPE_CONTROL_H = 100;
 const MODE_TITLE_Y = 56;
 const MODE_FIRST_BTN_Y = 104;
 const MODE_BTN_STEP = 84;
@@ -26,21 +27,26 @@ export function modePopup(modes = []) {
   const last = buttons[buttons.length - 1];
   const shapedBtn = shapedIndex >= 0 ? buttons[shapedIndex] : null;
   const control = shapedBtn
-    ? { x: 185, y: shapedBtn.y + shapedBtn.h + 32, w: 380, h: 60 }
+    ? { x: 285, y: shapedBtn.y + shapedBtn.h + 32, w: 280, h: 60 }
     : null;
+  const modesBottom = Math.max(last.y + last.h, control ? control.y + control.h : 0);
+  const dividerY = modesBottom + 28;
+  const difficulty = { ...POP_BTN, y: dividerY + 40, h: 60 };
+  const totems = { x: difficulty.x, y: difficulty.y + difficulty.h + 16, w: difficulty.w, h: 60 };
   const resume = {
-    x: 245,
-    y: Math.max(last.y + last.h, control ? control.y + control.h + 28 : 0) + 14,
-    w: 260,
-    h: 58
+    ...MODE_RESUME_BTN,
+    y: totems.y + totems.h + 28
   };
   const h = resume.y + resume.h + MODE_PAD_BOTTOM;
   const y = Math.round((H - h) / 2);
   return {
     card: { x: POP_X, y, w: POP_W, h },
     titleY: y + MODE_TITLE_Y,
+    dividerY: y + dividerY,
     buttons: buttons.map(b => placeY(b, y)),
     control: placeY(control, y),
+    difficulty: placeY(difficulty, y),
+    totems: placeY(totems, y),
     resume: placeY(resume, y)
   };
 }
@@ -51,3 +57,5 @@ export const modeButton = (index, modes = []) => {
 };
 export const shapeControl = modes => modePopup(modes).control;
 export const modeResume = modes => modePopup(modes).resume;
+export const difficultyControl = modes => modePopup(modes).difficulty;
+export const totemControl = modes => modePopup(modes).totems;

@@ -4,7 +4,7 @@ import { createEngine } from '../js/engine.js';
 import { classic } from '../js/modes.js';
 import { COLS, ROWS, buildGrid, fullRows, slideRange, touchingTop } from '../js/board.js';
 import { createState, createTurnScore, awardRows, rise, setupClassic } from '../js/sim.js';
-import { computeGravity, removeByIds } from '../js/board.js';
+import { computeGravity } from '../js/board.js';
 
 function seeded(seed) {
   return () => { seed = Math.imul(seed, 1664525) + 1013904223 | 0; return (seed >>> 0) / 4294967296; };
@@ -44,7 +44,7 @@ test('mode resets isolate best scores and options and reject invalid setup witho
   assert.equal(engine.reset('shaped', config).bestAtStart, 700);
   config.modeOptions.shapeId = 'corridor';
   assert.equal(engine.reset().shape.id, 'diamond');
-  assert.equal(engine.reset('totem').best, 0);
+  assert.throws(() => engine.reset('totem'), /Unknown game mode/);
   assert.equal(engine.reset('classic').best, 12345);
   const shaped = engine.reset('shaped');
   assert.equal(shaped.best, 700);
@@ -143,7 +143,7 @@ test('snapshots and events cannot mutate engine state or each other', () => {
 test('the default mode is Shaped and Classic is last in the menu', () => {
   const engine = createEngine({ random: () => 0.5 });
   assert.equal(engine.snapshot().mode, 'shaped');
-  assert.deepEqual(engine.modes.map(m => m.id), ['shaped', 'totem', 'classic']);
+  assert.deepEqual(engine.modes.map(m => m.id), ['shaped', 'classic']);
 });
 
 test('a new mode owns its turn policy and is discoverable without renderer changes', () => {
@@ -171,7 +171,7 @@ function legacyTurn(state, command, random) {
       computeGravity(state);
       const rows = fullRows(state);
       if (!rows.length) return;
-      removeByIds(state, new Set(state.blocks.filter(b => rows.includes(b.row)).map(b => b.id)));
+      state.blocks = state.blocks.filter(b => !rows.includes(b.row));
       awardRows(state, rows, turn);
     }
   }
@@ -206,7 +206,9 @@ test('seeded multi-turn games match the previous Classic rules exactly', () => {
       const command = choices[(turn * 7) % choices.length];
       legacyTurn(expected, command, random);
       const result = engine.dispatch(command);
-      assert.deepEqual(result.state, expected, `seed ${seed}, turn ${turn}`);
+      const { gameOverReason, ...actual } = result.state;
+      if (expected.phase === 'over') assert.equal(gameOverReason, 'top-out');
+      assert.deepEqual(actual, expected, `seed ${seed}, turn ${turn}`);
       assert.equal(fullRows(result.state).length, 0);
       const grid = buildGrid(result.state);
       assert.equal(grid.flat().filter(Boolean).length, result.state.blocks.reduce((n, b) => n + b.len, 0));

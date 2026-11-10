@@ -1,11 +1,13 @@
 // Bounded preview search specific to trimming, ledges, and shorter row clears.
-import { ROWS, COLOR_GROUPS, touchingTop } from './board.js';
-import { copyShapedBoard, shapedSlideRange, insertShapedRow, settleShapedBoard } from './shaped-board.js';
+import { ROWS, COLOR_GROUPS, touchingTop, copyBoard, slideRange, heightOf } from './board.js';
+import { insertShapedRow, settleShapedBoard } from './shaped-board.js';
+import { generateHardRow } from './difficulty.js';
 
 const ATTEMPTS = 12, PREPARATIONS = 3;
 
 export function generateShapedCandidate(state, random) {
   const { left, right } = state.shape.rows[ROWS - 1];
+  if (state.difficulty === 'hard') return generateHardRow(state.level, random, left, right);
   const columns = Array.from({ length: right - left }, (_, i) => left + i);
   const gapCount = 1 + Math.floor(random() * Math.min(4, columns.length - 1));
   const gaps = new Set();
@@ -29,16 +31,16 @@ export function generateShapedCandidate(state, random) {
 
 function quality(board) {
   const height = Math.max(0, ...board.blocks.map(b => ROWS - b.row));
-  return -height * 4 - board.blocks.reduce((sum, b) => sum + b.len, 0) * 0.2;
+  return -height * 4 - board.blocks.reduce((sum, b) => sum + b.len * heightOf(b), 0) * 0.2;
 }
 
 function responses(board) {
   const outcomes = [];
   for (const [index, b] of board.blocks.entries()) {
-    const [min, max] = shapedSlideRange(board, b);
+    const [min, max] = slideRange(board, b);
     for (let col = min; col <= max; col++) {
       if (col === b.col) continue;
-      const next = copyShapedBoard(board);
+      const next = copyBoard(board);
       next.blocks[index].col = col;
       const cleared = settleShapedBoard(next);
       if (!touchingTop(next)) outcomes.push({ board: next,
@@ -49,7 +51,7 @@ function responses(board) {
 }
 
 export function generateShapedNextRow(state, random) {
-  const settled = copyShapedBoard(state);
+  const settled = copyBoard(state);
   settleShapedBoard(settled);
   const preparations = responses(settled).slice(0, PREPARATIONS);
   if (!preparations.length) return generateShapedCandidate(state, random);
@@ -58,7 +60,7 @@ export function generateShapedNextRow(state, random) {
     const row = generateShapedCandidate(state, random);
     let value = -Infinity, playable = false;
     for (const prep of preparations) {
-      const next = copyShapedBoard(prep.board);
+      const next = copyBoard(prep.board);
       insertShapedRow(next, row);
       const cleared = settleShapedBoard(next);
       const moves = responses(next);

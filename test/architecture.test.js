@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 test('the engine dependency graph cannot reach visual modules or browser APIs', async () => {
-  const allowed = new Set(['engine.js', 'modes.js', 'sim.js', 'board.js', 'spawn.js',
+  const allowed = new Set(['engine.js', 'modes.js', 'sim.js', 'board.js', 'spawn.js', 'difficulty.js',
     'shapes.js', 'shaped-board.js', 'shaped-spawn.js', 'shaped-mode.js',
-    'totem-board.js', 'totem-spawn.js', 'totem-mode.js']);
+    'totem-spawn.js', 'turn.js']);
   const seen = new Set();
   async function visit(name) {
     if (seen.has(name)) return;
@@ -25,17 +25,16 @@ test('presentation modules cannot import the engine or turn policies', async () 
   for (const name of ['presenter.js', 'input.js', 'render.js', 'canvas-layout.js', 'canvas-draw.js',
     'overlay-render.js', 'theme.js', 'fx.js', 'score-fx.js', 'drag.js', 'mode-popup.js', 'settings-popup.js', 'i18n.js', 'audio.js']) {
     const source = await readFile(new URL(`../js/${name}`, import.meta.url), 'utf8');
-    assert.doesNotMatch(source, /from\s*['"].*\/(engine|modes|sim|spawn|shapes|shaped-board|shaped-spawn|shaped-mode|totem-board|totem-spawn|totem-mode)\.js['"]/);
+    assert.doesNotMatch(source, /from\s*['"].*\/(engine|modes|sim|spawn|shapes|shaped-board|shaped-spawn|shaped-mode|totem-spawn|turn|difficulty)\.js['"]/);
     const boardImport = source.match(/import\s*\{([^}]+)\}\s*from\s*['"]\.\/board\.js['"]/);
     if (boardImport) for (const field of boardImport[1].split(',').map(s => s.trim()))
       assert.ok(['COLS', 'ROWS', 'COLOR_GROUPS'].includes(field), `${name} imports a rule: ${field}`);
   }
 });
 
-test('Classic primitives and spawn policy have no dependency on other mode rules', async () => {
+test('shared primitives and Classic spawn policy have no dependency on mode policies', async () => {
   for (const name of ['board.js', 'sim.js', 'spawn.js']) {
     const source = await readFile(new URL(`../js/${name}`, import.meta.url), 'utf8');
     assert.doesNotMatch(source, /from\s*['"].*\/(shapes|shaped-[^/]+|totem-[^/]+)\.js['"]/);
-    assert.doesNotMatch(source, /\bstate\.shape\b|\bboard\.shape\b/);
   }
 });

@@ -43,7 +43,44 @@ function drawIcon(icon, cx, cy, size = 50, light = 0) {
   ctx.restore();
 }
 
-function drawBlock(b, v, hover = 0) {
+const CEILING_WARN = '#6b1218';
+
+function drawCeilingWarn(b, v, x, y, shape) {
+  if ((b.height ?? 1) > 1) {
+    for (let i = 0; i < b.height; i++)
+      drawCeilingWarn({ ...b, row: b.row + i, height: 1 }, { ...v, vy: v.vy + i }, x, y + i * CELL, shape);
+    return;
+  }
+  if (!shape || b.row <= 0 || v.vy !== b.row || v.clearing) return;
+  const { left, right } = shape.rows[b.row - 1];
+  ctx.strokeStyle = CEILING_WARN;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  let run = 0;
+  const flush = start => {
+    if (run <= 0) return;
+    ctx.lineWidth = 4;
+    const rx = x + (start - v.vx) * CELL;
+    const w = run * CELL - 2 * PAD, h = CELL - 2 * PAD;
+    rr(rx, y, w, h, BLOCK_R); ctx.stroke();
+    ctx.lineWidth = 6;
+    for (let c = start; c < start + run; c++) {
+      const ax = x - PAD + (c - v.vx + 0.5) * CELL;
+      const ay = y - PAD + 14;
+      ctx.beginPath(); ctx.moveTo(ax - 13, ay + 10); ctx.lineTo(ax, ay);
+      ctx.lineTo(ax + 13, ay + 10); ctx.stroke();
+    }
+    run = 0;
+  };
+  for (let i = 0; i < b.len; i++) {
+    const c = v.vx + i;
+    if (c + 0.5 >= left && c + 0.5 < right) { flush(v.vx + i - run); continue; }
+    run++;
+  }
+  flush(v.vx + b.len - run);
+}
+
+function drawBlock(b, v, hover = 0, shape = null) {
   if (v.s <= 0) return;
   const lift = v.lift;
   const x = BX + v.vx * CELL + PAD, y = layout.BY + v.vy * CELL + PAD;
@@ -78,10 +115,6 @@ function drawBlock(b, v, hover = 0) {
       rr(x + w * 0.65, sy + 20, 9, 10, 3); ctx.fill();
       rr(x + w * 0.32, sy + 39, w * 0.36, 6, 3); ctx.fill();
     }
-    if (lift > 0) {
-      ctx.strokeStyle = `rgba(255,255,255,${0.6 * lift})`; ctx.lineWidth = 3;
-      rr(x + 1.5, sy + 1.5, w - 3, cellH - 3, BLOCK_R - 1); ctx.stroke();
-    }
     if (v.flash > 0) {
       ctx.fillStyle = `rgba(255,255,255,${Math.min(0.85, 0.85 * v.flash)})`;
       rr(x, sy, w, cellH, BLOCK_R); ctx.fill();
@@ -93,6 +126,7 @@ function drawBlock(b, v, hover = 0) {
       rr(x + 2, sy + 2, w - 4, cellH - 4, BLOCK_R - 1); ctx.stroke();
     }
   }
+  drawCeilingWarn(b, v, x, y, shape);
   ctx.restore();
 }
 
@@ -176,9 +210,8 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   if (!present.scoreFx && !state.hasMoved && state.phase !== 'over') {
     const a = 0.55 + 0.25 * Math.sin(now / 400);
     ctx.globalAlpha = a;
-    text(state.shape ? t('hintShaped')
-      : state.mode === 'totem' ? t('hintTotem') : t('hintClassic'),
-      W / 2, COMBO_Y + 6, state.shape || state.mode === 'totem' ? 25 : 30, '#9c89a8', 'center', 700);
+    text(state.totemsEnabled ? t('hintTotem') : state.shape ? t('hintShaped') : t('hintClassic'),
+      W / 2, COMBO_Y + 6, state.shape || state.totemsEnabled ? 25 : 30, '#9c89a8', 'center', 700);
     ctx.globalAlpha = 1;
   }
 
@@ -246,8 +279,11 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
       ctx.rect(BX + left * CELL, BY + r * CELL, (right - left) * CELL, CELL);
   } else ctx.rect(BX - 10, BY - 40, BW + 20, BH + 40);
   ctx.clip();
-  for (const b of state.blocks) if (b.id !== drag?.blockId)
-    drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id));
+  const warnShape = state.phase === 'play' ? state.shape : null;
+  const aboveBoard = b => b.id === drag?.blockId || viewOf(b).lift > 0
+    || hoverOf(present, 'block:' + b.id) > 0;
+  for (const b of state.blocks) if (!aboveBoard(b))
+    drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape);
   if (dragged) {
     const x = BX + drag.col0 * CELL;
     const y = BY + dragged.row * CELL;
@@ -256,27 +292,11 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
     for (let i = 0; i < (dragged.height ?? 1); i++) {
       rr(x + PAD, y + PAD + i * CELL, dragged.len * CELL - 2 * PAD, CELL - 2 * PAD, BLOCK_R); ctx.stroke();
     }
-    drawBlock(dragged, viewOf(dragged), hoverOf(present, 'block:' + dragged.id));
-  }
-  // Bold amber chevrons preview exposure at the next upward boundary.
-  // Sliding/falling may change that exposure before the rise resolves.
-  if (state.shape && state.phase === 'play') {
-    ctx.strokeStyle = 'rgba(255,207,126,0.95)'; ctx.lineWidth = 6;
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    for (const b of state.blocks) {
-      const v = viewOf(b);
-      if (b.row <= 0 || v.vy !== b.row || v.clearing) continue;
-      const { left, right } = state.shape.rows[b.row - 1];
-      const col = drag?.blockId === b.id ? drag.target : b.col;
-      for (let c = col; c < col + b.len; c++) {
-        if (c >= left && c < right) continue;
-        const x = BX + (c + 0.5) * CELL, y = BY + b.row * CELL + 14;
-        ctx.beginPath(); ctx.moveTo(x - 13, y + 10); ctx.lineTo(x, y);
-        ctx.lineTo(x + 13, y + 10); ctx.stroke();
-      }
-    }
   }
   ctx.restore();
+  // Lifted and hovered tiles draw above the board silhouette so scale is not clipped.
+  for (const b of state.blocks) if (aboveBoard(b))
+    drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape);
 
   ctx.globalAlpha = 1;
   effects.eachParticle(p => {
@@ -289,7 +309,7 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   ctx.fillStyle = C.panel;
   rr(PANEL.x, PANEL.y, PANEL.w, PANEL.h, PANEL_R); ctx.fill();
   text(state.shape ? `${modeLabel(state.shape.id, state.shape.label)} · ${t('nextRow')}`
-    : state.mode === 'totem' ? t('totemNext') : t('nextRow'),
+    : t('nextRow'),
     W / 2, PANEL.y + NEXT_BASELINE, NEXT_SIZE, C.muted, 'center', 800);
   ctx.fillStyle = C.slot;
   const bottom = state.shape?.rows[ROWS - 1] ?? { left: 0, right: COLS };
