@@ -1,0 +1,9 @@
+Kenney audio (www.kenney.nl), Creative Commons CC0 1.0
+http://creativecommons.org/publicdomain/zero/1.0/
+
+Interface Sounds — click
+RPG Audio — handleSmallLeather (pickup)
+Impact Sounds — impactWood_light, impactSoft_medium, impactSoft_heavy
+Casino Audio — cardSlide, cardShove, chipsStack
+
+Support: http://support.kenney.nl

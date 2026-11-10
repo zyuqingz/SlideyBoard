@@ -1,0 +1,88 @@
+# Row spawning
+
+## Previous behavior
+
+The previous spawner independently picked 1–5 empty columns and divided the remaining
+cells into blocks 1–4 cells wide. Both gap count and block length were weighted by
+level. At level 1 the gap-count weights were 3/22/34/28/13, so three empty cells
+were most common. Higher levels increasingly favored dense rows and long blocks.
+Colors were cosmetic, with different colors for adjoining blocks.
+
+There was no board inspection, move search, or playability check.
+
+## Block Blast reference
+
+- [Hungry Studio's official App Store description](https://apps.apple.com/us/app/block-blast/id1617391485)
+  describes planning placements, clearing rows/columns, and chasing combos on an
+  8×8 board. It does not disclose piece-generation rules.
+- [NextBigGames' industry analysis (November 2025)](https://nextbiggames.com/2025/11/19/how-block-blast-by-hungry-studio-dominated-the-block-puzzle-genre/)
+  reports behavior-adaptive rules, extensive algorithm experiments, and a
+  simulation tool used to evaluate gameplay. This is secondary reporting, not
+  source code or a specification of its live spawner.
+
+The transferable design idea is to evaluate possible gameplay rather than deal
+pieces blindly. Slidey's algorithm below is an original, bounded-search
+adaptation for sliding blocks, gravity, and rising rows. Its weights and search
+limits are our tuning choices, not verified Block Blast parameters. It does not
+assume that Block Blast always supplies solvable pieces.
+
+## Current behavior
+
+`generateRowCandidate` is the random candidate factory and builds the four starting rows.
+The level influence now caps at level 11 to prevent the distribution from
+eventually collapsing toward almost exclusively one-gap rows. Sampling is bounded,
+including with deterministic random sources.
+
+`generateNextRow(state, random)` selects every preview, including the initial preview:
+
+1. Clone and settle the board, including any pending clears. Account for pending
+   level changes. Never mutate blocks, scores, IDs, or animation state in search.
+2. Enumerate legal next slides and retain four promising surviving outcomes.
+   This models the actual timing: the player moves **before** the preview rises.
+3. Generate up to 20 random candidates, deduplicated by geometry and color.
+4. For each candidate and preparation, simulate the rise, gravity, and cascades;
+   then try every legal response slide and settle it too.
+5. Favor earned clears, multi-line cascades, more surviving move choices, lower
+   stacks, and fewer holes beneath blocks. Automatic clears get a smaller reward.
+6. Below three cleared lines, favor accessible clears more strongly. At seven or
+   more occupied rows of height, mix in level-1 candidates and increase the
+   importance of recovery and reducing stack height.
+7. If any candidate has a surviving continuation in the search, exclude candidates
+   without one. Penalize a repeat of the previous preview, including its colors.
+8. Randomly choose among the best five candidates (three under pressure), weighted
+   toward higher scores. The game remains variable, rather than always dealing
+   the single easiest row.
+
+The displayed preview is committed: `rise` inserts it exactly as shown and chooses
+only the following preview. Search settles a copy because the logical turn has
+not yet resolved the incoming row's cascades at that point.
+
+### Limits and tuning
+
+- `js/board.js`: shared gravity, slides, row insertion, immediate settling, and
+  level calculation. Setup and search reuse the same rules as live turns.
+- `js/spawn.js`: candidate generation, move search, evaluation, and weighted
+  selection. `SEARCH`, `DIFFICULTY`, and `SCORE` hold the tuning constants.
+- `js/sim.js`: game state creation, scoring, Classic opening setup (`setupClassic`),
+  and committing the displayed preview. The engine owns base-state resets.
+  Every preview goes through `generateNextRow`; there is no legacy random-preview
+  path or compatibility alias.
+- `js/modes.js`: Classic's turn order; `js/engine.js`: headless command validation
+  and detached event snapshots. Visual playback does not drive spawning or rules.
+
+When no surviving preparation move exists, the selector returns a valid random
+candidate without simulating an impossible no-op turn. Dead-end penalties apply
+only to missing responses, rather than clamping the scores of difficult but
+survivable responses.
+
+The search considers four preparation moves, one incoming row, and one response.
+It can miss deeper solutions and does not guarantee survival after an arbitrary
+player move. If no sampled candidate has a surviving continuation, it still
+returns a valid row. Starting rows retain their random layout; their preview is
+board-aware. High-score history is not an input to difficulty.
+
+Candidate count, preparation count, scoring weights, and shortlist size are in
+`js/spawn.js` next to the search. Run `npm test` to verify board invariants, preview
+commitment, deterministic generation, state isolation, and surviving continuations
+on seeded opening/recovery fixtures. These checks verify behavior, not subjective
+difficulty or long-session balance; those still benefit from playtesting.
