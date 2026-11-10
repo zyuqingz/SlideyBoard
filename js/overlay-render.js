@@ -119,10 +119,10 @@ export function drawOverlays(now, state, present, modes, shapeSelection) {
     ctx.strokeStyle = '#43374c'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(pop.difficulty.x, pop.dividerY);
     ctx.lineTo(pop.difficulty.x + pop.difficulty.w, pop.dividerY); ctx.stroke();
-    const hard = state.difficulty === 'hard';
+    const normal = state.difficulty === 'normal';
     text(t('difficulty'), pop.difficulty.x, pop.difficulty.y - 14, 16, C.muted, 'left');
-    drawSelector(pop.difficulty, t(hard ? 'hard' : 'normal'), hoverOf(present, 'btn:difficulty'),
-      hard ? '#b83242' : C.panel, hard ? C.white : '#c5adc9', hard ? '#db5363' : '#43374c');
+    drawSelector(pop.difficulty, t(normal ? 'normal' : 'easy'), hoverOf(present, 'btn:difficulty'),
+      normal ? '#b83242' : C.panel, normal ? C.white : '#c5adc9', normal ? '#db5363' : '#43374c');
     drawCheckbox(pop.totems, t('totems'), state.totemsEnabled, hoverOf(present, 'btn:totems'));
     drawButton(pop.resume, t('resume'), COLORS[1], 28, hoverOf(present, 'btn:mode-resume'));
   }

@@ -3,7 +3,7 @@ import {
   COLS, ROWS, COLOR_GROUPS, buildGrid, copyBoard, insertRow, levelForLines,
   settleBoard, slideRange, touchingTop
 } from './board.js';
-import { generateHardRow } from './difficulty.js';
+import { generateNormalRow } from './difficulty.js';
 
 // Search budget and difficulty tuning live together; no hidden per-player state.
 const SEARCH = Object.freeze({
@@ -56,8 +56,8 @@ function rowWeights(level) {
 
 // Used for opening rows and as input to the preview search, never as a second
 // preview policy. Sampling without replacement guarantees bounded RNG calls.
-export function generateRowCandidate(level, random = Math.random, difficulty = 'normal') {
-  if (difficulty === 'hard') return generateHardRow(level, random);
+export function generateRowCandidate(level, random = Math.random, difficulty = 'easy') {
+  if (difficulty === 'normal') return generateNormalRow(level, random);
   const weights = rowWeights(level);
   const gapCount = weightedIndex(random, weights.gaps) + 1;
   const columns = Array.from({ length: COLS }, (_, i) => i);

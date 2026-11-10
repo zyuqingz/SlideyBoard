@@ -385,10 +385,11 @@ test('totem activation and replacement drop animate to the authoritative state a
   }
 });
 
-test('partial totem clears animate only removed cells and rebuild a visible shorter totem', async () => {
+function detachedTotemSetup() {
   const initial = { ...createState(), blocks: [
-    { id: 1, row: 7, col: 8, len: 1, height: 3, kind: 'totem', color: 4 },
-    { id: 2, row: 9, col: 0, len: 8, color: 0 }] };
+    { id: 1, row: 7, col: 7, len: 2, height: 3, kind: 'totem', color: 4,
+      cells: [{ row: 0, col: 1 }, { row: 1, col: 1 }, { row: 2, col: 0 }, { row: 2, col: 1 }] },
+    { id: 2, row: 9, col: 0, len: 7, color: 0 }] };
   const final = structuredClone(initial);
   const geometry = clearTotemRows(final, [9]);
   const cleared = structuredClone(final);
@@ -400,18 +401,72 @@ test('partial totem clears animate only removed cells and rebuild a visible shor
   ] };
   const presenter = createPresenter();
   presenter.reset(initial);
+  return { presenter, initial, result };
+}
+
+test('only in-row Totem cells flash; off-row faces detach and burst independently', async () => {
+  const { presenter, result } = detachedTotemSetup();
+  const saved = structuredClone(result);
   const done = presenter.play(result);
-  const segments = presenter.state.blocks.filter(b => b.kind === 'totem');
-  assert.equal(segments.length, 3);
-  for (const b of segments) assert.equal(presenter.viewOf(b).clearing, b.row === 9);
+  const pieces = presenter.state.blocks.filter(b => b.kind === 'totem');
+  assert.equal(pieces.length, 4);
+  for (const b of pieces) assert.equal(presenter.viewOf(b).clearing, b.row === 9);
+  const offRow = pieces.filter(b => b.row !== 9);
+  await advance(presenter, 100);
+  for (const b of offRow) {
+    assert.equal(presenter.viewOf(b).flash, 0);
+    assert.equal(presenter.viewOf(b).s, 1);
+    assert.equal(presenter.viewOf(b).vy, b.row);
+  }
+  assert.ok(pieces.filter(b => b.row === 9).every(b => presenter.viewOf(b).flash > 0));
+  await advance(presenter, 170);
+  for (const b of offRow) {
+    const v = presenter.viewOf(b);
+    assert.equal(v.flash, 0);
+    assert.equal(v.s, 1);
+    assert.equal(v.detached, true);
+    assert.notEqual(v.vx, b.col);
+    assert.notEqual(v.vy, b.row);
+    assert.notEqual(v.rotation, 0);
+  }
+  let bursts = 0;
+  const spawn = presenter.effects.spawnParticle;
+  presenter.effects.spawnParticle = fields => { bursts++; spawn(fields); };
+  await advance(presenter, 400);
+  assert.ok(bursts > offRow.length * 3, 'detached faces use a denser burst than ordinary blocks');
+  for (const b of offRow) {
+    assert.equal(presenter.viewOf(b).s, 0);
+    assert.ok(presenter.viewOf(b).vy > b.row, 'gravity brings the tumbling face below its launch position');
+  }
   await drain(presenter);
   assert.equal(await done, true);
-  const survivor = presenter.state.blocks[0];
-  assert.equal(survivor.height, 2);
-  assert.equal(survivor.row, 8);
-  assert.equal(presenter.viewOf(survivor).s, 1);
-  assert.equal(presenter.viewOf(survivor).clearing, false);
-  assert.equal(presenter.viewOf(survivor).vy, 8);
+  assert.deepEqual(presenter.state.blocks, []);
+  assert.deepEqual(result, saved);
+});
+
+test('detached Totem playback pauses, cancels cleanly, and matches at fast speeds', async () => {
+  for (const step of [16, 250, 1000]) {
+    const { presenter, result } = detachedTotemSetup();
+    const done = presenter.play(result);
+    await drain(presenter, step);
+    assert.equal(await done, true);
+    assert.deepEqual(presenter.state, result.state);
+  }
+  const { presenter, initial, result } = detachedTotemSetup();
+  const done = presenter.play(result);
+  await advance(presenter, 270);
+  const debris = presenter.state.blocks.find(b => b.kind === 'totem' && b.row === 7);
+  const before = { ...presenter.viewOf(debris) };
+  presenter.present.menu = 'pause';
+  await advance(presenter, 1000);
+  assert.deepEqual(presenter.viewOf(debris), before);
+  presenter.reset(initial);
+  await advance(presenter, 1000);
+  assert.equal(await done, false);
+  assert.deepEqual(presenter.state, initial);
+  let particles = 0;
+  presenter.effects.eachParticle(() => particles++);
+  assert.equal(particles, 0);
 });
 
 test('totem playback pauses and reset cancels activation, clear, and incoming-drop continuations', async () => {

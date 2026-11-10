@@ -1,6 +1,7 @@
 // Board, HUD and effects drawing. Reads state. Does not change the board.
 
 import { COLS, ROWS } from './board.js';
+import { facesOf } from './block-geometry.js';
 import { W, CELL, PAD, BX, BW, BH, COLORS, C, FONT } from './theme.js';
 import { Ease } from './fx.js';
 import { t, modeLabel } from './i18n.js';
@@ -46,12 +47,14 @@ function drawIcon(icon, cx, cy, size = 50, light = 0) {
 const CEILING_WARN = '#6b1218';
 
 function drawCeilingWarn(b, v, x, y, shape) {
-  if ((b.height ?? 1) > 1) {
-    for (let i = 0; i < b.height; i++)
-      drawCeilingWarn({ ...b, row: b.row + i, height: 1 }, { ...v, vy: v.vy + i }, x, y + i * CELL, shape);
+  if (b.kind === 'totem') {
+    for (const face of facesOf(b))
+      drawCeilingWarn({ ...b, kind: 'face', row: b.row + face.row, len: 1, height: 1 },
+        { ...v, vx: v.vx + face.col, vy: v.vy + face.row },
+        x + face.col * CELL, y + face.row * CELL, shape);
     return;
   }
-  if (!shape || b.row <= 0 || v.vy !== b.row || v.clearing) return;
+  if (!shape || b.row <= 0 || v.vy !== b.row || v.clearing || v.detached) return;
   const { left, right } = shape.rows[b.row - 1];
   ctx.strokeStyle = CEILING_WARN;
   ctx.lineJoin = 'round';
@@ -87,6 +90,11 @@ function drawBlock(b, v, hover = 0, shape = null) {
   const w = b.len * CELL - 2 * PAD, h = (b.height ?? 1) * CELL - 2 * PAD;
   const scale = v.s * (1 + 0.07 * hover);
   ctx.save();
+  if (v.rotation) {
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.rotate(v.rotation);
+    ctx.translate(-(x + w / 2), -(y + h / 2));
+  }
   if (scale !== 1) {
     ctx.translate(x + w / 2, y + h / 2);
     ctx.scale(scale, scale);
@@ -98,32 +106,34 @@ function drawBlock(b, v, hover = 0, shape = null) {
   }
   if (lift > 0) {
     ctx.fillStyle = `rgba(0,0,0,${0.3 * lift})`;
-    for (let i = 0; i < (b.height ?? 1); i++) {
-      rr(x + 2 * lift, y + i * CELL + 6 * lift, w, CELL - 2 * PAD, BLOCK_R); ctx.fill();
+    for (const face of facesOf(b)) {
+      rr(x + face.col * CELL + 2 * lift, y + face.row * CELL + 6 * lift,
+        face.len * CELL - 2 * PAD, CELL - 2 * PAD, BLOCK_R); ctx.fill();
     }
     ctx.translate(0, -14 * lift);
   }
   // Each face uses exactly the same cell bounds and gaps as a normal block.
   // Apply highlights per cell too, so animation never draws an outer container.
-  for (let i = 0; i < (b.height ?? 1); i++) {
-    const sy = y + i * CELL, cellH = CELL - 2 * PAD;
+  for (const face of facesOf(b)) {
+    const sx = x + face.col * CELL, sy = y + face.row * CELL;
+    const faceW = face.len * CELL - 2 * PAD, cellH = CELL - 2 * PAD;
     ctx.fillStyle = b.kind === 'totem' ? '#e9ba78' : COLORS[b.color];
-    rr(x, sy, w, cellH, BLOCK_R); ctx.fill();
+    rr(sx, sy, faceW, cellH, BLOCK_R); ctx.fill();
     if (b.kind === 'totem') {
       ctx.fillStyle = '#583d37';
-      rr(x + w * 0.22, sy + 20, 9, 10, 3); ctx.fill();
-      rr(x + w * 0.65, sy + 20, 9, 10, 3); ctx.fill();
-      rr(x + w * 0.32, sy + 39, w * 0.36, 6, 3); ctx.fill();
+      rr(sx + faceW * 0.22, sy + 20, 9, 10, 3); ctx.fill();
+      rr(sx + faceW * 0.65, sy + 20, 9, 10, 3); ctx.fill();
+      rr(sx + faceW * 0.32, sy + 39, faceW * 0.36, 6, 3); ctx.fill();
     }
     if (v.flash > 0) {
       ctx.fillStyle = `rgba(255,255,255,${Math.min(0.85, 0.85 * v.flash)})`;
-      rr(x, sy, w, cellH, BLOCK_R); ctx.fill();
+      rr(sx, sy, faceW, cellH, BLOCK_R); ctx.fill();
     }
     if (v.danger > 0) {
       ctx.fillStyle = `rgba(40,0,10,${0.45 * v.danger})`;
-      rr(x, sy, w, cellH, BLOCK_R); ctx.fill();
+      rr(sx, sy, faceW, cellH, BLOCK_R); ctx.fill();
       ctx.strokeStyle = `rgba(255,90,70,${v.danger})`; ctx.lineWidth = 4;
-      rr(x + 2, sy + 2, w - 4, cellH - 4, BLOCK_R - 1); ctx.stroke();
+      rr(sx + 2, sy + 2, faceW - 4, cellH - 4, BLOCK_R - 1); ctx.stroke();
     }
   }
   drawCeilingWarn(b, v, x, y, shape);
@@ -255,20 +265,27 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   const dragged = drag && state.blocks.find(b => b.id === drag.blockId);
   if (dragged) {
     ctx.fillStyle = 'rgba(255,255,255,0.06)';
-    for (let r = dragged.row; r < dragged.row + (dragged.height ?? 1); r++)
-      for (let c = drag.min; c < drag.max + dragged.len; c++)
-        ctx.fillRect(BX + c * CELL + 1, BY + r * CELL + 1, CELL - 2, CELL - 2);
+    const corridor = new Set();
+    for (const face of facesOf(dragged))
+      for (let c = drag.min + face.col; c < drag.max + face.col + face.len; c++) {
+        const row = dragged.row + face.row, key = `${row}:${c}`;
+        if (corridor.has(key)) continue;
+        corridor.add(key);
+        ctx.fillRect(BX + c * CELL + 1, BY + row * CELL + 1, CELL - 2, CELL - 2);
+      }
     ctx.fillStyle = COLORS[dragged.color];
     ctx.globalAlpha = 0.18;
     const x = BX + drag.target * CELL + PAD, y = BY + dragged.row * CELL + PAD;
-    for (let i = 0; i < (dragged.height ?? 1); i++) {
-      rr(x, y + i * CELL, dragged.len * CELL - 2 * PAD, CELL - 2 * PAD, BLOCK_R); ctx.fill();
+    for (const face of facesOf(dragged)) {
+      rr(x + face.col * CELL, y + face.row * CELL,
+        face.len * CELL - 2 * PAD, CELL - 2 * PAD, BLOCK_R); ctx.fill();
     }
     ctx.globalAlpha = 1;
     ctx.strokeStyle = 'rgba(255,255,255,0.35)';
     ctx.lineWidth = 2;
-    for (let i = 0; i < (dragged.height ?? 1); i++) {
-      rr(x, y + i * CELL, dragged.len * CELL - 2 * PAD, CELL - 2 * PAD, BLOCK_R); ctx.stroke();
+    for (const face of facesOf(dragged)) {
+      rr(x + face.col * CELL, y + face.row * CELL,
+        face.len * CELL - 2 * PAD, CELL - 2 * PAD, BLOCK_R); ctx.stroke();
     }
   }
 
@@ -280,7 +297,7 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   } else ctx.rect(BX - 10, BY - 40, BW + 20, BH + 40);
   ctx.clip();
   const warnShape = state.phase === 'play' ? state.shape : null;
-  const aboveBoard = b => b.id === drag?.blockId || viewOf(b).lift > 0
+   const aboveBoard = b => b.id === drag?.blockId || viewOf(b).lift > 0 || viewOf(b).detached
     || hoverOf(present, 'block:' + b.id) > 0;
   for (const b of state.blocks) if (!aboveBoard(b))
     drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape);
@@ -289,8 +306,9 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
     const y = BY + dragged.row * CELL;
     ctx.strokeStyle = 'rgba(255,255,255,0.16)';
     ctx.lineWidth = 2;
-    for (let i = 0; i < (dragged.height ?? 1); i++) {
-      rr(x + PAD, y + PAD + i * CELL, dragged.len * CELL - 2 * PAD, CELL - 2 * PAD, BLOCK_R); ctx.stroke();
+    for (const face of facesOf(dragged)) {
+      rr(x + PAD + face.col * CELL, y + PAD + face.row * CELL,
+        face.len * CELL - 2 * PAD, CELL - 2 * PAD, BLOCK_R); ctx.stroke();
     }
   }
   ctx.restore();

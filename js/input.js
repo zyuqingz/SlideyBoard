@@ -1,5 +1,6 @@
 // Browser gestures become grid-space commands. Only presentation data is edited.
 import { COLS, ROWS } from './board.js';
+import { cellsOf } from './block-geometry.js';
 import { CELL, BX } from './theme.js';
 import { followDrag, commitTarget } from './drag.js';
 import { layout, toLogical, toOverlay, hit, GO_RESTART, invalidateCanvas } from './canvas-layout.js';
@@ -61,8 +62,8 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return null;
     const span = presenter.state.shape?.rows[row];
     if (span && (col < span.left || col >= span.right)) return null;
-    return presenter.state.blocks.find(b => row >= b.row && row < b.row + (b.height ?? 1)
-      && col >= b.col && col < b.col + b.len);
+    return presenter.state.blocks.find(b => cellsOf(b)
+      .some(cell => row === b.row + cell.row && col === b.col + cell.col));
   }
 
   function releasePointer(drag) {

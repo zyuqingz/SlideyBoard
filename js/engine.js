@@ -9,7 +9,7 @@ import { GAME_MODES } from './modes.js';
  * from the browser. Supplying the same RNG stream and commands reproduces a game.
  */
 export function createEngine({ best = 0, random = Math.random, modes = GAME_MODES,
-  modeId, modeOptions = {}, difficulty = 'normal', totemsEnabled = false } = {}) {
+  modeId, modeOptions = {}, difficulty = 'easy', totemsEnabled = false } = {}) {
   const registry = new Map(modes.map(mode => [mode.id, mode]));
   modeId = modeId ?? (registry.has('shaped') ? 'shaped' : modes[0]?.id);
   const bests = new Map([[modeId, best]]);

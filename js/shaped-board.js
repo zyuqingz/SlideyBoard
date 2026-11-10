@@ -1,5 +1,6 @@
 // Shaped row insertion trims edges; all collision and clearing rules are shared.
 import { ROWS, rowSpan, settleBoard } from './board.js';
+import { cellsOf } from './block-geometry.js';
 
 // Caller must resolve top-out first. Return pre-trim geometry and discarded cells
 // as facts for presentation; only survivors enter the authoritative board.
@@ -10,13 +11,13 @@ export function insertShapedRow(state, row) {
   const trimmed = [], survivors = [];
   for (const b of blocks) {
     if (b.kind === 'totem') {
-      // Only the top segment enters a new row; lower segments move into cells
-      // this same rigid piece already occupied, so a rise cannot split it.
-      const { left, right } = rowSpan(state, b.row);
-      if (b.col < left || b.col >= right) {
-        trimmed.push({ ...b, height: 1 });
-        if (b.height > 1) survivors.push({ ...b, row: b.row + 1, height: b.height - 1 });
-      } else survivors.push(b);
+      // A rigid Totem never loses individual cells at a narrowing. Trigger its
+      // whole-piece blast before gravity when the outline would cut into it.
+      if (cellsOf(b).some(cell => {
+        const { left, right } = rowSpan(state, b.row + cell.row);
+        return b.col + cell.col < left || b.col + cell.col >= right;
+      })) b.activateOnRise = true;
+      survivors.push(b);
       continue;
     }
     const { left, right } = state.shape.rows[b.row];
@@ -38,7 +39,7 @@ export function settleShapedBoard(state, onStep = () => {}) {
   let cells = 0, lines = 0;
   settleBoard(state, (type, data) => {
     if (type === 'clear') {
-      cells += data.blocks.reduce((sum, b) => sum + b.len, 0);
+      cells += data.blocks.reduce((sum, b) => sum + cellsOf(b).length, 0);
       lines += data.rows.length;
     }
     onStep(type, data);

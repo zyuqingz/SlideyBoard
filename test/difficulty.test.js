@@ -18,11 +18,11 @@ const variants = [
   ...SHAPES.map(shape => ({ id: `shaped/${shape.id}`, shape, generate: generateShapedCandidate }))
 ];
 
-test('Hard substantially reduces singleton frequency in every mode and shape at early and late levels', () => {
+test('Normal substantially reduces singleton frequency in every mode and shape at early and late levels', () => {
   for (const variant of variants) for (const level of [1, 11]) {
     const stats = {};
     const { left, right } = variant.shape?.rows[ROWS - 1] ?? { left: 0, right: COLS };
-    for (const difficulty of ['normal', 'hard']) {
+    for (const difficulty of ['easy', 'normal']) {
       const random = seeded(1234);
       let singles = 0, blocks = 0, cells = 0;
       for (let i = 0; i < 1000; i++) {
@@ -41,28 +41,28 @@ test('Hard substantially reduces singleton frequency in every mode and shape at 
       }
       stats[difficulty] = { rate: singles / blocks, cells };
     }
-    assert.ok(stats.hard.rate < stats.normal.rate * 0.5,
+    assert.ok(stats.normal.rate < stats.easy.rate * 0.5,
       `${variant.id} level ${level}: ${JSON.stringify(stats)}`);
-    assert.ok(stats.hard.cells > stats.normal.cells, `${variant.id}: Hard rows should be denser`);
+    assert.ok(stats.normal.cells > stats.easy.cells, `${variant.id}: Normal rows should be denser`);
   }
 });
 
-test('all modes use identical Hard row policy for identical row spans and RNG', () => {
+test('all modes use identical Normal row policy for identical row spans and RNG', () => {
   const shape = SHAPES.find(shape => shape.id === 'funnel');
   for (const level of [1, 5, 11]) {
-    const state = { level, difficulty: 'hard', shape };
+    const state = { level, difficulty: 'normal', shape };
     const randoms = [seeded(42), seeded(42)];
     for (let i = 0; i < 100; i++) {
-      const classic = generateRowCandidate(level, randoms[0], 'hard');
+      const classic = generateRowCandidate(level, randoms[0], 'normal');
       assert.deepEqual(generateShapedCandidate(state, randoms[1]), classic);
     }
   }
 });
 
-test('Hard is applied to openings and searched previews, and persists across turns, restarts, and modes', () => {
+test('Normal is applied to openings and searched previews, and persists across turns, restarts, and modes', () => {
   for (const modeId of ['classic', 'shaped']) {
     const counts = {};
-    for (const difficulty of ['normal', 'hard']) {
+    for (const difficulty of ['easy', 'normal']) {
       let singles = 0, blocks = 0;
       for (let seed = 1; seed <= 20; seed++) {
         const engine = createEngine({ modeId, difficulty, random: seeded(seed) });
@@ -75,14 +75,14 @@ test('Hard is applied to openings and searched previews, and persists across tur
       }
       counts[difficulty] = singles / blocks;
     }
-    assert.ok(counts.hard < counts.normal * 0.5, `${modeId}: ${JSON.stringify(counts)}`);
+    assert.ok(counts.normal < counts.easy * 0.5, `${modeId}: ${JSON.stringify(counts)}`);
   }
 
-  const engine = createEngine({ difficulty: 'hard', random: seeded(10) });
+  const engine = createEngine({ difficulty: 'normal', random: seeded(10) });
   for (const modeId of ['classic', 'shaped']) {
-    assert.equal(engine.reset(modeId).difficulty, 'hard');
+    assert.equal(engine.reset(modeId).difficulty, 'normal');
     const state = engine.reset();
-    assert.equal(state.difficulty, 'hard');
+    assert.equal(state.difficulty, 'normal');
     const block = state.blocks.find(b => {
       const [min, max] = engine.moveRange(b.id);
       return min !== max;
@@ -91,17 +91,17 @@ test('Hard is applied to openings and searched previews, and persists across tur
     const [min, max] = engine.moveRange(block.id);
     const result = engine.dispatch({ type: 'slide', id: block.id, col: min === block.col ? max : min });
     assert.ok(result.accepted);
-    assert.equal(result.state.difficulty, 'hard');
-    assert.ok(result.events.every(event => event.state.difficulty === 'hard'));
+    assert.equal(result.state.difficulty, 'normal');
+    assert.ok(result.events.every(event => event.state.difficulty === 'normal'));
   }
-  assert.equal(engine.reset(undefined, { difficulty: 'normal' }).difficulty, 'normal');
-  assert.equal(engine.reset('classic').difficulty, 'normal');
+  assert.equal(engine.reset(undefined, { difficulty: 'easy' }).difficulty, 'easy');
+  assert.equal(engine.reset('classic').difficulty, 'easy');
 });
 
-test('Hard generation remains bounded for constant random streams and narrow spans', () => {
+test('Normal generation remains bounded for constant random streams and narrow spans', () => {
   for (const value of [0, 0.5, 0.999999]) for (const variant of variants) {
     let calls = 0;
-    const row = variant.generate({ level: 1, difficulty: 'hard', shape: variant.shape }, () => {
+    const row = variant.generate({ level: 1, difficulty: 'normal', shape: variant.shape }, () => {
       assert.ok(++calls < 100);
       return value;
     });

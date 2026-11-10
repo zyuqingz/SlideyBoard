@@ -1,8 +1,9 @@
-// Shared Hard row geometry for every mode, scaled to its incoming row span.
+// Shared Normal row geometry for every mode, scaled to its incoming row span.
 import { COLS, COLOR_GROUPS } from './board.js';
 
 export function normalizeDifficulty(value) {
-  return value === 'hard' ? 'hard' : 'normal';
+  if (value === 'hard') return 'normal';
+  return value === 'normal' ? 'normal' : 'easy';
 }
 
 function weightedIndex(random, weights) {
@@ -14,7 +15,7 @@ function weightedIndex(random, weights) {
   return weights.length - 1;
 }
 
-export function generateHardRow(level, random, left = 0, right = COLS) {
+export function generateNormalRow(level, random, left = 0, right = COLS) {
   const offset = Math.max(0, Math.min(10, level - 1));
   const gapCount = Math.min(right - left - 1,
     weightedIndex(random, [65 + offset * 2, 35]) + 1);

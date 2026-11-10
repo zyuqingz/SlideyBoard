@@ -24,7 +24,8 @@ owns a separate copy of the state currently on screen, which may trail the engin
 | `js/engine.js` | Authoritative state, base-state reset, command validation, snapshots, per-mode best scores/options |
 | `js/modes.js` | Classic/Shaped registry and Classic's turn adapter |
 | `js/turn.js` | Shared settling, scoring, rescue timing, refills and optional Totem drops |
-| `js/board.js` | Shared rectangular/shaped collision, rigid gravity, segment clears and Totem activation |
+| `js/board.js` | Shared rectangular/shaped collision, rigid gravity, row clears and Totem removal/activation |
+| `js/block-geometry.js` | Occupied-cell and face geometry shared by rules and presentation |
 | `js/sim.js` | State creation, scoring, opening setup, preview commitment |
 | `js/spawn.js` | Classic row generation and board-aware preview search |
 | `js/shapes.js` | Four fixed outlines and per-run random shape selection |
@@ -32,7 +33,7 @@ owns a separate copy of the state currently on screen, which may trail the engin
 | `js/shaped-spawn.js` | Shaped candidate generation and bounded continuation search |
 | `js/shaped-mode.js` | Shape selection, opening and shaped turn adapter |
 | `js/totem-spawn.js` | Optional Totem drop placement, including shaped entry-path checks |
-| `js/difficulty.js` | Shared Hard row geometry and difficulty normalization |
+| `js/difficulty.js` | Shared Normal row geometry and difficulty normalization |
 | `js/presenter.js` | Shown state, animated block views, event playback, playback cancellation |
 | `js/fx.js`, `js/score-fx.js` | Instance-local visual clocks, particles, score feedback |
 | `js/render.js` | Board, HUD and effects drawing; cached paused paints and digit widths |
@@ -79,15 +80,15 @@ omitted values reuse that mode's in-memory values (zero / empty options on its f
 visit). Best scores and options never cross mode boundaries. Setup builds a fresh
 state and publishes it only after the mode hook succeeds.
 
-`difficulty: 'normal' | 'hard'` and `totemsEnabled: boolean` are shared run options,
+`difficulty: 'easy' | 'normal'` and `totemsEnabled: boolean` are shared run options,
 accepted by both `createEngine` and the reset config. Unspecified engine calls
-default to Normal and Totems Off. The browser first run loads Hard and Totems On
-unless `slidey_difficulty` / `slidey_totems` already store a preference. They persist
+default to Easy and Totems Off. The browser first run loads Normal and Totems On
+unless `slidey_difficulty_v2` / `slidey_totems` already store a preference. They persist
 across mode switches/restarts, and are exposed in snapshots.
 The popup groups shared options below a divider, with an arrow selector for
 difficulty and a clickable checkbox row for Totem spawning. Switching either option
 restarts the run while keeping the popup open; browser preferences are saved under
-`slidey_difficulty` and `slidey_totems`.
+`slidey_difficulty_v2` and `slidey_totems`.
 
 `seededRandom` is an injected function returning a number in `[0, 1)`; it defaults
 to `Math.random`. Identical RNG streams and commands reproduce identical results.
@@ -204,50 +205,57 @@ Best scores use the existing `slidey_best_shaped` storage key.
 ### Optional Totems
 
 Totems are an On/Off modifier for both Classic and Shaped, not a registered mode.
-Normal blocks keep `{ row, col, len, color, id }`; totems add `kind: 'totem'` and
-`height: 1..3`, with `len: 1`. Spawned height is 2 or 3; remaining height can be 1
-after a partial clear. `row` is the top segment. A totem moves horizontally
-as one piece; every segment must fit through the movement corridor. Gravity drops
-the whole piece until its bottom segment meets support.
+Normal blocks keep `{ row, col, len, color, id }`; totems add `kind: 'totem'`,
+`height: 2..3`, and `cells: [{ row, col }]` offsets. `row`/`col` are the bounding-box
+origin and `len` is its width. Spawned pieces are four-cell L/J, T, and S/Z shapes
+in 2- or 3-row orientations. They move and clear as one rigid piece. Collision,
+gravity, picking, particles, and rendering use occupied cells, so notches remain
+empty and can contain other blocks. Gravity repeats bottom-up passes to settle
+overhangs whose supports fall later in the traversal.
 
-- After the first accepted turn, drop one uniformly random-height (2 or 3) totem in a
-  randomly selected column occupied by a block in the board's highest occupied
-  row, so it lands directly on the topmost stack. Keep one live totem, replacing
-  it after consumption or complete clearing. If the sampled height cannot fit
-  above that stack with top clearance, defer the drop until a later turn rather
-  than choosing a lower column. An empty board uses the floor as support.
-- On Shaped boards the entire drop path must stay inside playable cells. Defer
-  when no column can reach the highest stack from above without crossing an edge.
-  Horizontal movement checks every segment against its row's span. Rising trims
-  an exposed top segment without score; lower segments enter cells the same piece
-  already occupied, so the remaining Totem stays contiguous.
+- After an accepted turn, sample height 2 or 3 and enumerate that height's shape/
+  column placements. Keep one live totem, replacing it after whole-piece clearing
+  or activation. Every intermediate footprint from above the board must fit the
+  playable outline and avoid other pieces. Landings need one row of top clearance.
+- Settle each candidate on a detached board and reject any that produces a full
+  row. Choose uniformly among safe shape/column placements; if none remain, defer
+  until a later turn. Lower columns beside a higher stack are eligible. A drop
+  cannot trigger a row clear or scoring cascade.
+- On Shaped boards, a rise that would cut into a Totem marks it for whole-piece
+  activation before gravity, preserving its full height and power. The rise event
+  can briefly contain the marked pre-activation footprint outside the outline.
 - The entire starting footprint is above the board and the highest existing
   block. Only the landing snapshot is playable; entering from above never counts
   as top-edge activation. Drops land with at least one row of top clearance.
-- Filled rows count totem cells normally. Each cleared segment removes one unit
-  of height/power. Surviving segments compact against the lowest surviving cell,
-  preserving the logical ID, then gravity resolves. A middle-cell clear never
-  leaves a disconnected totem.
+- Filled rows count occupied Totem cells normally. Clearing any row touching a
+  Totem consumes the whole piece, but only the selected rows clear and score.
+  Its off-row cells become detached debris; neighbouring blocks and other Totems
+  in those rows remain. This also applies to blast targets. Gravity then resolves
+  any resulting falls and ordinary cascades.
 - When a rise pushes a totem to row zero, consume it immediately and remove as
-  many distinct random occupied rows as its remaining height (up to three).
+  many distinct random occupied rows as its height (2 or 3, if available).
   Activation precedes gravity and ordinary top-out, allowing it to rescue a stack.
   Rows cleared by a blast score with the same row/combo/level rules as normal
   clears; consuming the totem itself adds no points.
 - Ordinary top-out keeps the rescue-turn timing: settle the slide and check the
   ceiling before the next rise. Empty boards refill; immovable boards end with
   `no-moves`. The bottom-row preview is committed exactly.
-- Both modes retain their board-aware previews, which now use shared vertical
-  collision and segment-clearing rules. Search simulates top-edge activation with
+- Both modes retain their board-aware previews, which use shared occupied-cell
+  collision and row-clearing/removal rules. Search simulates top/edge activation with
   a deterministic representative blast (`random = () => 0.5`) on detached copies.
   Live blasts use the injected gameplay RNG. Search does not forecast future drops
   or all possible random blast targets, so surviving continuations remain estimates.
 
-For partial clears, `clear` additionally supplies `displayBlocks`: a detached
-pre-clear board with temporary per-cell totem IDs. The presenter animates departing
-cells, then adopts the shorter authoritative totem. Canvas rendering draws carved
-separate faces with the same dimensions, corner radius, and gaps as normal
-one-cell blocks, without an enclosing container or connecting bands. Hit testing
-uses the full height.
+`clear` supplies only the selected rows and their pre-removal blocks. For a touched
+Totem, `displayBlocks` replaces it with temporary per-cell IDs; `blocks` contains
+its in-row cells and `detached` contains its off-row cells. Only in-row cells
+flash and shrink. Off-row faces stay unlit, fly apart when the row bursts, and
+burst into particles without awarding points or lines. Detached faces render above
+the board clip. Playback waits for their departure before adopting the clear state;
+pause and reset apply to the same visual clock and cancellation generation.
+Canvas rendering draws carved faces with the same dimensions, corner radius,
+and gaps as normal one-cell blocks. Drag ghosts and hit testing follow occupied
+cells rather than filling the bounding rectangle.
 Pause and cancellation use the existing presenter lifecycle. Best scores belong
 to the base mode; the retired Totem mode's score key is no longer read or written.
 
@@ -285,10 +293,10 @@ Run `npm test`. Coverage includes existing board/spawn/score behavior, legal-com
 validation, cascading combos, Classic loss timing, deterministic multi-turn parity
 with the old logical sequence, mode injection, snapshot isolation, playback speed
 independence, pause/resume, restart cancellation and dependency boundaries.
-Totem tests cover full-height collisions, all partial-clear positions, safe drops,
+Totem tests cover notches/overhang collisions, row-only clears and off-row debris, safe drops,
 height-based random blasts, seeded multi-turn geometry for both difficulties and
-every shape, toggle persistence, committed previews, shaped trimming/scoring, and
-partial-clear/drop/activation playback including pause and restart cancellation.
+every shape, toggle persistence, committed previews, shaped edge activation/scoring,
+and split clear/debris/drop/activation playback including pause and restart cancellation.
 Regression tests also cover mirrored drag thresholds, stationary/repeated pointer
 events, direction reversal, board bounds, blocked-storage audio import, seeded
 engine resets and per-mode best-score/options isolation.

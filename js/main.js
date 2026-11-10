@@ -31,7 +31,7 @@ function restart() {
 }
 
 function toggleDifficulty() {
-  const difficulty = engine.snapshot().difficulty === 'hard' ? 'normal' : 'hard';
+  const difficulty = engine.snapshot().difficulty === 'normal' ? 'easy' : 'normal';
   resetOptions({ difficulty });
   saveDifficulty(difficulty);
 }

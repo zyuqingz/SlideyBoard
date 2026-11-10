@@ -1,13 +1,14 @@
 // Bounded preview search specific to trimming, ledges, and shorter row clears.
-import { ROWS, COLOR_GROUPS, touchingTop, copyBoard, slideRange, heightOf } from './board.js';
+import { ROWS, COLOR_GROUPS, touchingTop, copyBoard, slideRange } from './board.js';
+import { cellsOf } from './block-geometry.js';
 import { insertShapedRow, settleShapedBoard } from './shaped-board.js';
-import { generateHardRow } from './difficulty.js';
+import { generateNormalRow } from './difficulty.js';
 
 const ATTEMPTS = 12, PREPARATIONS = 3;
 
 export function generateShapedCandidate(state, random) {
   const { left, right } = state.shape.rows[ROWS - 1];
-  if (state.difficulty === 'hard') return generateHardRow(state.level, random, left, right);
+  if (state.difficulty === 'normal') return generateNormalRow(state.level, random, left, right);
   const columns = Array.from({ length: right - left }, (_, i) => left + i);
   const gapCount = 1 + Math.floor(random() * Math.min(4, columns.length - 1));
   const gaps = new Set();
@@ -31,7 +32,7 @@ export function generateShapedCandidate(state, random) {
 
 function quality(board) {
   const height = Math.max(0, ...board.blocks.map(b => ROWS - b.row));
-  return -height * 4 - board.blocks.reduce((sum, b) => sum + b.len * heightOf(b), 0) * 0.2;
+  return -height * 4 - board.blocks.reduce((sum, b) => sum + cellsOf(b).length, 0) * 0.2;
 }
 
 function responses(board) {

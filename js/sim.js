@@ -5,7 +5,7 @@ import { normalizeDifficulty } from './difficulty.js';
 
 const START_ROWS = 4;
 
-export function createState(best = 0, difficulty = 'normal', totemsEnabled = false) {
+export function createState(best = 0, difficulty = 'easy', totemsEnabled = false) {
   return {
     totemsEnabled: !!totemsEnabled,
     difficulty: normalizeDifficulty(difficulty),

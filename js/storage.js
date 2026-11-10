@@ -11,13 +11,20 @@ export function saveBest(mode, value) {
   try { localStorage.setItem(keyFor(mode), String(value)); } catch {}
 }
 
+const DIFFICULTY_KEY = 'slidey_difficulty_v2';
+
 export function loadDifficulty() {
-  try { return localStorage.getItem('slidey_difficulty') === 'normal' ? 'normal' : 'hard'; }
-  catch { return 'hard'; }
+  try {
+    const value = localStorage.getItem(DIFFICULTY_KEY);
+    if (value === 'easy' || value === 'normal') return value;
+    const legacy = localStorage.getItem('slidey_difficulty');
+    if (legacy === 'normal') return 'easy';
+    return 'normal';
+  } catch { return 'normal'; }
 }
 
 export function saveDifficulty(value) {
-  try { localStorage.setItem('slidey_difficulty', value); } catch {}
+  try { localStorage.setItem(DIFFICULTY_KEY, value); } catch {}
 }
 
 export function loadTotems() {

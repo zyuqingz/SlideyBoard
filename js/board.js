@@ -1,4 +1,5 @@
 // Grid-space rules only. Pixel geometry and palettes belong to theme.js.
+import { cellsOf } from './block-geometry.js';
 export const COLS = 9, ROWS = 10;
 // Abstract color-group IDs in block data; no dependency on a visual palette.
 export const COLOR_GROUPS = 5;
@@ -8,7 +9,8 @@ export function levelForLines(lines) {
 }
 
 export function copyBoard(state) {
-  return { blocks: state.blocks.map(b => ({ ...b })), nextId: state.nextId,
+  return { blocks: state.blocks.map(b => ({ ...b,
+    ...(b.cells ? { cells: b.cells.map(cell => ({ ...cell })) } : {}) })), nextId: state.nextId,
     ...(state.shape ? { shape: structuredClone(state.shape) } : {}) };
 }
 
@@ -24,8 +26,10 @@ export function buildGrid(state) {
   const g = [];
   for (let r = 0; r < ROWS; r++) g.push(new Array(COLS).fill(null));
   for (const b of state.blocks) {
-    for (let r = Math.max(0, b.row); r < Math.min(ROWS, b.row + heightOf(b)); r++)
-      for (let i = 0; i < b.len; i++) g[r][b.col + i] = b;
+    for (const cell of cellsOf(b)) {
+      const r = b.row + cell.row, c = b.col + cell.col;
+      if (r >= 0 && r < ROWS) g[r][c] = b;
+    }
   }
   return g;
 }
@@ -38,29 +42,42 @@ export function fitsSpan(state, row, col, len, height = 1) {
   return col >= 0 && col + len <= COLS;
 }
 
-// Drop unsupported blocks bottom-up. The presenter animates the returned moves.
+export function fitsBlock(state, block, row = block.row, col = block.col, grid = buildGrid(state)) {
+  return cellsOf(block).every(cell => {
+    const r = row + cell.row, c = col + cell.col;
+    if (c < 0 || c >= COLS || r >= ROWS) return false;
+    if (r < 0) return true;
+    const { left, right } = rowSpan(state, r);
+    return c >= left && c < right && (!grid[r][c] || grid[r][c].id === block.id);
+  });
+}
+
+// Repeat bottom-up passes: an irregular overhang may be supported by a piece
+// whose bounding-box bottom sorts above it. All pieces still fall rigidly.
 export function computeGravity(state) {
   const g = buildGrid(state);
-  const moved = [];
+  const moved = new Map();
   const bottom = b => b.row + heightOf(b) - 1;
   const sorted = state.blocks.slice().sort((a, b) => bottom(b) - bottom(a));
-  for (const b of sorted) {
-    const height = heightOf(b);
-    let r = b.row;
-    while (r + height < ROWS && fitsSpan(state, r + 1, b.col, b.len, height)) {
-      if (g[r + height]?.slice(b.col, b.col + b.len).some(Boolean)) break;
-      r++;
-    }
-    if (r !== b.row) {
-      for (let row = Math.max(0, b.row); row < b.row + height; row++)
-        for (let col = b.col; col < b.col + b.len; col++) g[row][col] = null;
-      for (let row = Math.max(0, r); row < r + height; row++)
-        for (let col = b.col; col < b.col + b.len; col++) g[row][col] = b;
-      moved.push({ id: b.id, from: b.row, to: r });
+  let changed;
+  do {
+    changed = false;
+    for (const b of sorted) {
+      let r = b.row;
+      while (fitsBlock(state, b, r + 1, b.col, g)) r++;
+      if (r === b.row) continue;
+      for (const cell of cellsOf(b)) if (b.row + cell.row >= 0)
+        g[b.row + cell.row][b.col + cell.col] = null;
+      for (const cell of cellsOf(b)) if (r + cell.row >= 0)
+        g[r + cell.row][b.col + cell.col] = b;
+      const move = moved.get(b.id) ?? { id: b.id, from: b.row };
+      move.to = r;
+      moved.set(b.id, move);
       b.row = r;
+      changed = true;
     }
-  }
-  return moved;
+  } while (changed);
+  return [...moved.values()];
 }
 
 export function fullRows(state) {
@@ -75,13 +92,7 @@ export function fullRows(state) {
 
 export function slideRange(state, block) {
   const g = buildGrid(state);
-  const free = col => {
-    if (!fitsSpan(state, block.row, col, block.len, heightOf(block))) return false;
-    for (let r = Math.max(0, block.row); r < block.row + heightOf(block); r++)
-      for (let c = col; c < col + block.len; c++)
-        if (g[r][c] && g[r][c].id !== block.id) return false;
-    return true;
-  };
+  const free = col => fitsBlock(state, block, block.row, col, g);
   let min = block.col, max = block.col;
   while (free(min - 1)) min--;
   while (free(max + 1)) max++;
@@ -99,33 +110,30 @@ export function hasMoves(state) {
   });
 }
 
-// Clear vertical pieces cell by cell. Remaining Totem cells stay one solid pole
-// whose bottom is the lowest surviving cell of the original footprint.
+// A touched Totem is consumed, but only the requested rows clear and score.
+// Its off-row cells are detached debris, not additional row-clear targets.
 export function clearRows(state, rows) {
-  const removed = new Set(rows), blocks = [], displayBlocks = [], survivors = [];
-  const segmented = state.blocks.some(b => b.kind === 'totem');
+  const removed = new Set(rows), blocks = [], detached = [], displayBlocks = [], survivors = [];
+  let split = false;
   for (const b of state.blocks) {
-    if (b.kind !== 'totem') {
-      if (segmented) displayBlocks.push({ ...b });
-      if (removed.has(b.row)) blocks.push({ ...b });
+    const touched = cellsOf(b).some(cell => removed.has(b.row + cell.row));
+    if (touched && b.kind === 'totem') {
+      split = true;
+      for (const [i, cell] of cellsOf(b).entries()) {
+        const fragment = { id: `fragment:${b.id}:${i}`, kind: 'totem', color: b.color,
+          row: b.row + cell.row, col: b.col + cell.col, len: 1, height: 1 };
+        displayBlocks.push(fragment);
+        (removed.has(fragment.row) ? blocks : detached).push({ ...fragment });
+      }
+    } else {
+      displayBlocks.push(structuredClone(b));
+      if (touched) blocks.push(structuredClone(b));
       else survivors.push(b);
-      continue;
-    }
-    const remaining = [];
-    for (let i = 0; i < b.height; i++) {
-      const segment = { ...b, id: `segment:${b.id}:${b.row + i}`, row: b.row + i, height: 1 };
-      displayBlocks.push(segment);
-      if (removed.has(segment.row)) blocks.push({ ...segment });
-      else remaining.push(segment.row);
-    }
-    if (remaining.length) {
-      b.height = remaining.length;
-      b.row = remaining.at(-1) - b.height + 1;
-      survivors.push(b);
     }
   }
   state.blocks = survivors;
-  return { blocks, ...(segmented ? { displayBlocks } : {}) };
+  return { rows: [...removed].sort((a, b) => a - b), blocks,
+    ...(split ? { detached, displayBlocks } : {}) };
 }
 
 export function chooseTotemRows(state, height, random) {
@@ -139,7 +147,7 @@ export function chooseTotemRows(state, height, random) {
 // Live turns supply their RNG; search uses a repeatable representative blast.
 // Negative rows belong to incoming drops, not rising Totems ready to activate.
 function activateTotems(state, random = () => 0.5, onStep = () => {}) {
-  for (const b of state.blocks.filter(b => b.kind === 'totem' && b.row === 0)) {
+  for (const b of state.blocks.filter(b => b.kind === 'totem' && (b.row === 0 || b.activateOnRise))) {
     state.blocks = state.blocks.filter(block => block.id !== b.id);
     onStep('totem-activate', { block: b });
     const rows = chooseTotemRows(state, b.height, random);
@@ -170,7 +178,8 @@ export function settleBoard(board, onStep = () => {}, random) {
     if (moves.length) onStep('gravity', { moves });
     const rows = fullRows(board);
     if (!rows.length) return cleared;
-    cleared += rows.length;
-    onStep('clear', { rows, ...clearRows(board, rows) });
+    const clear = clearRows(board, rows);
+    cleared += clear.rows.length;
+    onStep('clear', clear);
   }
 }
