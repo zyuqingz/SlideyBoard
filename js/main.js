@@ -6,7 +6,8 @@ import { createPresenter } from './presenter.js';
 import { bindInput } from './input.js';
 import { layout, bindCanvas } from './canvas-layout.js';
 import { draw } from './render.js';
-import { loadBest, saveBest, loadDifficulty, saveDifficulty, loadPlayMode, savePlayMode } from './storage.js';
+import { loadBest, saveBest, loadDifficulty, saveDifficulty, loadPlayMode, savePlayMode,
+  loadPowerButton, savePowerButton } from './storage.js';
 import { nextPlayMode } from './play-mode.js';
 import { loadLang } from './i18n.js';
 import { SHAPES } from './shapes.js';
@@ -24,6 +25,7 @@ const engine = createEngine({ modeId: 'shaped', best: loadBest('shaped'),
   difficulty: loadDifficulty(), playMode: loadPlayMode(),
   modeOptions: { shapeId: activeShapeSelection } });
 const presenter = createPresenter({ boardY: () => layout.BY });
+presenter.present.powerButton = loadPowerButton();
 
 function showBoard(snapshot) {
   const opening = engine.opening();
@@ -81,6 +83,23 @@ function resetOptions(options) {
   presenter.present.menu = 'mode';
 }
 
+function togglePowerButton() {
+  presenter.present.powerButton = !presenter.present.powerButton;
+  savePowerButton(presenter.present.powerButton);
+}
+
+function triggerPowerMode() {
+  if (!presenter.present.powerButton || presenter.busy || presenter.present.menu) return false;
+  const result = engine.dispatch({ type: 'power-mode' });
+  if (!result.accepted) return false;
+  saveBest(result.state.mode, result.state.best);
+  presenter.play(result).catch(error => {
+    console.error('Power mode presentation failed', error);
+    presenter.reset(engine.snapshot());
+  });
+  return true;
+}
+
 function slide(id, col) {
   if (presenter.busy || presenter.present.menu) return false;
   const result = engine.dispatch({ type: 'slide', id, col });
@@ -95,7 +114,8 @@ function slide(id, col) {
 
 const input = bindInput(canvas, {
   presenter, modes: engine.modes, moveRange: id => engine.moveRange(id),
-  slide, restart, shapeSelection, toggleDifficulty, cyclePlayMode, cycleMap, cycleShape
+  slide, restart, shapeSelection, toggleDifficulty, cyclePlayMode, cycleMap, cycleShape,
+  togglePowerButton, triggerPowerMode
 });
 
 let last = performance.now();

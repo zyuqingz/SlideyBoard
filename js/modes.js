@@ -17,8 +17,8 @@ export const classic = Object.freeze({
     spawnOpeningTotem(state, random, emit, () => riseClassic(state, random, emit));
   },
   moveRange: slideRange,
-  resolveTurn(state, random, emit) {
-    resolveTurn(state, random, emit, () => riseClassic(state, random, emit));
+  resolveTurn(state, random, emit, options) {
+    resolveTurn(state, random, emit, () => riseClassic(state, random, emit), options);
   }
 });
 

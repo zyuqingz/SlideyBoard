@@ -54,6 +54,15 @@ export function createEngine({ best = 0, random = Math.random, modes = GAME_MODE
 
   function dispatch(command) {
     const reject = reason => ({ accepted: false, reason, events: [], state: snapshot() });
+    if (command?.type === 'power-mode') {
+      if (state.phase !== 'play') return reject('game-over');
+      if (state.playMode !== 'totem-building') return reject('wrong-mode');
+      const events = [];
+      const emit = (type, data = {}) => events.push(structuredClone({ type, ...data, state }));
+      mode.resolveTurn(state, random, emit, { forcePower: true });
+      emit('turn-complete');
+      return { accepted: true, events, state: snapshot() };
+    }
     if (command?.type !== 'slide') return reject('unknown-command');
     if (state.phase !== 'play') return reject('game-over');
     const block = state.blocks.find(b => b.id === command.id);

@@ -177,28 +177,25 @@ function smilingShard(state, world, color) {
 }
 
 // Tetris leftovers keep orthogonally connected groups as smiling shards.
-// Building totems gain a smile stage; all-totem rows cash out at the maximum.
+// Building totems gain a smile stage; all-totem rows power up every totem
+// and remove all ordinary blocks before gravity and floor collection resume.
 export function clearRows(state, rows) {
   const removed = new Set(rows), blocks = [], displayBlocks = [], survivors = [];
-  const collected = [];
   let split = false;
   const building = isBuilding(state);
   const grid = building ? buildGrid(state) : null;
-  const totemRows = new Set(building ? rows.filter(row => {
+  const powered = building && rows.some(row => {
     const { left, right } = rowSpan(state, row);
     return grid[row].slice(left, right).every(b => b?.kind === 'totem');
-  }) : []);
+  });
+  if (powered) return applyPowerMode(state, [...removed]);
   for (const b of state.blocks) {
     const cells = cellsOf(b);
     const touched = cells.some(cell => removed.has(b.row + cell.row));
     if (touched && b.kind === 'totem' && building) {
-      const cashOut = cells.some(cell => totemRows.has(b.row + cell.row));
-      b.smile = cashOut ? TOTEM_SMILE_MAX : Math.min(TOTEM_SMILE_MAX, (b.smile ?? 1) + 1);
+      b.smile = Math.min(TOTEM_SMILE_MAX, (b.smile ?? 1) + 1);
       displayBlocks.push(structuredClone(b));
-      if (cashOut) {
-        collected.push(structuredClone(b));
-        blocks.push(structuredClone(b));
-      } else survivors.push(b);
+      survivors.push(b);
     } else if (touched && (b.kind === 'totem' || b.face === 'smile')) {
       split = true;
       const kept = [];
@@ -224,8 +221,7 @@ export function clearRows(state, rows) {
   }
   state.blocks = survivors;
   return { rows: [...removed].sort((a, b) => a - b), blocks,
-    ...(split || collected.length ? { displayBlocks } : {}),
-    ...(collected.length ? { collected } : {}) };
+    ...(split ? { displayBlocks } : {}) };
 }
 
 // Shared by real rises, opening setup, and preview simulations.
@@ -252,14 +248,32 @@ function collectBuildingTotems(board) {
   return collected;
 }
 
-export function settleBoard(board, onStep = () => {}) {
+// Upgrade every totem and strip ordinary tiles, as if an all-totem row completed.
+export function applyPowerMode(state, rows = []) {
+  const blocks = [], displayBlocks = [], survivors = [];
+  for (const b of state.blocks) {
+    if (b.kind === 'totem') {
+      b.smile = TOTEM_SMILE_MAX;
+      survivors.push(b);
+    } else blocks.push(structuredClone(b));
+    displayBlocks.push(structuredClone(b));
+  }
+  state.blocks = survivors;
+  return { rows: [...new Set(rows)].sort((a, b) => a - b), blocks, displayBlocks, godClear: true };
+}
+
+export function settleBoard(board, onStep = () => {}, alreadyPowered = false) {
   let cleared = 0;
+  let powered = alreadyPowered;
   for (;;) {
     const moves = computeGravity(board);
     if (moves.length) onStep('gravity', { moves });
-    const rows = fullRows(board);
+    // After a board wipe only totems remain. Let complete totem rows fall and
+    // collect rather than repeatedly triggering the same power-up in place.
+    const rows = powered ? [] : fullRows(board);
     if (rows.length) {
       const clear = clearRows(board, rows);
+      powered = !!clear.godClear;
       cleared += clear.rows.length;
       onStep('clear', clear);
       continue;

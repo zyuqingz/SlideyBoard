@@ -31,7 +31,7 @@ function reset(state, random, { shapeId = 'random' } = {}, emit = () => {}) {
 
 export const shaped = Object.freeze({
   id: 'shaped', label: 'SHAPED', reset, moveRange: slideRange,
-  resolveTurn(state, random, emit) {
-    resolveTurn(state, random, emit, () => riseShaped(state, random, emit));
+  resolveTurn(state, random, emit, options) {
+    resolveTurn(state, random, emit, () => riseShaped(state, random, emit), options);
   }
 });

@@ -42,3 +42,14 @@ export function loadPlayMode() {
 export function savePlayMode(value) {
   try { localStorage.setItem('slidey_play_mode', value); } catch {}
 }
+
+const POWER_BUTTON_KEY = 'slidey_power_button';
+
+export function loadPowerButton() {
+  try { return localStorage.getItem(POWER_BUTTON_KEY) === '1'; }
+  catch { return false; }
+}
+
+export function savePowerButton(value) {
+  try { localStorage.setItem(POWER_BUTTON_KEY, value ? '1' : '0'); } catch {}
+}

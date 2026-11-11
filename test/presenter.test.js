@@ -4,10 +4,12 @@ import { createEngine } from '../js/engine.js';
 import { classic } from '../js/modes.js';
 import { createState, createTurnScore, awardTotemCollect, awardRows } from '../js/sim.js';
 import { createPresenter } from '../js/presenter.js';
+import { createDrag, followDrag, visualDragCol } from '../js/drag.js';
 import { insertShapedRow } from '../js/shaped-board.js';
-import { clearRows as clearTotemRows, computeGravity as totemGravity } from '../js/board.js';
+import { clearRows as clearTotemRows, computeGravity as totemGravity, settleBoard, insertRow } from '../js/board.js';
 import { spawnBuildingTotem } from '../js/totem-spawn.js';
-import { spawnOpeningTotem } from '../js/turn.js';
+import { spawnOpeningTotem, resolveTurn } from '../js/turn.js';
+import { W } from '../js/theme.js';
 
 function setup({ loss = false } = {}) {
   const initial = { ...createState(), nextId: 20, nextRow: [{ col: 0, len: 1, color: 0 }],
@@ -46,10 +48,86 @@ test('pickup holds hover scale and slot-in eases toward rest', async () => {
   assert.equal(v.slot, 1);
   const done = presenter.snapBack(b);
   presenter.update(16);
-  assert.ok(v.slot > 0.9, 'cubic ease-in holds the hover size at the start');
+  assert.ok(v.slot > 0.9, 'release eases gently out of the held size');
   await drain(presenter);
   assert.equal(await done, true);
   assert.equal(v.slot, 0);
+});
+
+test('drag follow catches up within one frame and is refresh-rate independent', () => {
+  const positions = [];
+  for (const frames of [1, 6, 12]) {
+    const { presenter } = setup();
+    const b = presenter.state.blocks[1], v = presenter.viewOf(b);
+    const drag = presenter.present.drag = { ...createDrag(b.col, 0, 7), blockId: b.id };
+    followDrag(drag, -1);
+    assert.equal(v.vx, b.col, 'pointer events do not teleport the tile');
+    for (let i = 0; i < frames; i++) presenter.update(12 / frames);
+    const dest = visualDragCol(drag);
+    assert.ok(v.vx > dest && v.vx < b.col);
+    assert.ok(v.vx - dest < (b.col - dest) * 0.05, 'at least 95% caught up within 12ms');
+    positions.push(v.vx);
+  }
+  for (const x of positions) assert.ok(Math.abs(x - positions[0]) < 1e-10);
+});
+
+test('drag brakes on reversal, respects walls, and freezes with the visual clock', () => {
+  const { presenter, engine } = setup();
+  const b = presenter.state.blocks[1], v = presenter.viewOf(b);
+  const drag = presenter.present.drag = { ...createDrag(b.col, 0, 7), blockId: b.id };
+  followDrag(drag, -4);
+  presenter.update(16);
+  const turning = v.vx;
+  assert.ok(v.dragVelocity < 0);
+  followDrag(drag, 4);
+  presenter.update(16);
+  assert.ok(v.vx > turning, 'reversing responds on the very next frame');
+  assert.ok(v.dragVelocity > 0);
+  presenter.present.menu = 'pause';
+  const pose = { ...v };
+  presenter.update(1000);
+  assert.deepEqual(v, pose);
+  presenter.present.menu = null;
+  for (const dx of [100, -100, 100]) {
+    followDrag(drag, dx);
+    for (let i = 0; i < 60; i++) {
+      presenter.update(16);
+      assert.ok(v.vx >= 0 && v.vx <= 7, 'spring cannot cross a wall');
+    }
+    assert.equal(v.vx, dx > 0 ? 7 : 0);
+    assert.equal(v.dragVelocity, 0);
+  }
+  presenter.reset(engine.snapshot());
+  assert.equal(presenter.present.drag, null);
+  assert.equal(presenter.viewOf(b).dragVelocity, 0);
+});
+
+test('releasing a moving drag preserves its position and bounds its momentum', async () => {
+  for (const velocity of [-25, 8, 100]) {
+    const { presenter } = setup();
+    const b = presenter.state.blocks[1], v = presenter.viewOf(b);
+    v.vx = 5.6;
+    v.dragVelocity = velocity;
+    presenter.pickup(b);
+    const final = structuredClone(presenter.state);
+    final.blocks[1].col = 7;
+    const done = presenter.play({ accepted: true, events: [
+      { type: 'slide', id: b.id, from: b.col, to: 7, state: final },
+      { type: 'turn-complete', state: final }
+    ] });
+    assert.equal(v.vx, 5.6);
+    let previous = v.vx;
+    for (let i = 0; i < 300 && presenter.busy; i++) {
+      await advance(presenter, 1);
+      assert.ok(v.vx >= previous && v.vx <= 7, 'release approaches its slot monotonically');
+      if (i === 0 && velocity === 8)
+        assert.ok(Math.abs((v.vx - previous) * 1000 - velocity) < 0.2, 'release retains forward speed');
+      previous = v.vx;
+    }
+    assert.equal(await done, true);
+    assert.equal(v.vx, 7);
+    assert.equal(v.dragVelocity, 0);
+  }
 });
 
 test('slide restores pickup pop after adopt then eases slot', async () => {
@@ -91,6 +169,9 @@ test('release snaps from the preview, seats on the grid, then unlocks input', as
     assert.ok(v.sq > 0, 'contact visibly compresses the block');
     assert.equal(presenter.busy, true, 'contact settles before another gesture');
     assert.deepEqual(cues, ['fall']);
+    await advance(presenter, 70);
+    assert.ok(v.sq < 0, 'compression releases into a small rebound');
+    assert.equal(v.vx, commit ? 4 : 3, 'rebound does not disturb the landing column');
     await drain(presenter, 16);
     assert.equal(await done, true);
     assert.equal(v.sq, 0);
@@ -513,7 +594,7 @@ test('landing rebounds before a following rise and cancels cleanly on restart', 
     presenter.reset(initial);
     const done = presenter.play(result);
     const v = presenter.viewOf(initial.blocks[0]);
-    await advance(presenter, 300);
+    await advance(presenter, 225);
     assert.equal(v.vy, 9);
     assert.ok(v.sq > 0 && v.land > 0, 'contact is visible before the next frame');
     const dust = presenter.present.landingDust[0];
@@ -525,7 +606,7 @@ test('landing rebounds before a following rise and cancels cleanly on restart', 
     assert.deepEqual(v, pose, 'pause freezes the landing reaction');
     assert.deepEqual(dust, dustPose, 'pause also freezes the dust');
     presenter.present.menu = null;
-    await advance(presenter, 90);
+    await advance(presenter, 60);
     assert.ok(v.sq < 0, 'compression rebounds before rise can interrupt');
     assert.equal(presenter.state.blocks[0].row, 9);
     if (restart) {
@@ -730,14 +811,14 @@ test('building faces morph and pulse during the clear before gravity starts, inc
     const done = presenter.play(result);
     const v = presenter.viewOf(initial.blocks[0]);
     assert.equal(v.expression, stage, 'the old expression is the starting pose');
-    await advance(presenter, 200);
+    await advance(presenter, 125);
     const target = Math.min(3, stage + 1);
     if (stage < 3) assert.ok(v.expression > stage && v.expression < target);
     else assert.equal(v.expression, 3);
     assert.ok(v.evolve > 0 && v.s > 1, 'even the final stage acknowledges a clear');
     assert.equal(v.vy, 7, 'reaction completes before the totem falls');
     assert.equal(v.clearing, false, 'the totem must not shrink away with the row');
-    await advance(presenter, 100);
+    await advance(presenter, 65);
     assert.ok(v.s < 1 && v.s >= 0.95, 'the impact recoils slightly before settling');
     await drain(presenter);
     assert.equal(await done, true);
@@ -799,7 +880,7 @@ test('building clear pause then reset restores the pre-clear totem', async () =>
   assert.equal(presenter.viewOf(initial.blocks[0]).evolve, 0);
 });
 
-test('totem-building row clear eases the level ring without particles', async () => {
+test('totem-building row clear eases the level bar', async () => {
   const tile = { id: 1, row: 9, col: 0, len: 8, color: 0 };
   const initial = { ...createState(0, 'easy', 'totem-building'),
     lines: 0, level: 1, levelProgress: 0, blocks: [tile] };
@@ -816,13 +897,126 @@ test('totem-building row clear eases the level ring without particles', async ()
   assert.equal(presenter.present.levelScale, 1);
   const done = presenter.play(result);
   await advance(presenter, 80);
-  assert.ok(presenter.present.levelScale > 1, 'ring punches when progress increases');
+  assert.ok(presenter.present.levelScale > 1, 'bar highlights when progress increases');
   assert.ok(presenter.present.displayProgress > 0 && presenter.present.displayProgress < 0.2,
-    'arc eases toward the new fill');
+    'bar eases toward the new fill');
   await drain(presenter);
   assert.equal(await done, true);
   assert.equal(presenter.present.displayProgress, 0.2);
   assert.equal(presenter.present.levelScale, 1);
+});
+
+test('level completion fills before drops, then cascades keep HUD progress in sync', async () => {
+  for (const step of [16, 250, 1000]) {
+    const tile = { id: 1, row: 9, col: 0, len: 8, color: 0 };
+    const initial = { ...createState(0, 'easy', 'totem-building'),
+      lines: 4, level: 1, levelProgress: 0.8, blocks: [tile] };
+    const cleared = { ...structuredClone(initial), blocks: [], lines: 5, level: 2, levelProgress: 0 };
+    const cascade = { ...structuredClone(cleared), lines: 6, levelProgress: 0.2 };
+    const totem = { id: 2, row: -1, col: 3, len: 1, height: 1, kind: 'totem', color: 4, smile: 1 };
+    const dropped = { ...structuredClone(cascade), blocks: [totem] };
+    const landed = { ...structuredClone(dropped), blocks: [{ ...totem, row: 8 }] };
+    const final = { ...structuredClone(landed), lines: 7, levelProgress: 0.4 };
+    const result = { accepted: true, events: [
+      { type: 'clear', rows: [9], blocks: [tile], state: cleared },
+      { type: 'rise', state: cleared },
+      { type: 'clear', rows: [9], blocks: [], state: cascade },
+      { type: 'totem-drop', id: 2, state: dropped },
+      { type: 'gravity', moves: [{ id: 2, from: -1, to: 8 }], state: landed },
+      { type: 'clear', rows: [9], blocks: [], state: final },
+      { type: 'turn-complete', state: final }
+    ] };
+    const saved = structuredClone(result);
+    const presenter = createPresenter({ sfx: () => {} });
+    presenter.reset(initial);
+    const done = presenter.play(result);
+    await advance(presenter, 220);
+    assert.equal(presenter.present.displayProgress, 1, 'bar visibly reaches full before resetting');
+    assert.equal(presenter.present.displayLevel, 2);
+    assert.ok(presenter.present.levelUpFx);
+    assert.deepEqual(presenter.present.spawnFx, [], 'drop waits for the full-bar beat');
+    presenter.present.menu = 'pause';
+    const frozen = structuredClone(presenter.present);
+    await advance(presenter, 1000);
+    assert.deepEqual(presenter.present, frozen);
+    presenter.present.menu = null;
+    await advance(presenter, 180);
+    assert.equal(presenter.present.displayProgress, 1, 'bar remains full during the refill');
+    assert.deepEqual(presenter.present.spawnFx, []);
+    await advance(presenter, 210);
+    await advance(presenter, 120);
+    assert.equal(presenter.present.displayProgress, 1, 'extra clears preserve the full bar until spawn');
+    await advance(presenter, 120);
+    assert.deepEqual(presenter.present.spawnFx.map(fx => fx.col), [3],
+      'bar source matches the authoritative spawn column');
+    assert.equal(presenter.viewOf(totem).vy, -1, 'face begins behind the bar');
+    assert.equal(presenter.present.displayProgress, 1, 'unfill begins with the drop, never earlier');
+    await advance(presenter, 90);
+    assert.ok(presenter.present.displayProgress > 0.2 && presenter.present.displayProgress < 1);
+    presenter.present.menu = 'pause';
+    const unfill = presenter.present.displayProgress;
+    await advance(presenter, 1000);
+    assert.equal(presenter.present.displayProgress, unfill, 'spawn unfill shares the pause clock');
+    presenter.present.menu = null;
+    await advance(presenter, 90);
+    assert.equal(presenter.present.displayProgress, 0.2, 'unfill retains progress earned before spawning');
+    await advance(presenter, 400);
+    assert.ok(presenter.present.levelUpFx, 'level-up text remains visible beyond its old lifetime');
+    await drain(presenter, step);
+    assert.equal(await done, true);
+    assert.equal(presenter.present.displayProgress, 0.4);
+    assert.equal(presenter.present.displayLevel, 2);
+    assert.equal(presenter.present.levelUpFx, null);
+    assert.deepEqual(presenter.present.spawnFx, []);
+    assert.deepEqual(presenter.state, final);
+    assert.deepEqual(result, saved);
+
+    for (const elapsed of [220, 400, 850, 940]) {
+      presenter.reset(initial);
+      const cancelled = presenter.play(result);
+      for (let time = 0; time < elapsed; time += 10) await advance(presenter, 10);
+      presenter.reset(initial);
+      await drain(presenter, step);
+      assert.equal(await cancelled, false);
+      assert.equal(presenter.present.levelUpFx, null);
+      assert.deepEqual(presenter.present.spawnFx, []);
+      assert.equal(presenter.present.displayLevel, 1);
+      assert.equal(presenter.present.displayProgress, 0.8);
+    }
+  }
+});
+
+test('a real Building drop wave flashes every column and pauses and resets together', async () => {
+  const initial = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
+    lines: 19, level: 4, levelProgress: 0.8,
+    blocks: [{ id: 1, row: 9, col: 0, len: 8, color: 0 }] };
+  const state = structuredClone(initial), events = [];
+  resolveTurn(state, () => 0,
+    (type, data) => events.push(structuredClone({ type, ...data, state })),
+    () => insertRow(state, [{ col: 0, len: 4, color: 0 }]));
+  events.push({ type: 'turn-complete', state: structuredClone(state) });
+  const columns = events.filter(e => e.type === 'totem-drop')
+    .map(e => e.state.blocks.find(b => b.id === e.id).col);
+  assert.equal(columns.length, 4, 'fixture exercises replacement plus three extras');
+  const presenter = createPresenter({ sfx: () => {} });
+  for (const reset of [false, true]) {
+    presenter.reset(initial);
+    const done = presenter.play({ accepted: true, events });
+    for (let i = 0; i < 500 && !presenter.present.spawnFx.length; i++) await advance(presenter, 16);
+    assert.deepEqual(presenter.present.spawnFx.map(fx => fx.col), columns);
+    await advance(presenter, 100);
+    const frozen = structuredClone(presenter.present.spawnFx);
+    assert.ok(frozen.every(fx => fx.progress > 0 && fx.progress < 1));
+    presenter.present.menu = 'pause';
+    await advance(presenter, 1000);
+    assert.deepEqual(presenter.present.spawnFx, frozen);
+    if (reset) presenter.reset(initial);
+    else presenter.present.menu = null;
+    await drain(presenter, 16);
+    assert.equal(await done, !reset);
+    assert.deepEqual(presenter.present.spawnFx, []);
+    assert.deepEqual(presenter.state, reset ? initial : state);
+  }
 });
 
 function collectSetup() {
@@ -869,14 +1063,14 @@ test('collection-chain followers play contact feedback once and cancel pending l
     const cues = [];
     const { presenter, initial, result } = stackedCollectSetup({ sfx: name => cues.push(name) });
     const done = presenter.play(result);
-    await advance(presenter, 1000);
-    assert.deepEqual(cues, ['totem-suction'], 'contact waits until a follower lands');
+    await advance(presenter, 1010);
+    assert.deepEqual(cues, ['totem-clear'], 'contact waits until a follower lands');
     presenter.present.menu = 'pause';
     await advance(presenter, 1000);
-    assert.deepEqual(cues, ['totem-suction']);
+    assert.deepEqual(cues, ['totem-clear']);
     presenter.present.menu = null;
     await advance(presenter, 11);
-    assert.deepEqual(cues, ['totem-suction', 'fall']);
+    assert.deepEqual(cues, ['totem-clear', 'fall']);
     assert.equal(presenter.present.landingDust.length, 1);
     assert.equal(presenter.viewOf(initial.blocks[1]).land, 1);
     await drain(presenter, step);
@@ -884,27 +1078,27 @@ test('collection-chain followers play contact feedback once and cancel pending l
     assert.equal(cues.filter(name => name === 'fall').length, 6,
       'each totem and each ordinary-tile gravity batch gets one contact cue');
     assert.equal(cues.filter(name => name === 'totem-submit').length, 0);
-    assert.equal(cues.filter(name => name === 'totem-suction').length, 3);
+    assert.equal(cues.filter(name => name === 'totem-clear').length, 3);
   }
 
   const cues = [];
   const { presenter, initial, result } = stackedCollectSetup({ sfx: name => cues.push(name) });
   const done = presenter.play(result);
-  await advance(presenter, 1000);
+  await advance(presenter, 1010);
   presenter.reset(initial);
   await advance(presenter, 2000);
   assert.equal(await done, false);
-  assert.deepEqual(cues, ['totem-suction'], 'reset cancels pending contact cues');
+  assert.deepEqual(cues, ['totem-clear'], 'reset cancels pending contact cues');
   assert.deepEqual(presenter.present.landingDust, []);
 });
 
-test('suction layer waits for the pull and pending cues pause and cancel with playback', async () => {
+test('burst cue waits for the rebound and pending cues pause and cancel with playback', async () => {
   for (const cancel of [false, true]) {
     const cues = [];
     const { presenter, initial, result } = stackedCollectSetup({ sfx: name => cues.push(name) });
     const done = presenter.play(result);
     await advance(presenter, 339);
-    assert.deepEqual(cues, [], 'compression has no pre-suction ding');
+    assert.deepEqual(cues, [], 'compression has no premature burst cue');
     presenter.present.menu = 'pause';
     await advance(presenter, 1000);
     assert.deepEqual(cues, []);
@@ -916,15 +1110,15 @@ test('suction layer waits for the pull and pending cues pause and cancel with pl
     } else {
       presenter.present.menu = null;
       await advance(presenter, 2);
-      assert.deepEqual(cues, ['totem-suction']);
+      assert.deepEqual(cues, ['totem-clear']);
       await drain(presenter);
       assert.equal(await done, true);
-      assert.equal(cues.filter(name => name === 'totem-suction').length, 3);
+      assert.equal(cues.filter(name => name === 'totem-clear').length, 3);
     }
   }
 });
 
-test('every stacked totem repeats arrival feedback then the same nonlinear suction', async () => {
+test('every stacked totem repeats arrival feedback then flies away intact', async () => {
   const { presenter, initial, result } = stackedCollectSetup();
   const saved = structuredClone(result);
   const done = presenter.play(result);
@@ -941,26 +1135,28 @@ test('every stacked totem repeats arrival feedback then the same nonlinear sucti
       'previous points bank during the next arrival cue');
     await advance(presenter, 180);
     assert.equal(v.vy, 9);
-    assert.ok(v.sq < 0, 'every totem rebounds before suction');
+    assert.ok(v.sq < 0, 'every totem rebounds before bursting');
     const rebound = v.sq;
     await advance(presenter, 80);
     assert.equal(v.sq, 0);
+    assert.equal(v.s, 1, 'face stays intact at launch');
+    assert.ok(v.flight);
     await advance(presenter, 155);
-    const early = v.vy - 9;
+    const early = v.flight.y;
     await advance(presenter, 155);
-    const middle = v.vy - 9;
-    assert.ok(middle - early > early * 2, 'suction accelerates nonlinearly');
-    assert.ok(middle < 0.2, 'most travel is reserved for the accelerating pull');
+    const middle = v.flight.y;
+    assert.ok(early < 0 && middle < 0, 'whole tile lifts above the floor');
     for (let i = index + 1; i < views.length; i++) {
       assert.equal(views[i].vy, initial.blocks[i].row + index,
-        'upper tiles hang briefly while suction opens a gap');
+        'upper tiles hang briefly after the burst opens a gap');
     }
-    cycles.push({ compression, rebound, early, middle });
+    cycles.push({ compression, rebound });
     await advance(presenter, 310);
-    assert.equal(v.vy, 10, 'totem disappears beneath the floor');
+    assert.equal(v.vy, 9, 'totem disappears in place');
+    assert.ok(v.flight.alpha < 1e-9);
     if (index < 2) {
-      assert.ok(views[index + 1].vy < 9, 'the next totem is still falling as suction finishes');
-      await advance(presenter, 134 - index * 42);
+      assert.ok(views[index + 1].vy < 9, 'the next totem is still falling as the burst feedback finishes');
+      await advance(presenter, 144.75 - index * 42);
     }
   }
   for (const cycle of cycles.slice(1)) for (const key of Object.keys(cycle)) {
@@ -980,12 +1176,12 @@ test('released stacks accelerate bottom-up without overlap at different frame ra
     const { presenter, initial, result } = stackedCollectSetup();
     const done = presenter.play(result);
     const views = initial.blocks.map(b => presenter.viewOf(b));
-    for (let elapsed = 0; elapsed < 900;) {
-      const dt = Math.min(step, 900 - elapsed);
+    for (let elapsed = 0; elapsed < 960;) {
+      const dt = Math.min(step, 960 - elapsed);
       await advance(presenter, dt);
       elapsed += dt;
       for (let i = 1; i < views.length; i++) {
-        assert.ok(views[i - 1].vy - views[i].vy >= 1 - 1e-9,
+        assert.ok(views[i - 1].flight || views[i - 1].vy - views[i].vy >= 1 - 1e-9,
           'falling tiles never pass through their support');
       }
     }
@@ -994,9 +1190,9 @@ test('released stacks accelerate bottom-up without overlap at different frame ra
     assert.ok(drops[0] > drops[1] && drops[1] > drops[2] && drops[2] > 0,
       'each higher tile trails the tile underneath instead of moving as a rigid stack');
     const before = views.slice(1).map(v => v.vy);
-    await advance(presenter, 20);
+    await advance(presenter, 10);
     const during = views.slice(1).map(v => v.vy);
-    await advance(presenter, 20);
+    await advance(presenter, 10);
     for (let i = 0; i < before.length; i++) {
       assert.ok(views[i + 1].vy - during[i] > during[i] - before[i],
         'released tiles gain downward speed');
@@ -1010,8 +1206,8 @@ test('released stacks accelerate bottom-up without overlap at different frame ra
     'the same visual time produces the same stack positions');
 });
 
-test('stacked collection pauses and cancels during sinking, free fall, and score impact', async () => {
-  for (const elapsed of [650, 970, 1050, 1600]) {
+test('stacked collection pauses and cancels during bursts, free fall, and score impact', async () => {
+  for (const elapsed of [260, 970, 1050, 1600]) {
     const { presenter, initial, result } = stackedCollectSetup();
     const done = presenter.play(result);
     await advance(presenter, elapsed);
@@ -1022,9 +1218,9 @@ test('stacked collection pauses and cancels during sinking, free fall, and score
     assert.deepEqual(initial.blocks.map(b => presenter.viewOf(b)), poses);
     assert.deepEqual(presenter.present.totemScoreFx, scores);
     presenter.present.menu = null;
+    const time = presenter.effects.now();
     await advance(presenter, 16);
-    assert.ok(initial.blocks.some((b, i) => presenter.viewOf(b).vy !== poses[i].vy
-      || presenter.viewOf(b).sq !== poses[i].sq));
+    assert.equal(presenter.effects.now(), time + 16, 'collection clock resumes even after the face bursts');
     presenter.reset(initial);
     await advance(presenter, 2000);
     assert.equal(await done, false);
@@ -1060,7 +1256,7 @@ test('successive Building collections bank every point once at any playback spee
   }
 });
 
-test('collected totems signal arrival, slide down at full size, then yield to rise', async () => {
+test('collected totems fly like intact particles with an arc, rotation and fade', async () => {
   const { presenter, result, totem } = collectSetup();
   const saved = structuredClone(result);
   const done = presenter.play(result);
@@ -1075,27 +1271,44 @@ test('collected totems signal arrival, slide down at full size, then yield to ri
   assert.ok(v.sq > 0.2, 'arrival visibly compresses the body against the floor');
   assert.equal(v.flash, 0);
   assert.equal(v.evolve, 0);
-  assert.equal(v.collecting, true, 'collection must use the floor mask');
+  assert.equal(v.collecting, true, 'collection owns the contact feedback');
   await advance(presenter, 180);
   assert.ok(v.sq < 0, 'the compressed body rebounds into a brief stretch');
-  assert.equal(v.vy, 9, 'arrival feedback has its own beat before sinking');
+  assert.equal(v.vy, 9, 'arrival feedback has its own beat before bursting');
   await advance(presenter, 80);
-  assert.equal(v.sq, 0, 'body settles before sinking');
-  let previous = v.vy;
-  const travel = [];
+  assert.equal(v.sq, 0);
+  assert.equal(v.s, 1, 'body remains intact at launch');
+  const particles = [];
+  presenter.effects.eachParticle(p => particles.push({ ...p }));
+  assert.equal(particles.length, 0, 'collection does not break into fragments');
+  const flight = structuredClone(v.flight);
+  presenter.present.menu = 'pause';
+  await advance(presenter, 1000);
+  const frozen = [];
+  presenter.effects.eachParticle(p => frozen.push({ ...p }));
+  assert.deepEqual(frozen, particles, 'pause freezes the particle burst');
+  assert.deepEqual(v.flight, flight, 'pause freezes whole-tile motion');
+  presenter.present.menu = null;
   for (let i = 0; i < 39; i++) {
     await advance(presenter, 15.5);
-    assert.ok(v.vy > previous && v.vy < 10, 'the descent moves smoothly every frame');
-    const step = v.vy - previous;
-    travel.push(step);
-    assert.equal(v.s, 1, 'disappearance comes from masking, never shrinking');
+    assert.equal(v.vy, 9, 'collected face never sinks');
+    assert.ok(v.s > 0, 'the whole face remains drawable during flight');
+    if (i === 9) {
+      assert.ok(v.flight.y < 0, 'face launches upward');
+      assert.ok(v.flight.x > 81 && v.flight.rotation > Math.PI / 2,
+        'face kicks outward by over a cell and spins through a quarter turn');
+    }
+    if (i === 29) assert.equal(v.flight.alpha, 1, 'face stays fully visible through most of its flight');
+    if (i === 38) {
+      assert.ok(v.flight.y > 0, 'gravity curves the flight downward');
+      assert.ok(v.flight.alpha > 0 && v.flight.alpha < 0.3, 'face only fades at the end of flight');
+    }
     assert.equal(v.sq, 0);
     assert.equal(presenter.state.blocks.find(b => b.id === 2).row, 8,
-      'rise waits until the tile has fully passed below the floor');
-    previous = v.vy;
+      'rise waits for collection score feedback');
   }
   await advance(presenter, 15.5);
-  assert.equal(v.vy, 10, 'the whole tile passes below the mask');
+  assert.equal(v.vy, 9);
   assert.equal(scorePopup.flight, 1, 'the popup reaches the HUD edge');
   assert.equal(presenter.present.totemScoreFx.length, 0, 'the popup disappears on contact');
   assert.equal(presenter.present.displayScore, 0, 'impact precedes banking the points');
@@ -1103,15 +1316,6 @@ test('collected totems signal arrival, slide down at full size, then yield to ri
   assert.equal(presenter.present.displayScore, 100, 'points bank at the impact peak, before the rise');
   assert.equal(presenter.present.scoreScale, 1.28);
   assert.equal(presenter.busy, true, 'the rest of the turn is still playing');
-  travel.push(v.vy - previous);
-  assert.ok(travel.every((step, i) => i === 0 || step > travel[i - 1]),
-    'suction keeps accelerating all the way beneath the floor');
-  assert.ok(travel.every((step, i) => i < 2
-    || step - travel[i - 1] > travel[i - 1] - travel[i - 2]),
-    'the downward acceleration itself builds toward disappearance');
-  assert.ok(travel.at(-1) > travel[19] * 3,
-    'the final pull is visibly faster than the middle of the descent');
-  assert.ok(Math.max(...travel) < 0.1, 'no frame jumps a large part of a cell');
   await drain(presenter);
   assert.equal(await done, true);
   assert.ok(!presenter.state.blocks.some(b => b.kind === 'totem'));
@@ -1176,49 +1380,55 @@ function godClearSetup({ shaped = false, mixed = false } = {}) {
         height: 1, kind: 'totem', color: 4, smile: col % 3 + 1 };
     }).reverse() };
   if (shaped) initial.shape = { rows: Array.from({ length: 10 }, () => ({ left: 2, right: 7 })) };
-  if (mixed) initial.blocks.push({ id: 20, row: 7, col: shaped ? 2 : 0, len: shaped ? 5 : 8, color: 0 });
-  const rows = mixed ? [7, 8] : [8];
+  initial.blocks.push({ id: 21, row: 9, col: shaped ? 2 : 0, len: shaped ? 5 : 8, color: 0 });
+  initial.blocks.push({ id: 22, row: 7, col: shaped ? 6 : 7, len: 1, color: 1 });
+  if (mixed) initial.blocks.push({ id: 20, row: 7, col: shaped ? 2 : 0,
+    len: 1, height: 1, kind: 'totem', color: 4, smile: 1 });
   const final = structuredClone(initial);
-  const geometry = clearTotemRows(final, rows);
-  const award = awardRows(final, rows, createTurnScore());
-  const collectionAward = awardTotemCollect(final, geometry.collected);
-  const result = { accepted: true, events: [
-    { type: 'clear', ...geometry, award, collectionAward, state: final },
-    { type: 'turn-complete', state: final }
-  ] };
+  const result = { accepted: true, events: [] };
+  const turn = createTurnScore();
+  settleBoard(final, (type, data) => {
+    if (type === 'clear') data.award = awardRows(final, data.rows, turn);
+    if (type === 'totem-collect') data.award = awardTotemCollect(final, data.blocks);
+    result.events.push(structuredClone({ type, ...data, state: final }));
+  });
+  result.events.push({ type: 'turn-complete', state: structuredClone(final) });
   const presenter = createPresenter({ sfx: () => {} });
   presenter.reset(initial);
   return { initial, final, result, presenter };
 }
 
-test('all-totem row faces jump to max and clear in place with separate scores', async () => {
+test('power mode upgrades faces, clears ordinary blocks, then drops and collects totems', async () => {
   for (const step of [16, 250, 1000]) {
     const { result, presenter } = godClearSetup();
     const saved = structuredClone(result);
     const done = presenter.play(result);
-    for (const b of presenter.state.blocks) {
-      assert.equal(b.smile, 3);
+    const totems = presenter.state.blocks.filter(b => b.kind === 'totem');
+    for (const b of totems) {
       const v = presenter.viewOf(b);
-      assert.equal(v.expression, 3);
+      assert.equal(v.expression, b.smile);
       assert.equal(v.vy, 8);
-      assert.equal(v.clearing, true);
-      assert.equal(v.collecting, false, 'row cash-out does not sink through the floor');
+      assert.equal(v.clearing, false);
     }
-    assert.deepEqual(presenter.present.totemScoreFx.map(fx => fx.pts), Array(8).fill(150));
-    assert.ok(presenter.present.totemScoreFx.every(fx => fx.smile === 3),
-      'god clears use max-stage score styling');
-    const popups = presenter.present.totemScoreFx.slice();
+    await advance(presenter, 325);
+    const evolving = totems.find(b => b.smile === 1);
+    assert.ok(presenter.viewOf(evolving).expression > 1 && presenter.viewOf(evolving).expression < 3);
+    assert.ok(presenter.viewOf(evolving).evolve > 0);
+    assert.ok(totems.every(b => presenter.viewOf(b).s > 1));
+    await advance(presenter, 325);
+    assert.ok(totems.every(b => presenter.viewOf(b).expression === 3));
+    assert.ok(presenter.state.blocks.every(b => !presenter.viewOf(b).clearing), 'hold max faces before the wipe');
     await advance(presenter, 400);
-    assert.ok(popups.every(fx => fx.flight < 1), 'scores wait for the wave to finish');
-    await advance(presenter, 375);
-    assert.ok(popups.every(fx => fx.flight === 1));
+    assert.ok(totems.every(b => presenter.viewOf(b).vy === 8 && !presenter.viewOf(b).clearing));
+    assert.ok(presenter.state.blocks.filter(b => b.kind !== 'totem').every(b => presenter.viewOf(b).clearing));
     assert.equal(presenter.present.totemScoreFx.length, 0);
-    assert.equal(presenter.present.displayScore, 0);
-    await advance(presenter, 35);
-    assert.ok(presenter.present.scoreScale > 1, 'row cash-out also bounces the total');
-    await advance(presenter, 35);
-    assert.equal(presenter.present.totemScoreFx.length, 0);
-    assert.equal(presenter.present.displayScore, 1200);
+    await advance(presenter, 930);
+    assert.ok(presenter.state.blocks.every(b => b.kind === 'totem'), 'entire board wipe finishes before gravity');
+    assert.ok(totems.every(b => presenter.viewOf(b).vy === 8));
+    await advance(presenter, 160);
+    await advance(presenter, 100);
+    assert.ok(presenter.viewOf(totems[0]).vy > 8, 'totems now fall into the cleared board');
+    assert.equal(presenter.present.totemScoreFx.length, 0, 'scores wait for floor arrival');
     await drain(presenter, step);
     assert.equal(await done, true);
     assert.equal(presenter.present.displayScore, 1200);
@@ -1227,28 +1437,29 @@ test('all-totem row faces jump to max and clear in place with separate scores', 
   }
 });
 
-test('god clear travels left-to-right on both maps, even in a mixed clear batch', async () => {
+test('god clear wipes ordinary blocks top-to-bottom on both maps and powers up off-row totems', async () => {
   for (const shaped of [false, true]) {
     const { presenter, result, final } = godClearSetup({ shaped, mixed: true });
     const done = presenter.play(result);
-    const totems = presenter.state.blocks.filter(b => b.kind === 'totem').sort((a, b) => a.col - b.col);
-    const first = presenter.viewOf(totems[0]);
-    const last = presenter.viewOf(totems.at(-1));
-    await advance(presenter, 100);
-    assert.ok(first.s > 1, 'left edge begins the pop');
-    assert.equal(last.s, 1, 'right edge waits for the wave');
-    assert.equal(presenter.present.godClearFx, null, 'celebration waits for the first burst');
-    await advance(presenter, 80);
     const celebration = presenter.present.godClearFx;
     assert.ok(celebration);
     assert.ok(celebration.confetti.some(p => p.vx > 0), 'left cannon fires inward');
     assert.ok(celebration.confetti.some(p => p.vx < 0), 'right cannon fires inward');
-    await advance(presenter, 200);
-    assert.equal(first.s, 0, 'left tile vanishes before the right tile');
-    assert.ok(last.s >= 1);
+    assert.ok(celebration.confetti.every(p => p.x < 0 || p.x > W), 'cannons start off-screen');
+    await advance(presenter, 1050);
+    const totems = presenter.state.blocks.filter(b => b.kind === 'totem');
+    assert.ok(totems.every(b => presenter.viewOf(b).expression === 3));
+    const first = presenter.viewOf(presenter.state.blocks.find(b => b.id === 22));
+    const last = presenter.viewOf(presenter.state.blocks.find(b => b.id === 21));
+    await advance(presenter, 40);
+    assert.ok(first.s > 1, 'top row begins the pop even at the right edge');
+    assert.equal(last.s, 1, 'bottom row waits for the wave');
+    await advance(presenter, 300);
+    assert.equal(first.s, 0, 'top tile vanishes before the bottom tile');
+    assert.ok(last.s > 0);
     assert.equal(presenter.busy, true, 'subsequent events wait for every tile');
-    assert.equal(presenter.viewOf(presenter.state.blocks.find(b => b.id === 20)).s, 0,
-      'ordinary tiles retain their short shared clear window');
+    assert.ok(totems.every(b => presenter.viewOf(b).s === 1 && presenter.viewOf(b).vy === b.row),
+      'all totems remain suspended at full size throughout the wipe');
     assert.equal(presenter.present.godClearFx, celebration, 'only one celebration per batch');
     await drain(presenter);
     assert.equal(await done, true);
@@ -1260,25 +1471,24 @@ test('god clear travels left-to-right on both maps, even in a mixed clear batch'
 test('god clear text overshoots, holds, and scales away; pause and reset own all feedback', async () => {
   const { presenter, initial, result } = godClearSetup();
   const done = presenter.play(result);
-  await advance(presenter, 170);
   const fx = presenter.present.godClearFx;
   assert.equal(fx.scale, 0);
-  await advance(presenter, 160);
+  await advance(presenter, 180);
   assert.ok(fx.scale > 1, 'entrance has a nonlinear overshoot');
   presenter.present.menu = 'pause';
   const frozen = structuredClone(fx);
   await advance(presenter, 1000);
   assert.deepEqual(fx, frozen, 'confetti and text pause with the wave');
   presenter.present.menu = null;
-  await advance(presenter, 100);
+  await advance(presenter, 120);
   assert.equal(fx.scale, 1);
-  await advance(presenter, 860);
+  await advance(presenter, 1050);
   assert.equal(fx.scale, 1, 'text holds at readable size');
-  await advance(presenter, 80);
+  await advance(presenter, 100);
   assert.equal(fx.scale, 1.08, 'exit anticipates before shrinking');
-  await advance(presenter, 150);
+  await advance(presenter, 175);
   assert.ok(fx.scale > 0 && fx.scale < 1);
-  await advance(presenter, 150);
+  await advance(presenter, 175);
   assert.equal(fx.scale, 0);
   assert.equal(presenter.present.godClearFx, null);
   await drain(presenter);
@@ -1296,12 +1506,31 @@ test('god clear text overshoots, holds, and scales away; pause and reset own all
   assert.equal(presenter.present.displayScore, 0);
 });
 
-test('collection feedback and sinking pause and cancel cleanly', async () => {
-  for (const sinking of [false, true]) {
+test('power-mode wipe and pre-fall hold pause and cancel without releasing totems', async () => {
+  for (const elapsed of [350, 930]) {
+    const { presenter, initial, result } = godClearSetup();
+    const done = presenter.play(result);
+    await advance(presenter, 1050);
+    await advance(presenter, elapsed);
+    const poses = presenter.state.blocks.map(b => ({ ...presenter.viewOf(b) }));
+    presenter.present.menu = 'pause';
+    await advance(presenter, 2000);
+    assert.deepEqual(presenter.state.blocks.map(b => ({ ...presenter.viewOf(b) })), poses);
+    presenter.reset(initial);
+    await advance(presenter, 3000);
+    assert.equal(await done, false);
+    assert.deepEqual(presenter.state, initial);
+    assert.equal(presenter.present.godClearFx, null);
+    assert.equal(presenter.present.displayScore, 0);
+  }
+});
+
+test('collection feedback and particles pause and cancel cleanly', async () => {
+  for (const bursting of [false, true]) {
     const { presenter, initial, result, totem } = collectSetup();
     const done = presenter.play(result);
-    await advance(presenter, sinking ? 340 : 160);
-    if (sinking) await advance(presenter, 200);
+    await advance(presenter, bursting ? 340 : 160);
+    if (bursting) await advance(presenter, 200);
     const pose = { ...presenter.viewOf(totem) };
     presenter.present.menu = 'pause';
     await advance(presenter, 1000);
@@ -1311,6 +1540,9 @@ test('collection feedback and sinking pause and cancel cleanly', async () => {
     assert.equal(await done, false);
     assert.deepEqual(presenter.state, initial);
     assert.equal(presenter.viewOf(totem).collecting, false);
+    let particles = 0;
+    presenter.effects.eachParticle(() => particles++);
+    assert.equal(particles, 0, 'reset removes the collection burst');
     assert.equal(presenter.present.displayScore, 0);
     assert.deepEqual(presenter.present.totemScoreFx, []);
   }
@@ -1471,7 +1703,8 @@ test('foley cues fire for falls, clears, totems, god clear, submit, and failure'
   await drain(watching);
   assert.equal(await done, true);
   assert.ok(godCues.includes('god-clear'));
-  assert.ok(!godCues.includes('clear'));
+  assert.ok(godCues.includes('clear'));
+  assert.ok(godCues.indexOf('god-clear') < godCues.indexOf('clear'));
 
   cues.length = 0;
   const collected = collectSetup();
@@ -1481,7 +1714,7 @@ test('foley cues fire for falls, clears, totems, god clear, submit, and failure'
   done = collectWatch.play(structuredClone(collected.result));
   await drain(collectWatch);
   assert.equal(await done, true);
-  assert.ok(collectCues.includes('totem-suction'));
+  assert.ok(collectCues.includes('totem-clear'));
   assert.ok(!collectCues.includes('totem-submit'));
 
   cues.length = 0;

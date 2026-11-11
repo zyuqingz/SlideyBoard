@@ -127,6 +127,81 @@ test('browser pointer lifecycle only commits intentional releases', async t => {
   assert.equal(presenter.present.drag, null, 'immovable blocks do not capture a drag');
 });
 
+test('desktop drags continue through side margins without pointer capture', t => {
+  const { window, canvas } = setupBrowser(t);
+  const presenter = createPresenter({ sfx: () => {} });
+  const initial = { ...createState(), blocks: [{ id: 1, row: 8, col: 3, len: 2, color: 0 }] };
+  const slides = [];
+  bindInput(canvas, { presenter, modes: [], moveRange: () => [0, 6],
+    slide: (id, col) => { slides.push({ id, col }); return true; }, sfx: () => {} });
+  const pointer = (target, type, clientX, fields = {}) => target.emit(type, {
+    target, button: 0, buttons: type === 'pointerup' ? 0 : 1,
+    isPrimary: true, pointerId: 1, pointerType: 'mouse',
+    clientX, clientY: layout.BY + 8.5 * CELL, ...fields
+  });
+
+  for (const captureFails of [false, true]) {
+    presenter.reset(initial);
+    slides.length = 0;
+    canvas.setPointerCapture = () => { if (captureFails) throw new Error('capture unavailable'); };
+    pointer(canvas, 'pointerdown', BX + 3.5 * CELL);
+    pointer(canvas, 'pointermove', BX + 4.5 * CELL);
+    const drag = presenter.present.drag;
+    pointer(window, 'pointermove', BX + 4.5 * CELL, { target: canvas });
+    assert.equal(drag.lastX, BX + 4.5 * CELL, 'bubbled canvas movement is not processed twice');
+    canvas.emit('lostpointercapture', { pointerId: 1 });
+    assert.equal(presenter.present.drag, drag, 'capture loss keeps the mouse drag alive');
+    assert.equal(presenter.busy, false, 'capture loss does not animate a snap-back');
+
+    pointer(window, 'pointermove', W + CELL, { pointerId: 2 });
+    assert.equal(drag.target, 4, 'another pointer cannot move the drag');
+    pointer(window, 'pointermove', W + CELL);
+    assert.equal(drag.target, 6, 'right margin continues the drag to the wall');
+    pointer(window, 'pointermove', W);
+    assert.equal(drag.target, 5, 'reversing in the margin immediately moves away from the wall');
+    pointer(window, 'pointermove', -CELL);
+    assert.equal(drag.target, 0, 'left margin also continues the drag');
+    pointer(window, 'pointerup', -CELL, { pointerId: 2 });
+    assert.equal(presenter.present.drag, drag, 'another pointer cannot release the drag');
+    pointer(window, 'pointerup', -CELL);
+    assert.deepEqual(slides, [{ id: 1, col: 0 }], 'release in a margin commits the preview');
+    assert.equal(presenter.present.drag, null);
+    pointer(canvas, 'pointerup', -CELL);
+    assert.equal(slides.length, 1, 'late release cannot commit twice');
+  }
+});
+
+test('mouse movement recovers a missed release after capture failure or loss', async t => {
+  const { window, canvas } = setupBrowser(t);
+  const presenter = createPresenter({ sfx: () => {} });
+  const initial = { ...createState(), blocks: [{ id: 1, row: 8, col: 3, len: 2, color: 0 }] };
+  const slides = [];
+  bindInput(canvas, { presenter, modes: [], moveRange: () => [0, 6],
+    slide: (id, col) => { slides.push({ id, col }); return true; }, sfx: () => {} });
+  const event = { button: 0, buttons: 1, isPrimary: true, pointerId: 1, pointerType: 'mouse',
+    clientX: BX + 3.5 * CELL, clientY: layout.BY + 8.5 * CELL };
+  for (const captureFails of [false, true]) for (const target of [canvas, window]) {
+    presenter.reset(initial);
+    canvas.setPointerCapture = () => { if (captureFails) throw new Error('capture unavailable'); };
+    canvas.emit('pointerdown', { ...event, target: canvas });
+    canvas.emit('pointermove', { ...event, target: canvas, clientX: BX + 4.5 * CELL });
+    presenter.update(16);
+    if (!captureFails) canvas.emit('lostpointercapture', { pointerId: 1 });
+    // The release happened outside the window; only the next move reveals it.
+    target.emit('pointermove', { ...event, target, buttons: 0, clientX: BX + 5.5 * CELL });
+    assert.equal(presenter.present.drag, null);
+    assert.deepEqual(slides, [], 'a missed release cancels rather than spending a turn');
+    for (let i = 0; i < 30 && presenter.busy; i++) {
+      presenter.update(16);
+      await Promise.resolve();
+    }
+    assert.equal(presenter.busy, false);
+    assert.equal(presenter.viewOf(initial.blocks[0]).vx, 3);
+    canvas.emit('pointerdown', { ...event, target: canvas });
+    assert.ok(presenter.present.drag, 'the next gesture is accepted');
+  }
+});
+
 function setupPassword(t) {
   const browser = setupBrowser(t);
   lockModeUi();

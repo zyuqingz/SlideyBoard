@@ -139,6 +139,12 @@ export function drawOverlays(now, state, present, modes, shapeSelection) {
       const normal = state.difficulty === 'normal';
       text(t('difficulty'), pop.difficulty.x, pop.difficulty.y - 14, 16, C.muted, 'left');
       drawSelector(pop.difficulty, t(normal ? 'normal' : 'easy'), hoverOf(present, 'btn:difficulty'));
+      text(t('powerButton'), pop.powerButton.x, pop.powerButton.y - 14, 16, C.muted, 'left');
+      drawSelector(pop.powerButton, t(present.powerButton ? 'on' : 'off'),
+        hoverOf(present, 'btn:power-toggle'),
+        present.powerButton ? '#7a4db5' : C.panel,
+        present.powerButton ? C.white : '#c5adc9',
+        present.powerButton ? '#5a338a' : '#43374c');
       drawButton(pop.resume, t('resume'), COLORS[1], 28, hoverOf(present, 'btn:mode-resume'));
     }
   }

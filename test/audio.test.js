@@ -53,7 +53,7 @@ test('muted playback is a no-op and persists', () => {
 test('every sound cue ships a wav', async () => {
   assert.deepEqual(Object.keys(SFX).sort(), [
     'clear', 'click', 'drag', 'fail', 'fall', 'god-clear',
-    'totem-clear', 'totem-spawn', 'totem-submit', 'totem-suction', 'trim'
+    'totem-clear', 'totem-spawn', 'totem-submit', 'trim'
   ]);
   for (const file of Object.values(SFX)) {
     await access(new URL(`../assets/sfx/${file}`, import.meta.url));

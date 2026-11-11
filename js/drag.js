@@ -5,6 +5,7 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export const DRAG_DEAD_ZONE = 0.12;
 export const DRAG_GAIN = 0.92;
 export const DRAG_COMMIT = 0.6;
+export const DRAG_GRID_PULL = 0.32;
 const AXIS_BIAS = 1.25;
 
 function dragOffset(travel) {
@@ -49,6 +50,13 @@ export function followDrag(drag, dxCells, dyCells = 0) {
 
   drag.target = commitTarget(vx, drag.target, drag.min, drag.max, direction);
   return vx;
+}
+
+// Gently bias the pose toward the selected slot while following the hand.
+// Crossing a commit threshold gives a soft cell-to-cell snap with fast follow.
+export function visualDragCol(drag) {
+  if (!drag.active) return drag.col0;
+  return drag.vx + (drag.target - drag.vx) * DRAG_GRID_PULL;
 }
 
 export function commitTarget(vx, target, min, max, direction) {

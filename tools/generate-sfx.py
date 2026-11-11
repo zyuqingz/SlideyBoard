@@ -200,34 +200,6 @@ def make_totem_submit(rng):
     return out
 
 
-def make_totem_suction(rng):
-    # A compact arcade "ta-dah": dominant-to-major resolution makes the floor
-    # collection read as success. Warm synth voices, no bell modes or glissando.
-    out = silence(620)
-
-    def reward_voice(frequency, duration):
-        voice = silence(duration)
-        for i in range(len(voice)):
-            t = i / SR
-            p = i / (len(voice) - 1)
-            phase = TAU * frequency * t
-            attack = (1 - math.exp(-t / 0.006)) ** 2
-            release = min(1, (1 - p) / 0.32) ** 2
-            envelope = attack * release * (0.55 + 0.45 * math.exp(-t / 0.06))
-            voice[i] = envelope * (math.sin(phase)
-                + 0.16 * math.sin(2 * phase) + 0.045 * math.sin(3 * phase))
-        return taper(voice, release=22)
-
-    # Short anticipation, then a stronger, longer resolved chord. Keep the
-    # voices in the middle register; the reward comes from harmony and rhythm.
-    for frequency, gain in ((196, 0.14), (246.94, 0.12), (293.66, 0.1)):
-        mix(out, reward_voice(frequency, 175), gain=gain)
-    for frequency, gain in ((261.63, 0.23), (329.63, 0.17), (392, 0.14)):
-        mix(out, reward_voice(frequency, 370), 250, gain)
-    mix(out, rounded_hit(130.81, 180, decay=42, bend=0.04), 250, 0.22)
-    return taper(out, release=24)
-
-
 def make_god_clear(rng):
     out = silence(920)
     mix(out, rounded_hit(130, 300, decay=60, bend=0.2), gain=0.44)
@@ -262,7 +234,6 @@ CUES = {
     'totem-spawn': (make_totem_spawn, 89, 0.55),
     'totem-clear': (make_totem_clear, 107, 0.57),
     'totem-submit': (make_totem_submit, 131, 0.55),
-    'totem-suction': (make_totem_suction, 149, 0.56),
     'god-clear': (make_god_clear, 163, 0.68),
     'fail': (make_fail, 199, 0.49),
 }

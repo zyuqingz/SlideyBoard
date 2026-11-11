@@ -35,7 +35,7 @@ test('map toggle sits above the shape control', () => {
 
 test('difficulty sits below map, shape, and play mode with a larger gap', () => {
   for (const modes of [[classic], [shaped, extra, classic], [classic, extra, shaped]]) {
-    const { card, map, control, dividerY, modeTitleY, playMode, difficulty, resume } = modePopup(modes);
+    const { card, map, control, dividerY, modeTitleY, playMode, difficulty, powerButton, resume } = modePopup(modes);
     assert.ok(playMode.y - map.y - map.h >= 40);
     assert.ok(playMode.y > control.y + control.h + 28);
     assert.ok(dividerY > Math.max(map.y + map.h, control.y + control.h));
@@ -43,7 +43,8 @@ test('difficulty sits below map, shape, and play mode with a larger gap', () => 
     assert.ok(modeTitleY < playMode.y);
     assert.equal(playMode.y, modeTitleY + 48);
     assert.ok(playMode.y + playMode.h < difficulty.y);
-    assert.ok(difficulty.y + difficulty.h + 20 < resume.y);
+    assert.ok(difficulty.y + difficulty.h + 20 < powerButton.y);
+    assert.ok(powerButton.y + powerButton.h + 20 < resume.y);
     assert.ok(resume.y + resume.h < card.y + card.h);
     assert.ok(card.y >= 0 && card.y + card.h <= H);
   }

@@ -5,6 +5,7 @@ export const W = 750, H = 1334;
 export const CELL = 81, PAD = 3;
 export const BX = (W - COLS * CELL) / 2;
 export const BW = COLS * CELL, BH = ROWS * CELL;
+export const LEVEL_BAR_H = 40;
 export const COLORS = ['#f0912b', '#97b545', '#d24b2d', '#2f9b98', '#ffd570'];
 export const BLOCK_PALETTE = COLORS.map((fill, i) => ({
   fill, shade: ['#ad6025', '#647d32', '#933728', '#256c6b', '#bd9546'][i]

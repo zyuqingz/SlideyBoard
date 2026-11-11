@@ -5,7 +5,7 @@ import { CELL, BX } from './theme.js';
 import { createDrag, followDrag } from './drag.js';
 import { layout, toLogical, toOverlay, hit, GO_RESTART, invalidateCanvas } from './canvas-layout.js';
 import { mapControl, modeResume, shapeControl, difficultyControl, playModeControl,
-  passwordBoxControl, passwordBackControl } from './mode-popup.js';
+  powerButtonControl, passwordBoxControl, passwordBackControl } from './mode-popup.js';
 import { MODE_PASSWORD, isModeUnlocked, modePasswordDigits,
   setModePasswordDigits, resetModePassword } from './mode-lock.js';
 import { settingsPopup } from './settings-popup.js';
@@ -13,7 +13,8 @@ import { setLang } from './i18n.js';
 import { unlockAudio, isMuted, setMuted, playSfx } from './audio.js';
 
 export function bindInput(canvas, { presenter, modes, moveRange, slide, restart, shapeSelection,
-  toggleDifficulty, cyclePlayMode, cycleMap, cycleShape, sfx = playSfx }) {
+  toggleDifficulty, cyclePlayMode, cycleMap, cycleShape, togglePowerButton, triggerPowerMode,
+  sfx = playSfx }) {
   const { present, viewOf } = presenter;
   const click = () => sfx('click');
   function scrape(drag, vx, start = false) {
@@ -89,6 +90,7 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
         return null;
       }
       if (hit(difficultyControl(modes), op)) return 'btn:difficulty';
+      if (hit(powerButtonControl(modes), op)) return 'btn:power-toggle';
       if (hit(playModeControl(modes), op)) return 'btn:play-mode';
       if (presenter.state.playMode !== 'tetris' && hit(mapControl(modes), op)) return 'btn:map';
       const control = shapeControl(modes);
@@ -103,6 +105,7 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     }
     if (hit(layout.MODE_BTN, p)) return 'icon:mode';
     if (hit(layout.PAUSE_BTN, p)) return 'icon:pause';
+    if (present.powerButton && hit(layout.POWER_BTN, p)) return 'btn:power';
     if (presenter.busy) return null;
     const b = blockAt(p);
     return b ? 'block:' + b.id : null;
@@ -151,18 +154,18 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     if (!drag || e.pointerId !== drag.id) return;
     const b = presenter.state.blocks.find(b => b.id === drag.blockId);
     if (!b) { cancelDrag(); return; }
-    const p = toLogical(e), v = viewOf(b);
+    const p = toLogical(e);
     const dx = (p.x - drag.lastX) / CELL;
     const dy = (p.y - drag.lastY) / CELL;
     const wasActive = drag.active;
-    v.vx = followDrag(drag, dx, dy);
+    followDrag(drag, dx, dy);
     drag.lastX = p.x;
     drag.lastY = p.y;
     if (!wasActive && drag.active) {
       presenter.pickup(b);
-      scrape(drag, v.vx, true);
+      scrape(drag, drag.vx, true);
     } else if (drag.active) {
-      scrape(drag, v.vx);
+      scrape(drag, drag.vx);
     }
   }
 
@@ -206,6 +209,11 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
         toggleDifficulty();
         return;
       }
+      if (hit(powerButtonControl(modes), op)) {
+        click();
+        togglePowerButton();
+        return;
+      }
       if (presenter.state.playMode !== 'tetris' && hit(mapControl(modes), op)) {
         click();
         cycleMap();
@@ -238,6 +246,12 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
       cancelDrag();
       return;
     }
+    if (present.powerButton && hit(layout.POWER_BTN, p)) {
+      if (presenter.state.playMode !== 'totem-building' || presenter.busy) return;
+      click();
+      triggerPowerMode?.();
+      return;
+    }
     if (presenter.busy) return;
     const b = blockAt(p);
     if (!b) return;
@@ -248,7 +262,7 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     present.hoverKey = null;
     delete present.hoverAmt['block:' + b.id];
     present.drag = { ...createDrag(b.col, min, max), blockId: b.id, id: e.pointerId,
-      lastX: p.x, lastY: p.y };
+      pointerType: e.pointerType, lastX: p.x, lastY: p.y };
     canvas.style.cursor = 'grabbing';
     try { canvas.setPointerCapture(e.pointerId); } catch {}
   });
@@ -260,11 +274,12 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     }
     if (e.pointerId !== present.drag.id) return;
     e.preventDefault();
-    moveDrag(e);
+    if (e.pointerType === 'mouse' && !(e.buttons & 1)) cancelDrag();
+    else moveDrag(e);
   });
   on(canvas, 'pointerleave', () => { if (!present.drag) setHover(null); });
 
-  on(canvas, 'pointerup', e => {
+  function endDrag(e) {
     // Touch browsers may grant audio activation only on release.
     unlockAudio();
     const drag = present.drag;
@@ -283,10 +298,27 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     } else if (!slide(b.id, drag.target)) {
       presenter.snapBack(b);
     }
+  }
+  on(canvas, 'pointerup', endDrag);
+
+  // Desktop drags can cross the canvas margins even without pointer capture.
+  // Captured canvas events bubble here too; handle those only once.
+  on(window, 'pointermove', e => {
+    if (e.target === canvas || present.drag?.pointerType !== 'mouse'
+      || e.pointerId !== present.drag.id) return;
+    e.preventDefault();
+    if (!(e.buttons & 1)) cancelDrag();
+    else moveDrag(e);
+  });
+  on(window, 'pointerup', e => {
+    if (e.target !== canvas && present.drag?.pointerType === 'mouse') endDrag(e);
   });
 
-  for (const type of ['pointercancel', 'lostpointercapture']) on(canvas, type, e => {
+  on(canvas, 'pointercancel', e => {
     if (present.drag?.id === e.pointerId) cancelDrag();
+  });
+  on(canvas, 'lostpointercapture', e => {
+    if (present.drag?.id === e.pointerId && present.drag.pointerType !== 'mouse') cancelDrag();
   });
   on(window, 'blur', cancelDrag);
   on(window, 'resize', cancelDrag);

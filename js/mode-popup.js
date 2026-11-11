@@ -22,9 +22,10 @@ export function modePopup(modes = []) {
   const modeTitleY = dividerY + 36;
   const playMode = { ...POP_BTN, y: modeTitleY + 48, h: 60 };
   const difficulty = { ...POP_BTN, y: playMode.y + playMode.h + 40, h: 60 };
+  const powerButton = { ...POP_BTN, y: difficulty.y + difficulty.h + 40, h: 60 };
   const resume = {
     ...MODE_RESUME_BTN,
-    y: difficulty.y + difficulty.h + 28
+    y: powerButton.y + powerButton.h + 28
   };
   const h = resume.y + resume.h + MODE_PAD_BOTTOM;
   const y = Math.round((H - h) / 2);
@@ -45,6 +46,7 @@ export function modePopup(modes = []) {
     control: placeY(control, y),
     playMode: placeY(playMode, y),
     difficulty: placeY(difficulty, y),
+    powerButton: placeY(powerButton, y),
     resume: placeY(resume, y),
     passwordTitleY: y + passwordTitleY,
     passwordBox: placeY(passwordBox, y),
@@ -60,6 +62,7 @@ export const mapControl = modes => modePopup(modes).map;
 export const shapeControl = modes => modePopup(modes).control;
 export const modeResume = modes => modePopup(modes).resume;
 export const difficultyControl = modes => modePopup(modes).difficulty;
+export const powerButtonControl = modes => modePopup(modes).powerButton;
 export const playModeControl = modes => modePopup(modes).playMode;
 export const passwordBoxControl = modes => modePopup(modes).passwordBox;
 export const passwordBackControl = modes => modePopup(modes).passwordBack;

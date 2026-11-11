@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DRAG_COMMIT, DRAG_DEAD_ZONE, createDrag, commitTarget, followDrag } from '../js/drag.js';
+import { DRAG_COMMIT, DRAG_DEAD_ZONE, createDrag, commitTarget, followDrag, visualDragCol } from '../js/drag.js';
 
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-8, `${a} ≈ ${b}`);
 
@@ -108,6 +108,18 @@ test('ambiguous diagonal travel waits for horizontal intent, then locks the axis
   followDrag(drag, 0, 5);
   assert.equal(drag.vx, vx);
   assert.equal(drag.target, 4);
+});
+
+test('preview follows the hand with a gentle pull toward the committed cell', () => {
+  const drag = createDrag(4, 0, 8);
+  followDrag(drag, 0.8);
+  const visual = visualDragCol(drag);
+  assert.equal(drag.target, 5);
+  assert.ok(Math.abs(visual - drag.vx) < Math.abs(visual - drag.target), 'pose stays closer to the hand');
+  assert.ok(visual > drag.vx && visual < drag.target, 'retains lean between slots');
+  assert.ok(Math.abs(visual - drag.target) < Math.abs(drag.vx - drag.target));
+  followDrag(drag, -0.8);
+  close(visualDragCol(drag), 4);
 });
 
 test('a blocked block stays in place', () => {

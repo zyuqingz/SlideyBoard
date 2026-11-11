@@ -1,6 +1,6 @@
 // Shared turn lifecycle. Modes supply insertion/preview rules, options add drops.
 import { ROWS, rowSpan, computeGravity, settleBoard, touchingTop, hasMoves,
-  occupiedTileRows, fullRows, heightOf } from './board.js';
+  occupiedTileRows, fullRows, heightOf, applyPowerMode } from './board.js';
 import { createTurnScore, awardRows, awardTotemCollect } from './sim.js';
 import { spawnTotem, spawnBuildingTotem } from './totem-spawn.js';
 import { isBuilding, isTetris, usesTotems, tetrisDropInterval,
@@ -14,8 +14,6 @@ function scoreSteps(state, emit) {
         const { left, right } = rowSpan(state, row);
         return right - left;
       });
-      if (isBuilding(state) && data.collected?.length)
-        data.collectionAward = awardTotemCollect(state, data.collected);
     } else if (type === 'totem-collect') {
       data.award = awardTotemCollect(state, data.blocks);
     }
@@ -49,7 +47,7 @@ function endGame(state, emit, reason) {
     .filter(b => reason === 'no-moves' || b.row <= 0).map(b => b.id) });
 }
 
-export function resolveTurn(state, random, emit, rise) {
+export function resolveTurn(state, random, emit, rise, options = {}) {
   const building = isBuilding(state);
   const startingLevel = state.level;
   const step = scoreSteps(state, emit);
@@ -86,8 +84,8 @@ export function resolveTurn(state, random, emit, rise) {
       // later level-ups can only increase this turn's budget up to the cap.
       if (replacement) replacementUsed = true;
       else levelDrops++;
-      const block = spawnBuildingTotem(state, random, replacement ? [] : dropColumns);
-      if (!replacement) dropColumns.push(block.col);
+      const block = spawnBuildingTotem(state, random, dropColumns);
+      dropColumns.push(block.col);
       emit('totem-drop', { id: block.id });
       // Land each tile before choosing the next column, so batches can stack
       // without overlapping above the board or mistaking entry for a top-out.
@@ -106,9 +104,6 @@ export function resolveTurn(state, random, emit, rise) {
     }
     flushFalls();
   };
-  settle();
-  if (state.phase === 'over') return;
-
   const spawnRows = count => {
     for (let i = 0; i < count; i++) {
       if (touchingTop(state)) break;
@@ -119,6 +114,15 @@ export function resolveTurn(state, random, emit, rise) {
       settle(false);
     }
   };
+  if (options.forcePower && building) {
+    step('clear', applyPowerMode(state));
+    settleBoard(state, step, true);
+    if (touchingTop(state)) endGame(state, emit, 'top-out');
+    if (state.phase === 'over') return;
+    return finishBuilding();
+  }
+  settle();
+  if (state.phase === 'over') return;
   if (building) return finishBuilding();
   spawnRows(Math.max(1, REFILL_ROWS - occupiedTileRows(state)));
   if (isTetris(state)) {

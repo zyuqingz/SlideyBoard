@@ -92,7 +92,8 @@ modes are `standard`, `tetris`, and `totem-building`. Tetris keeps one live drop
 Totem Building drops independent 1×1 totems, replacing them and adding level-up extras
 within a per-turn spawn budget.
 Clears improve totem smiles; reaching the floor collects them for points. An
-all-totem row immediately upgrades its totems to max smile and clears them in place.
+all-totem row activates Power Mode: every totem reaches max smile, all ordinary
+blocks are cleared, then totems fall and collect through the normal floor sequence.
 Neither play mode blasts rows when a totem reaches the top.
 Gameplay branches on `playMode`. Snapshots still expose `totemsEnabled` as
 `playMode === 'tetris'` for older callers. Stored `'totem'` migrates to `'tetris'`.
@@ -120,11 +121,11 @@ Every event has `type` and a detached `state` **after** that logical step.
 | --- | --- | --- |
 | `slide` | `id`, `from`, `to` | Snap dragged block to its accepted column |
 | `gravity` | `moves: [{ id, from, to }]` | Animate falling blocks |
-| `clear` | `rows`, pre-removal `blocks`, `award`, optional `displayBlocks`, `collected`, `collectionAward` | Animate departing blocks and surviving Building faces; all-totem rows show max faces and bank individual awards when clearing finishes |
+| `clear` | `rows`, pre-removal `blocks`, `award`, optional `displayBlocks`, `godClear` | Animate departing blocks and surviving Building faces; God Clear powers up every totem before wiping ordinary blocks across the board |
 | `rise` | — | Animate the committed row and existing blocks upward |
 | `shaped-rise` | `blocks` (pre-trim, destination coordinates), `trimmed` (discarded spans) | Animate original spans upward, emit chips, adopt surviving geometry |
 | `totem-drop` | `id` | Introduce the incoming totem above the board; subsequent gravity animates its fall |
-| `totem-collect` | collected `blocks`, `award` | Show individual scores while totems sink beneath the floor, then bank their points and adopt the snapshot |
+| `totem-collect` | collected `blocks`, `award` | Compress and rebound, launch each intact tile on a spinning particle-like arc, then bank individual scores and adopt the snapshot |
 | `game-over` | `blockIds` | Bank score, show danger feedback, reveal result |
 | `turn-complete` | — | Finish score feedback and adopt final snapshot |
 
@@ -134,8 +135,10 @@ there is no global event bus or event-sourced persistence system.
 Standard/Tetris row awards contain cumulative points for the current turn, so
 successive clears replace the pending popup. Building collection awards contain
 only that batch's points and `totems: [{ id, pts, mult }]` for individual popups.
-An all-totem row supplies these in `collectionAward`, alongside its zero-point
-row `award`; collection scoring uses the level after row progression.
+God Clear preserves totems in the clear snapshot and awards points only during
+subsequent floor collection, using the level after completed-row progression.
+The wipe counts the triggering full rows for progression, not partial rows it
+also removes. Remaining all-totem rows cannot retrigger Power Mode during that settle.
 
 ## Adding a mode
 
@@ -328,16 +331,18 @@ to the base mode; the retired Totem mode's score key is no longer read or writte
   Classic candidates use the Building five-line progression curve. Both searches
   reject Building rises that touch the ceiling before simulating a response slide.
 - Sand, jade, and gold faces blend through ordinary smile upgrades. Floor
-  collections compress and rebound, then sink beneath the board mask. Adjacent
+  collections compress and rebound, then launch intact on a sideways, upward arc,
+  rotating and fading as gravity pulls them down. Adjacent
   floor collections separated by one-cell gravity share a visual clock. Released
   tiles briefly hang, then fall with quadratic acceleration, staggered from the
-  bottom upward so gaps open instead of the stack following suction rigidly.
-  Each totem repeats the same floor compression/rebound cue and nonlinear suction
-  curve after the released tiles land. Individual score impacts overlap the
+  bottom upward so each tile falls independently into the opened space.
+  Each totem repeats the same floor compression/rebound and particle-like flight
+  after the released tiles land. Individual score impacts overlap the
   falling stack and the next arrival's feedback rather than delaying them.
   Clears, rises, drops, and longer falls remain playback boundaries. All-totem
-  row clears show gold faces immediately and pop away in a left-to-right wave,
-  with side confetti and a centered, scale-only “GOD CLEAR!” celebration. The
+  row clears upgrade every totem to gold, then wipe ordinary blocks in a
+  top-to-bottom wave before totems fall and collect. Side confetti accompanies
+  a centered, scale-only “POWER MODE ACTIVATED!” celebration. The
   celebration shares the pause/reset clock and can outlive board motion. Individual score
   popups originate beside each totem and fly toward the total during its animation.
   Their collected smile stage sets the styling: small white, medium pale gold,
@@ -345,6 +350,14 @@ to the base mode; the retired Totem mode's score key is no longer read or writte
 
 ## Playback and lifecycle
 
+- A thick level bar follows the playable top edge, with its level label inside.
+  Clear progress fills on the same visual clock; crossing a level holds a full
+  bar and pops a centered level-up label. When a Building drop follows, the bar
+  stays full through intervening events and resets as that totem spawns.
+  Building drops flash the bar's lower edge at every incoming column, including
+  simultaneous drops, and emerge below its opaque mask. The ceiling warning
+  strip is drawn inside the bar above its fill. Drops retain their
+  engine-defined order and positions. Power wipes run top-down.
 - `state.phase` describes gameplay (`play` / `over`). Pause and mode menus live in
   `present.menu`, not in authoritative game state.
 - The browser blocks new gestures during playback. Headless callers can immediately
@@ -361,10 +374,13 @@ to the base mode; the retired Totem mode's score key is no longer read or writte
 - Drags require horizontal intent beyond a 0.12-cell dead zone; vertical starts
   are rejected for that contact. Travel uses a steady 0.92 gain and selects a new
   cell only past 0.6 cells, leaving a 0.2-cell hysteresis band against release jitter.
-  Walls discard overshoot so reversal responds immediately. The selected ghost is
-  the release destination. Both accepted slides and returns snap without positional
-  overshoot, then finish a short compression/contact cue before unlocking input or
-  continuing board playback. Position, pickup scale and contact share one tween.
+  Walls discard overshoot so reversal responds immediately. Tiles follow the hand
+  with a 32% pull toward the selected cell for soft snaps and a fast critically damped filter,
+  catching up in roughly 12ms; reversal brakes leftover momentum immediately.
+  The selected ghost is the release destination. Both accepted slides and returns
+  carry visual velocity into a bounded snap, then finish a short compression and
+  subtle rebound before unlocking input or continuing board playback. Position,
+  pickup scale and contact share one tween; adoption/reset clears drag velocity.
 - Hover transitions continue in menus. The presenter reports visible changes;
   once hover settles, rendering skips unchanged menu frames. Input, resizing,
   font readiness and icon loading invalidate the paint. Active play retains its

@@ -27,13 +27,21 @@ export function spawnBuildingTotem(state, random, recentColumns = []) {
   }
   const safe = candidates.filter(candidate => candidate.landingRow > 0);
   const pool = safe.length ? safe : candidates;
-  const minRank = Math.min(...pool.map(candidate => candidate.rankRow));
-  // Include columns one row lower than the tallest tile stack.
-  const band = pool.filter(candidate => candidate.rankRow <= minRank + 1);
+  const tiled = pool.filter(candidate =>
+    tileGrid.some(row => row[candidate.block.col]));
+  // Land on ordinary tiles. An empty board still uses the floor.
+  const grounded = tiled.length ? tiled : pool;
+  // A group drop spreads across unused columns. Stack only when every
+  // reachable column already took a tile this wave.
+  const unused = grounded.filter(candidate => !recentColumns.includes(candidate.block.col));
+  const source = unused.length ? unused : grounded;
+  const minRank = Math.min(...source.map(candidate => candidate.rankRow));
+  // Include columns one row lower than the tallest remaining tile stack.
+  const band = source.filter(candidate => candidate.rankRow <= minRank + 1);
   const spacing = candidate => recentColumns.length
     ? Math.min(...recentColumns.map(col => Math.abs(candidate.block.col - col))) : 0;
   const ranked = band.slice().sort((a, b) =>
-    a.rankRow - b.rankRow || spacing(b) - spacing(a));
+    spacing(b) - spacing(a) || a.rankRow - b.rankRow);
   const picks = recentColumns.length ? ranked.slice(0, Math.min(2, ranked.length)) : ranked;
   const block = picks[Math.floor(random() * picks.length)].block;
   state.nextId++;
