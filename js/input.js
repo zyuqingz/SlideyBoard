@@ -2,7 +2,7 @@
 import { COLS, ROWS } from './board.js';
 import { cellsOf } from './block-geometry.js';
 import { CELL, BX } from './theme.js';
-import { followDrag, commitTarget } from './drag.js';
+import { createDrag, followDrag } from './drag.js';
 import { layout, toLogical, toOverlay, hit, GO_RESTART, invalidateCanvas } from './canvas-layout.js';
 import { mapControl, modeResume, shapeControl, difficultyControl, playModeControl } from './mode-popup.js';
 import { settingsPopup } from './settings-popup.js';
@@ -95,11 +95,10 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     if (!b) { cancelDrag(); return; }
     const p = toLogical(e), v = viewOf(b);
     const dx = (p.x - drag.lastX) / CELL;
-    v.vx = followDrag(v.vx, dx, drag.min, drag.max);
+    const previousTarget = drag.target;
+    v.vx = followDrag(drag, dx);
     drag.lastX = p.x;
-    const next = commitTarget(v.vx, drag.target, drag.min, drag.max, dx);
-    if (next !== drag.target) playSfx('place', { volume: 0.42, rate: 0.88 });
-    drag.target = next;
+    if (drag.target !== previousTarget) playSfx('place', { volume: 0.42, rate: 0.88 });
   }
 
   on(canvas, 'pointerdown', e => {
@@ -160,7 +159,7 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     const [min, max] = range;
     present.hoverKey = 'block:' + b.id;
     presenter.pickup(b);
-    present.drag = { blockId: b.id, id: e.pointerId, lastX: p.x, col0: b.col, target: b.col, min, max };
+    present.drag = { ...createDrag(b.col, min, max), blockId: b.id, id: e.pointerId, lastX: p.x };
     playSfx('pickup', { volume: 0.5, rate: 0.88 });
     canvas.style.cursor = 'grabbing';
     try { canvas.setPointerCapture(e.pointerId); } catch {}

@@ -1,76 +1,126 @@
 // Shared turn lifecycle. Modes supply insertion/preview rules, options add drops.
-import { rowSpan, settleBoard, touchingTop, hasMoves, occupiedTileRows } from './board.js';
+import { ROWS, rowSpan, computeGravity, settleBoard, touchingTop, hasMoves,
+  occupiedTileRows, fullRows, heightOf } from './board.js';
 import { createTurnScore, awardRows, awardTotemCollect } from './sim.js';
 import { spawnTotem, spawnBuildingTotem } from './totem-spawn.js';
 import { isBuilding, isTetris, usesTotems, tetrisDropInterval,
-  buildingTotemsForLevelUp } from './play-mode.js';
+  buildingTotemsForLevelUp, BUILDING_REFILL_ROWS } from './play-mode.js';
 
-export function resolveTurn(state, random, emit, rise) {
+function scoreSteps(state, emit) {
   const turn = createTurnScore();
-  const spawnPending = () => {
-    let spawned = false;
-    while (state.pendingTotemSpawns > 0) {
-      const result = spawnBuildingTotem(state, random);
-      if (result.type === 'blocked') {
-        state.totemSpawnBlocked = true;
-        break;
-      }
-      state.totemSpawnBlocked = false;
-      state.pendingTotemSpawns--;
-      spawned = true;
-      emit('totem-drop', { id: result.block.id });
-    }
-    if (spawned) {
-      settleBoard(state, step);
-      spawnPending();
-    }
-  };
-  const step = (type, data) => {
+  return (type, data) => {
     if (type === 'clear') {
-      const prevLevel = state.level;
       data.award = awardRows(state, data.rows, turn, row => {
         const { left, right } = rowSpan(state, row);
         return right - left;
       });
-      if (isBuilding(state)) {
-        state.pendingTotemSpawns += buildingTotemsForLevelUp(prevLevel, state.level);
-        if (data.collected?.length)
-          data.collectionAward = awardTotemCollect(state, data.collected);
-      }
+      if (isBuilding(state) && data.collected?.length)
+        data.collectionAward = awardTotemCollect(state, data.collected);
     } else if (type === 'totem-collect') {
       data.award = awardTotemCollect(state, data.blocks);
     }
     emit(type, data);
   };
-  const settle = () => {
+}
+
+export function spawnOpeningTotem(state, random, emit = () => {}, rise) {
+  if (!isBuilding(state) || state.blocks.some(b => b.kind === 'totem')) return;
+  const step = scoreSteps(state, emit);
+  const block = spawnBuildingTotem(state, random);
+  emit('totem-drop', { id: block.id });
+  const moves = computeGravity(state);
+  if (moves.length) emit('gravity', { moves });
+  if (touchingTop(state)) return endGame(state, emit, 'top-out');
+  settleBoard(state, step);
+  // An opening clear can remove the seed board. Restore a legal first slide
+  // without imposing turn-time refill height on openings with high ledges.
+  while (rise && !hasMoves(state)) {
+    rise();
+    if (touchingTop(state)) return endGame(state, emit, 'top-out');
     settleBoard(state, step);
-    spawnPending();
+  }
+}
+
+function endGame(state, emit, reason) {
+  state.phase = 'over';
+  state.gameOverReason = reason;
+  state.newBest = state.score > state.bestAtStart && state.score > 0;
+  emit('game-over', { blockIds: state.blocks
+    .filter(b => reason === 'no-moves' || b.row <= 0).map(b => b.id) });
+}
+
+export function resolveTurn(state, random, emit, rise) {
+  const building = isBuilding(state);
+  const startingLevel = state.level;
+  const step = scoreSteps(state, emit);
+  const settle = (checkTop = true) => {
+    settleBoard(state, step);
+    if (checkTop && touchingTop(state)) endGame(state, emit, 'top-out');
   };
-  const endGame = reason => {
-    state.phase = 'over';
-    state.gameOverReason = reason;
-    state.newBest = state.score > state.bestAtStart && state.score > 0;
-    emit('game-over', { blockIds: state.blocks
-      .filter(b => reason === 'no-moves' || b.row <= 0).map(b => b.id) });
+  const onFloor = () => state.blocks.some(b =>
+    b.kind === 'totem' && b.row + heightOf(b) - 1 >= ROWS - 1);
+  const hasTotem = () => state.blocks.some(b => b.kind === 'totem');
+  const finishBuilding = () => {
+    let levelDrops = 0, replacementUsed = false;
+    const dropColumns = [];
+    const batchMoves = [];
+    const flushFalls = () => {
+      if (!batchMoves.length) return;
+      step('gravity', { moves: batchMoves.splice(0) });
+    };
+    // Count settled ordinary-tile rows, not stack height or totem rows. Recheck
+    // after every rise: gravity, trimming and clears can change the deficit.
+    const refill = (required = false) => {
+      while (state.phase === 'play'
+        && (required || occupiedTileRows(state) < BUILDING_REFILL_ROWS || !hasMoves(state))) {
+        spawnRows(1);
+        required = false;
+      }
+    };
+    refill(true);
+    while (state.phase === 'play') {
+      const replacement = !hasTotem() && !replacementUsed;
+      const budget = buildingTotemsForLevelUp(startingLevel, state.level);
+      if (!replacement && levelDrops >= budget) break;
+      // Charge before landing. Clears/collections never refund a drop, and
+      // later level-ups can only increase this turn's budget up to the cap.
+      if (replacement) replacementUsed = true;
+      else levelDrops++;
+      const block = spawnBuildingTotem(state, random, dropColumns);
+      dropColumns.push(block.col);
+      emit('totem-drop', { id: block.id });
+      // Land each tile before choosing the next column, so batches can stack
+      // without overlapping above the board or mistaking entry for a top-out.
+      const moves = computeGravity(state);
+      if (moves.length) batchMoves.push(...moves);
+      if (touchingTop(state)) {
+        flushFalls();
+        return endGame(state, emit, 'top-out');
+      }
+      // Flush before a clear or collect so those events still follow a landing.
+      if (fullRows(state).length || onFloor() || !hasMoves(state)) {
+        flushFalls();
+        settleBoard(state, step);
+        refill();
+      }
+    }
+    flushFalls();
   };
   settle();
-  // A rise reaching the ceiling still allows one rescue slide next turn.
-  if (touchingTop(state)) return endGame('top-out');
+  if (state.phase === 'over') return;
 
   const spawnRows = count => {
     for (let i = 0; i < count; i++) {
-      // A refill can reach the ceiling before all requested rows arrive.
-      // Leave that position intact for the next turn's rescue slide.
       if (touchingTop(state)) break;
       rise();
-      settle();
+      // Building loses on contact, before a clear can hide the ceiling hit.
+      if (building && touchingTop(state)) return endGame(state, emit, 'top-out');
+      // Other play modes retain their next-turn rescue slide after a rise.
+      settle(false);
     }
   };
-  const tileRows = occupiedTileRows(state);
-  const riseCount = isBuilding(state)
-    ? (tileRows <= 0 ? 4 : tileRows === 1 ? 3 : 1)
-    : (state.blocks.length ? 1 : 3);
-  spawnRows(riseCount);
+  if (building) return finishBuilding();
+  spawnRows(state.blocks.length ? 1 : 3);
   if (isTetris(state)) {
     const live = state.blocks.some(b => b.kind === 'totem');
     if (!live) {
@@ -85,7 +135,7 @@ export function resolveTurn(state, random, emit, rise) {
       } else state.tetrisDropIn = wait - 1;
     }
   }
-  if (!isBuilding(state) && !occupiedTileRows(state))
+  if (!occupiedTileRows(state))
     spawnRows(state.blocks.length ? 1 : (state.shape ? 1 : 3));
-  if ((state.shape || usesTotems(state)) && !hasMoves(state)) endGame('no-moves');
+  if ((state.shape || usesTotems(state)) && !hasMoves(state)) endGame(state, emit, 'no-moves');
 }

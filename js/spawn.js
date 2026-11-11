@@ -167,6 +167,10 @@ function evaluateCandidate(candidate, preparations, context) {
   for (const board of preparations) {
     const next = copyBoard(board);
     insertRow(next, candidate.row);
+    if (isBuilding(next) && touchingTop(next)) {
+      value = Math.max(value, SCORE.noResponse);
+      continue;
+    }
     const autoClears = settleBoard(next);
     const responses = survivingSlides(next);
     if (responses.length) playable = true;

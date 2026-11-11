@@ -4,7 +4,7 @@ import { GAME_MODES } from './modes.js';
 import { resolvePlayMode } from './play-mode.js';
 
 /**
- * A mode supplies { id, label, reset(state, random, options), moveRange(state, block),
+ * A mode supplies { id, label, reset(state, random, options, emit), moveRange(state, block),
  * resolveTurn(state, random, emit) }. emit(type, data) records a detached snapshot.
  * Commands and results are plain serializable data, with no timers or callbacks
  * from the browser. Supplying the same RNG stream and commands reproduces a game.
@@ -18,6 +18,7 @@ export function createEngine({ best = 0, random = Math.random, modes = GAME_MODE
   const options = new Map([[modeId, structuredClone(modeOptions)]]);
   let mode;
   let state;
+  let openingEvents = [];
   const snapshot = () => structuredClone(state);
 
   function reset(id = mode?.id ?? modeId, config = {}) {
@@ -31,13 +32,17 @@ export function createEngine({ best = 0, random = Math.random, modes = GAME_MODE
     // Publish after setup succeeds so an invalid option cannot erase a live run.
     const fresh = createState(nextBest, config.difficulty ?? state?.difficulty ?? difficulty,
       currentPlayMode);
-    nextMode.reset(fresh, random, structuredClone(nextOptions));
     fresh.mode = id;
+    const events = [];
+    const emit = (type, data = {}) => events.push(structuredClone({ type, ...data, state: fresh }));
+    nextMode.reset(fresh, random, structuredClone(nextOptions), emit);
+    if (events.length) emit('turn-complete');
     if (mode) bests.set(mode.id, state.best);
     options.set(id, nextOptions);
     bests.set(id, fresh.best);
     mode = nextMode;
     state = fresh;
+    openingEvents = events;
     return snapshot();
   }
 
@@ -71,5 +76,6 @@ export function createEngine({ best = 0, random = Math.random, modes = GAME_MODE
 
   reset(modeId);
   return Object.freeze({ snapshot, reset, moveRange, dispatch,
+    opening: () => structuredClone({ accepted: openingEvents.length > 0, events: openingEvents }),
     modes: Object.freeze(modes.map(({ id, label }) => Object.freeze({ id, label }))) });
 }

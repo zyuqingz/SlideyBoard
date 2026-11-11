@@ -22,7 +22,7 @@ test('totem score text stays visible to the HUD edge and disappears on contact',
   });
 
   let pose = { x: 0, y: 0, sx: 1, sy: 1, globalAlpha: 1 };
-  const stack = [], labels = [];
+  const stack = [], labels = [], scores = [];
   const ctx = new Proxy({
     save() { stack.push({ ...pose }); },
     restore() { pose = stack.pop(); },
@@ -31,6 +31,7 @@ test('totem score text stays visible to the HUD edge and disappears on contact',
     measureText: () => ({ width: 40 }),
     fillText(label, x, y) {
       if (label === '+100') labels.push({ ...pose, x: pose.x + x * pose.sx, y: pose.y + y * pose.sy });
+      if (label.startsWith('+')) scores.push({ ...pose, font: this.font, color: this.fillStyle });
     }
   }, {
     get(target, key) { return key === 'globalAlpha' ? pose.globalAlpha : target[key] ?? (() => {}); },
@@ -71,5 +72,25 @@ test('totem score text stays visible to the HUD edge and disappears on contact',
       draw(1000, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
       assert.equal(labels.length, count, 'the label disappears on edge contact');
     }
+  }
+  for (const level of [1, 10]) {
+    const sizes = [];
+    for (const smile of [1, 2, 3]) {
+      fx.smile = smile;
+      fx.pts = 50 * smile * level;
+      fx.flight = 0;
+      draw(1000, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
+      const rendered = scores.at(-1);
+      assert.equal(rendered.color, ['#ffffff', '#ffe6ac', '#ffd05a'][smile - 1]);
+      assert.equal(rendered.globalAlpha, 1);
+      const size = Number(rendered.font.match(/([\d.]+)px/)[1]);
+      sizes.push(size);
+      fx.flight = 0.9;
+      draw(1000, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
+      assert.equal(scores.at(-1).font, rendered.font, 'the stage size stays intact during flight');
+      assert.equal(scores.at(-1).color, rendered.color);
+    }
+    assert.ok(sizes[0] < sizes[1] && sizes[1] < sizes[2],
+      'each expression earns a larger popup, including at higher levels');
   }
 });

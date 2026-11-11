@@ -3,6 +3,7 @@ import { ROWS, COLOR_GROUPS, touchingTop, copyBoard, slideRange } from './board.
 import { cellsOf } from './block-geometry.js';
 import { insertShapedRow, settleShapedBoard } from './shaped-board.js';
 import { generateNormalRow } from './difficulty.js';
+import { isBuilding } from './play-mode.js';
 
 const ATTEMPTS = 12, PREPARATIONS = 3;
 
@@ -69,6 +70,10 @@ export function generateShapedNextRow(state, random) {
     for (const prep of preparations) {
       const next = copyBoard(prep.board);
       insertShapedRow(next, row);
+      if (isBuilding(next) && touchingTop(next)) {
+        value = Math.max(value, -100);
+        continue;
+      }
       const cleared = settleShapedBoard(next);
       const moves = responses(next);
       // An empty board gets refilled by the mode rather than becoming a deadlock.

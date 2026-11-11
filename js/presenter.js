@@ -1,7 +1,7 @@
 // Plays detached engine events. This module never imports or invokes game rules.
 import { COLS, ROWS } from './board.js';
 import { cellsOf, facesOf } from './block-geometry.js';
-import { W, CELL, PAD, BX, COLORS, totemPaint } from './theme.js';
+import { W, CELL, PAD, BX, BW, BH, COLORS, totemPaint } from './theme.js';
 import { Ease, createEffects } from './fx.js';
 import { createScorePresentation, stackScore, bankScore, showTotemScore, finishTotemScores } from './score-fx.js';
 import { playSfx } from './audio.js';
@@ -12,7 +12,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
   const views = new Map();
   const present = {
     ...createScorePresentation(), shake: 0, overlayA: 0, drag: null, menu: null,
-    hoverKey: null, hoverAmt: {}, landingDust: [],
+    hoverKey: null, hoverAmt: {}, landingDust: [], godClearFx: null,
     displayProgress: 0, displayLevel: 1, levelScale: 1
   };
   const { tween, wait } = effects;
@@ -54,7 +54,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     adopt(snapshot);
     Object.assign(present, createScorePresentation(), {
       displayScore: state.score, shake: 0, overlayA: state.phase === 'over' ? 1 : 0,
-      drag: null, menu: null, hoverKey: null, hoverAmt: {}, landingDust: [],
+      drag: null, menu: null, hoverKey: null, hoverAmt: {}, landingDust: [], godClearFx: null,
       displayProgress: state.levelProgress ?? 0,
       displayLevel: state.level ?? 1,
       levelScale: 1
@@ -82,12 +82,37 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
   }
 
   const fallMs = d => 110 + 95 * Math.sqrt(d);
-  const TOTEM_STAGGER_MS = 28;
+  const TOTEM_STAGGER_MS = 42;
+
+  function celebrateGodClear() {
+    const colors = ['#ffdb79', '#fff3cc', '#91d6bd', '#d7a6ff', '#ff9ba8'];
+    const fx = { elapsed: 0, scale: 0, confetti: [] };
+    for (const side of [-1, 1]) for (let i = 0; i < 28; i++) {
+      fx.confetti.push({
+        x: side < 0 ? BX - 18 : BX + BW + 18,
+        y: BH * 0.62 + (Math.random() - 0.5) * 50,
+        vx: -side * (180 + Math.random() * 420), vy: -420 - Math.random() * 420,
+        size: 7 + Math.random() * 8, rot: Math.random() * Math.PI,
+        spin: side * (5 + Math.random() * 8), color: colors[i % colors.length]
+      });
+    }
+    present.godClearFx = fx;
+    // One visual clock owns the pop, hold and accelerating scale-only exit.
+    // The celebration can finish over subsequent board motion.
+    tween(1500, p => {
+      fx.elapsed = p * 1500;
+      fx.scale = fx.elapsed < 260 ? Ease.outBack(fx.elapsed / 260)
+        : fx.elapsed < 1120 ? 1
+          : fx.elapsed < 1200 ? 1 + 0.08 * Ease.out((fx.elapsed - 1120) / 80)
+            : 1.08 * (1 - Ease.inCubic((fx.elapsed - 1200) / 300));
+      if (p === 1 && present.godClearFx === fx) present.godClearFx = null;
+    }, Ease.lin);
+  }
 
   function collectionScores(blocks, award) {
     return (award?.totems ?? []).map(points => {
       const b = blocks.find(block => block.id === points.id);
-      return showTotemScore(present, points, effects, {
+      return showTotemScore(present, { ...points, smile: b.smile ?? 1 }, effects, {
         x: BX + (b.col + b.len / 2) * CELL,
         y: boardY() + (b.row - 0.4) * CELL
       });
@@ -178,9 +203,8 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
       }
       case 'clear': {
         // Keep the pre-clear snapshot visible until the departing blocks vanish.
-        // The flash still travels from the middle outward, but every block
-        // shrinks on the same final window. An early block used to hit scale 0
-        // and leave a hole until the slowest block finished.
+        // Ordinary clears share a final shrink window. God clears deliberately
+        // stagger the whole pop/shrink so the disappearance travels across the row.
         interruptSquash();
         if (state.playMode === 'totem-building') {
           const fromP = present.displayProgress;
@@ -220,16 +244,24 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
           reaction.v.expression = reaction.from;
         }
         const rowOrder = event.rows.slice().sort((a, b) => b - a);
+        const godIds = new Set(state.playMode === 'totem-building'
+          ? (event.collected ?? []).map(b => b.id) : []);
+        const waveLeft = Math.min(...(event.collected ?? []).map(b => b.col));
         const clears = event.blocks.map(b => ({ b, v: viewOf(b), burst: false,
-          delay: Math.abs(b.col + b.len / 2 - COLS / 2) / (COLS / 2) * 70
-            + Math.min(3, rowOrder.indexOf(b.row)) * 24 }));
+          god: godIds.has(b.id),
+          delay: godIds.has(b.id)
+            ? (b.col - waveLeft) * 65 + Math.max(0, rowOrder.indexOf(b.row)) * 90
+            : Math.abs(b.col + b.len / 2 - COLS / 2) / (COLS / 2) * 70
+             + Math.min(3, rowOrder.indexOf(b.row)) * 24 }));
         for (const { v } of clears) v.clearing = true;
-        const duration = 320 + Math.max(0, ...clears.map(c => c.delay));
         const shrink = 150;
+        const normalFlashEnd = 320 + Math.max(0, ...clears.filter(c => !c.god).map(c => c.delay)) - shrink;
+        for (const clear of clears) clear.flashEnd = clear.god ? clear.delay + 170 : normalFlashEnd;
+        const duration = Math.max(320, ...clears.map(c => c.flashEnd + shrink));
+        let celebrated = false;
         if (!await tween(duration, t => {
           const elapsed = t * duration;
           for (const fx of scores) fx.flight = clamp((t - 0.4) / 0.6, 0, 1) ** 4;
-          const flashEnd = duration - shrink;
           for (const { v, from, to } of reactions) {
             const p = clamp((elapsed - 50) / (duration - 50), 0, 1);
             const blend = p * p * (3 - 2 * p);
@@ -241,7 +273,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
                 : 0.95 + 0.05 * Ease.out((p - 0.8) / 0.2);
           }
           for (const clear of clears) {
-            const { b, v, delay } = clear;
+            const { b, v, delay, flashEnd } = clear;
             if (elapsed < flashEnd) {
               const q = Ease.outBack(clamp((elapsed - delay) / (flashEnd - delay), 0, 1));
               v.s = 1 + 0.12 * q;
@@ -254,6 +286,11 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
                 const first = !clears.some(c => c.burst);
                 clear.burst = true;
                 burstBlock(b);
+                if (clear.god && !celebrated) {
+                  celebrated = true;
+                  celebrateGodClear();
+                  sfx('combo', { volume: 0.5 });
+                }
                 if (first) {
                   const mult = event.award?.mult || 1;
                   sfx('clear', { volume: 0.62, rate: 0.86 });
@@ -358,21 +395,6 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     }
   }
 
-  function playOpening() {
-    if (busy || state?.playMode !== 'totem-building') return Promise.resolve(false);
-    const totems = state.blocks.filter(b => b.kind === 'totem');
-    if (!totems.length) return Promise.resolve(false);
-    const snap = structuredClone(state);
-    return play({
-      accepted: true,
-      events: [
-        { type: 'totem-drop', id: totems[0].id, state: snap },
-        { type: 'gravity', moves: totems.map(b => ({ id: b.id, from: -1, to: b.row })), state: snap },
-        { type: 'turn-complete', state: snap }
-      ]
-    });
-  }
-
   async function play(result) {
     if (busy || !result.accepted) return false;
     const run = generation;
@@ -445,6 +467,6 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     return true;
   }
 
-  return { reset, play, playOpening, pickup, snapBack, update, viewOf, present, effects,
+  return { reset, play, pickup, snapBack, update, viewOf, present, effects,
     get state() { return state; }, get busy() { return busy; } };
 }

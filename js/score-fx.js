@@ -6,7 +6,8 @@ export function createScorePresentation() {
 }
 
 export function showTotemScore(present, award, effects, origin) {
-  const fx = { id: award.id, pts: award.pts, t0: effects.now(), flight: null, origin };
+  const fx = { id: award.id, pts: award.pts, smile: award.smile ?? 1,
+    t0: effects.now(), flight: null, origin };
   present.totemScoreFx.push(fx);
   return fx;
 }

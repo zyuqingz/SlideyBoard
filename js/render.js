@@ -326,8 +326,12 @@ function drawScorePopup(now, fx, target) {
     ctx.fillRect(-46, -42, 92, 92);
   }
   const label = '+' + fx.pts;
-  const size = fx.id == null ? 48 : Math.min(32, (CELL - 12) / (label.length * 0.65));
-  text(label, 0, 0, size, C.white);
+  const stage = clamp(Math.round(fx.smile ?? 1), 1, 3);
+  // A shared length fit preserves the size hierarchy even for larger awards.
+  const fit = Math.min(1, (CELL - 12) / (label.length * 0.65 * 28));
+  const size = totem ? [20, 27, 34][stage - 1] * fit : 48;
+  const color = totem ? [C.white, '#ffe6ac', '#ffd05a'][stage - 1] : C.white;
+  text(label, 0, 0, size, color);
   ctx.restore();
 }
 
@@ -359,6 +363,37 @@ function drawCombo(now, fx) {
   ctx.globalAlpha = fx.alpha;
   ctx.translate(W / 2, layout.VH / 2); ctx.scale(scale, scale);
   text(t('combo') + ' x' + fx.mult, 0, 0, 48, C.white);
+  ctx.restore();
+}
+
+function drawGodClear(fx) {
+  const seconds = fx.elapsed / 1000;
+  const shrink = 1 - Ease.inCubic(clamp((fx.elapsed - 1150) / 350, 0, 1));
+  for (const p of fx.confetti) {
+    ctx.save();
+    ctx.translate(p.x + p.vx * seconds,
+      layout.BY + p.y + p.vy * seconds + 525 * seconds * seconds);
+    ctx.rotate(p.rot + p.spin * seconds);
+    ctx.scale(shrink, shrink);
+    ctx.fillStyle = p.color;
+    const flutter = 0.25 + 0.75 * Math.abs(Math.cos(p.rot + seconds * 11));
+    ctx.fillRect(-p.size / 2, -p.size * flutter / 4, p.size, p.size * flutter / 2);
+    ctx.restore();
+  }
+  if (fx.scale <= 0) return;
+  ctx.save();
+  ctx.translate(W / 2, layout.BY + BH / 2);
+  ctx.font = `800 58px ${FONT}`;
+  const label = t('godClear');
+  const fit = Math.min(1, (BW - 64) / ctx.measureText(label).width);
+  ctx.scale(fx.scale * fit, fx.scale * fit);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 9;
+  ctx.strokeStyle = '#493047';
+  ctx.strokeText(label, 0, 0);
+  text(label, 0, 0, 58, '#ffdb79');
   ctx.restore();
 }
 
@@ -407,12 +442,9 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
       W / 2, layout.MODE_Y, 22, C.muted, 'center', 700);
   const scoreTarget = drawScore(present, slots.scoreY);
   const guideY = layout.LEVEL_Y + LEVEL_RING_R + 22;
-  // One guide lane below the ring: blocked drops take priority, then the
-  // opening instructions, then the live countdown after the first move.
+  // One guide lane below the ring: opening instructions, then the live countdown.
   if (state.phase === 'play') {
-    if (playId === 'totem-building' && state.totemSpawnBlocked) {
-      text(t('waitingForSpace'), W / 2, guideY, 18, '#e9ba78');
-    } else if (!present.scoreFx && !state.hasMoved) {
+    if (!present.scoreFx && !state.hasMoved) {
       ctx.globalAlpha = 0.55 + 0.25 * Math.sin(now / 400);
       const hint = playId === 'totem-building' ? t('hintTotemBuilding')
         : playId === 'tetris' ? t('hintTetris')
@@ -548,7 +580,8 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   // Keep feedback above the board and particles, but below modal overlays.
   if (present.scoreFx) drawScorePopup(now, present.scoreFx, scoreTarget);
   for (const fx of present.totemScoreFx) drawScorePopup(now, fx, scoreTarget);
-  if (present.comboFx) drawCombo(now, present.comboFx);
+  if (present.comboFx && !present.godClearFx) drawCombo(now, present.comboFx);
+  if (present.godClearFx) drawGodClear(present.godClearFx);
   ctx.restore();
 
   drawOverlays(now, state, present, modes, shapeSelection);

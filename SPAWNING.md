@@ -61,6 +61,38 @@ completes a row is rejected. One safe shape/column placement is chosen randomly;
 if none fit, spawning defers. Keep one live Totem, replacing it after it is
 cleared.
 
+Totem Building drops an independent 1×1 tile at opening. Resolve any completed
+rows and floor collection immediately with normal scoring, then refill only if
+needed to restore a legal first slide. Opening playback uses engine events
+for the fall, clears, collection and refill. A collected opening tile waits until
+the first player turn for replacement. Each turn allows at most
+one replacement when no totems remain, plus **four level-up drops total**. A new
+level grants `min(newLevel, 4)` extras, but bonuses from multiple levels share that
+four-drop budget. The maximum is **five drops per turn including replacement**;
+existing live totems do not count toward this spawn cap. Every drop spends its
+allowance even if it immediately clears or collects, and further level-ups during
+drop cascades cannot reset the cap. If all drops collect, replacement becomes
+eligible again next turn. Drops wait until refill rows have risen and settled.
+Among reachable below-ceiling columns, choose those farthest from existing totems
+and earlier drops in the same turn, then pick randomly among ties. This spreads
+level-up drops instead of repeatedly choosing the same or neighboring columns.
+Collected drops still count for spacing until the turn ends. Empty floor cells
+and landings on existing totems remain eligible; stacking is allowed when the
+available columns are already occupied. Resolve each tile before choosing the next. Floor drops collect
+normally. Drops may complete
+rows. No Building drop is deferred or left waiting for space. A landed tile or
+row rise reaching row zero ends the game immediately, before clears; temporary
+above-board drop positions do not count. Below-ceiling boards without slides
+advance another row rather than ending with `no-moves`.
+
+Building refills use one settled-board rule: rise at least once per turn, then
+continue until four distinct rows contain ordinary tiles and a slide is available.
+With no intervening clears, 0/1/2/3+ occupied tile rows get 4/3/2/1 incoming rows.
+Totems do not count; smiling shards count only the rows their cells actually occupy.
+Recheck after every rise and after drop-induced clears/collections, so gravity,
+shaped trimming and cascades cannot leave a stale refill count. Ceiling contact
+stops the refill immediately.
+
 A completed row touching any Totem cell removes the entire piece in Tetris mode,
 but clears and scores only the completed row. Cells outside that row detach and
 burst away; neighbouring blocks in other rows remain. Totem Building only

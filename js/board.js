@@ -21,8 +21,8 @@ export function heightOf(block) {
 }
 
 // Unique occupied rows from ordinary tiles and smiling shards.
-// Live tetrominos (`kind === 'totem'`) are ignored so a piece on an empty
-// board still gets a normal one-row rise, not the empty-board refill.
+// Totems do not count as refill material. Count actual occupied cell rows,
+// including irregular shards, rather than block origins or bounding height.
 export function occupiedTileRows(state) {
   const rows = new Set();
   for (const b of state.blocks) {

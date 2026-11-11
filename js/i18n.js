@@ -15,7 +15,6 @@ const DICT = {
     standard: 'STANDARD',
     tetris: 'TETRIS',
     'totem-building': 'TOTEM BUILDING',
-    waitingForSpace: 'Waiting for space to spawn',
     gameOver: 'GAME OVER',
     noMoves: 'NO MOVES LEFT',
     score: 'SCORE',
@@ -35,8 +34,9 @@ const DICT = {
     hintClassic: 'Slide a block to fill a row',
     hintShaped: 'Rising edges trim blocks · Fill a row',
     hintTetris: 'Fill a row → break the whole piece',
-    hintTotemBuilding: 'Clear to smile · Send totems to the floor',
+    hintTotemBuilding: 'Send totems to the floor',
     combo: 'COMBO',
+    godClear: 'GOD CLEAR!',
     soundOn: 'SOUND ON',
     soundOff: 'SOUND OFF'
   },
@@ -54,7 +54,6 @@ const DICT = {
     standard: '标准',
     tetris: '俄罗斯方块',
     'totem-building': '图腾建造',
-    waitingForSpace: '等待空间生成',
     gameOver: '游戏结束',
     noMoves: '无路可走',
     score: '分数',
@@ -74,8 +73,9 @@ const DICT = {
     hintClassic: '滑动方块填满一行',
     hintShaped: '上升边缘会裁切方块 · 填满一行',
     hintTetris: '填满一行 → 整块碎裂',
-    hintTotemBuilding: '消行使图腾微笑 · 送到底部得分',
+    hintTotemBuilding: '送到底部得分',
     combo: '连击',
+    godClear: '神级消除！',
     soundOn: '音效开',
     soundOff: '音效关'
   }

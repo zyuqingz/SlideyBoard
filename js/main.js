@@ -26,8 +26,10 @@ const engine = createEngine({ modeId: 'shaped', best: loadBest('shaped'),
 const presenter = createPresenter({ boardY: () => layout.BY });
 
 function showBoard(snapshot) {
-  presenter.reset(snapshot);
-  presenter.playOpening().catch(error => {
+  const opening = engine.opening();
+  presenter.reset(opening.events[0]?.state ?? snapshot);
+  saveBest(snapshot.mode, snapshot.best);
+  presenter.play(opening).catch(error => {
     console.error('Opening drop presentation failed', error);
     presenter.reset(engine.snapshot());
   });

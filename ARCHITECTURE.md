@@ -46,7 +46,7 @@ owns a separate copy of the state currently on screen, which may trail the engin
 | `js/settings-popup.js` | Settings card layout, language buttons, restart and resume |
 | `js/i18n.js` | English/Chinese UI strings and language persistence |
 | `js/input.js` | Browser gestures, hit testing, drag preview, menu interaction |
-| `js/drag.js` | Symmetric direction-aware drag commitment and pointer gain |
+| `js/drag.js` | Distance-based drag gain, starting dead zone, reversal hysteresis and bounded landing preview |
 | `js/audio.js` | Sound cues, guarded browser-storage access, mute persistence |
 | `js/storage.js` | Per-map best scores and shared difficulty/play-mode preferences |
 | `js/main.js` | Browser composition and visual frame loop |
@@ -69,6 +69,7 @@ const range = game.moveRange(blockId); // [minCol, maxCol], or null
 const result = game.dispatch({ type: 'slide', id: blockId, col: targetCol });
 // result: { accepted, reason? , events, state }
 const fresh = game.reset();
+const opening = game.opening(); // { accepted, events }, detached playback for the latest reset
 const shaped = game.reset('shaped', { best: 700, modeOptions: { shapeId: 'diamond' } });
 ```
 
@@ -80,10 +81,15 @@ registry that excludes Shaped, the first registered mode is the default.
 omitted values reuse that mode's in-memory values (zero / empty options on its first
 visit). Best scores and options never cross mode boundaries. Setup builds a fresh
 state and publishes it only after the mode hook succeeds.
+`opening()` returns that reset's setup events, ending in `turn-complete`, or an
+unaccepted empty result when setup emits nothing. The browser initializes the
+presenter from the first event snapshot and plays the sequence through `play()`;
+the engine snapshot already contains the fully resolved opening and score.
 
 Classic and Shaped are maps (board outlines), registered in `GAME_MODES`. Play
 modes are `standard`, `tetris`, and `totem-building`. Tetris keeps one live drop.
-Totem Building starts with one independent 1×1 totem and queues more on level-ups.
+Totem Building drops independent 1×1 totems, replacing them and adding level-up extras
+within a per-turn spawn budget.
 Clears improve totem smiles; reaching the floor collects them for points. An
 all-totem row immediately upgrades its totems to max smile and clears them in place.
 Neither play mode blasts rows when a totem reaches the top.
@@ -138,7 +144,7 @@ A mode is a plain object with:
 {
   id: 'classic',
   label: 'CLASSIC',
-  reset(state, random, options) { /* construct an opening on fresh base state */ },
+  reset(state, random, options, emit) { /* construct an opening; optionally emit setup steps */ },
   moveRange(state, block) { /* return [minColumn, maxColumn] */ },
   resolveTurn(state, random, emit) { /* resolve rules and emit facts */ }
 }
@@ -277,14 +283,27 @@ to the base mode; the retired Totem mode's score key is no longer read or writte
 
 ### Totem Building
 
-- Reset attempts one independent 1×1 totem with `smile: 1`. Opening geometry is
-  settled before input; the presenter animates its fall from above the board.
-- Every five cleared rows advances a level. Each new level queues `min(level, 5)`
-  totems. `pendingTotemSpawns` persists unplaced drops across turns, including a
-  blocked opening drop; `totemSpawnBlocked` indicates a queue waiting for space.
-- Drops choose among the highest supported landings in columns without another
-  totem. They must enter through the outline, land on an ordinary block, leave
-  top clearance, and avoid automatic full rows. Pending drops retry after settling.
+- Reset drops one independent 1×1 totem with `smile: 1`. Opening drops resolve
+  clears, smile upgrades and floor collections with normal scoring before input.
+  Refill only if needed to restore a legal first slide; an immediately
+  collected opening face is not repeatedly replaced. The presenter plays the
+  engine's opening events, including the fall, clears, collections and refill.
+- When no totems remain, allow one replacement per turn after refilling/settling.
+  This is separate from level-up extras. Clearing or collecting a drop spends its
+  allowance; an exhausted replacement allowance becomes available again next turn.
+- Every five cleared rows advances a level. New levels grant `min(level, 4)` extras,
+  capped at four level-up drops across the entire turn (five with replacement).
+  The budget is calculated from the turn's starting level to its current level,
+  with already-spawned extras deducted. Refill and drop cascades cannot renew it.
+  Each drop lands and resolves before the next is chosen. There is no persistent
+  spawn queue or waiting-for-space state; the cap limits drops, not live totems.
+- Drops choose reachable, below-ceiling columns with the greatest distance from
+  existing totem columns and earlier drops this turn, randomly breaking ties.
+  Turn-local spacing includes already-collected drops. Stacks, shaped ledges and
+  direct floor landings remain eligible; restricted entry paths can still force
+  stacking. Floor drops collect normally. Row-completing
+  drops resolve normal clears and smile upgrades. If only ceiling landings remain,
+  the tile lands and ends the game instead of deferring.
 - Full rows containing ordinary tiles clear those tiles and improve each touched
   totem's smile, up to stage 3. Totem-only rows immediately set every participating
   totem to stage 3 and collect them in place. Rows still advance level progression;
@@ -293,17 +312,27 @@ to the base mode; the retired Totem mode's score key is no longer read or writte
   `50 × smile × level` points each. Collection can release another totem or cascade;
   each totem has its own score popup and banks its points as its collection
   animation finishes, before the rest of the chain completes.
-- Incoming candidates use lengths 2–4. Before rising, zero ordinary tile rows
-  requests four rises, one tile row requests three, and larger boards request one.
+- Incoming candidates use lengths 2–4. Rise at least once, then refill to four
+  distinct occupied ordinary-tile rows: 0/1/2/3+ rows normally get 4/3/2/1 rises.
+  Totems are excluded; shards count their actual occupied cell rows. Recount after
+  every settled rise and drop-induced clear/collection, including shaped trimming.
   Fragmented candidates with no usable run fall back to a contiguous-gap row.
-  Refills stop if settling reaches the ceiling, preserving the next rescue slide.
+  A rise or landed drop touching row zero immediately ends the game, before clears
+  can erase that contact. Incoming tiles above the board are not checked until they
+  land. If a resolved board has no slides below the ceiling, advance rows until a
+  move becomes available or the ceiling is reached; Building has no `no-moves` loss.
 - Both preview searches retain `playMode` in every detached board copy, so clears
   preserve Building faces and floor collections remove them during simulation.
-  Classic candidates use the Building five-line progression curve.
+  Classic candidates use the Building five-line progression curve. Both searches
+  reject Building rises that touch the ceiling before simulating a response slide.
 - Sand, jade, and gold faces blend through ordinary smile upgrades. Floor
   collections compress and rebound, then sink beneath the board mask. All-totem
-  row clears show gold faces immediately and clear in place. Individual score
+  row clears show gold faces immediately and pop away in a left-to-right wave,
+  with side confetti and a centered, scale-only “GOD CLEAR!” celebration. The
+  celebration shares the pause/reset clock and can outlive board motion. Individual score
   popups originate beside each totem and fly toward the total during its animation.
+  Their collected smile stage sets the styling: small white, medium pale gold,
+  and large gold for stages 1–3, including max-stage god clears.
 
 ## Playback and lifecycle
 

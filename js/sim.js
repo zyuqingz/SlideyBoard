@@ -14,8 +14,6 @@ export function createState(best = 0, difficulty = 'easy', playMode = 'standard'
   return {
     playMode,
     totemsEnabled: playMode === 'tetris',
-    totemSpawnBlocked: false,
-    pendingTotemSpawns: 0,
     // Turns until the next tetromino. Reset at spawn; does not tick while one is live.
     tetrisDropIn: playMode === 'tetris' ? tetrisDropInterval(1) : 0,
     difficulty: normalizeDifficulty(difficulty),
