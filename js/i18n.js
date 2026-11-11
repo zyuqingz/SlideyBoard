@@ -38,7 +38,9 @@ const DICT = {
     combo: 'COMBO',
     godClear: 'GOD CLEAR!',
     soundOn: 'SOUND ON',
-    soundOff: 'SOUND OFF'
+    soundOff: 'SOUND OFF',
+    password: 'PASSWORD',
+    back: 'BACK'
   },
   zh: {
     settings: '设置',
@@ -77,7 +79,9 @@ const DICT = {
     combo: '连击',
     godClear: '神级消除！',
     soundOn: '音效开',
-    soundOff: '音效关'
+    soundOff: '音效关',
+    password: '密码',
+    back: '返回'
   }
 };
 

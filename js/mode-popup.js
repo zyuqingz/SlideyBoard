@@ -28,6 +28,13 @@ export function modePopup(modes = []) {
   };
   const h = resume.y + resume.h + MODE_PAD_BOTTOM;
   const y = Math.round((H - h) / 2);
+  const passwordBox = { ...POP_BTN, y: 0, h: 60 };
+  const passwordBack = { ...MODE_RESUME_BTN, y: 0 };
+  const lockStack = 36 + 48 + passwordBox.h + 28 + passwordBack.h;
+  const lockTop = Math.round((h - lockStack) / 2);
+  const passwordTitleY = lockTop + 36;
+  passwordBox.y = passwordTitleY + 48;
+  passwordBack.y = passwordBox.y + passwordBox.h + 28;
   return {
     card: { x: POP_X, y, w: POP_W, h },
     titleY: y + MODE_TITLE_Y,
@@ -38,7 +45,10 @@ export function modePopup(modes = []) {
     control: placeY(control, y),
     playMode: placeY(playMode, y),
     difficulty: placeY(difficulty, y),
-    resume: placeY(resume, y)
+    resume: placeY(resume, y),
+    passwordTitleY: y + passwordTitleY,
+    passwordBox: placeY(passwordBox, y),
+    passwordBack: placeY(passwordBack, y)
   };
 }
 
@@ -51,3 +61,5 @@ export const shapeControl = modes => modePopup(modes).control;
 export const modeResume = modes => modePopup(modes).resume;
 export const difficultyControl = modes => modePopup(modes).difficulty;
 export const playModeControl = modes => modePopup(modes).playMode;
+export const passwordBoxControl = modes => modePopup(modes).passwordBox;
+export const passwordBackControl = modes => modePopup(modes).passwordBack;

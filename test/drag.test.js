@@ -5,11 +5,12 @@ import { DRAG_COMMIT, DRAG_DEAD_ZONE, createDrag, commitTarget, followDrag } fro
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-8, `${a} ≈ ${b}`);
 
 for (const direction of [-1, 1]) {
-  test(`short gestures stay deliberate, longer slides need less travel: ${direction}`, () => {
-    for (const [distance, cells] of [[0.2, 0], [0.35, 0], [0.42, 1], [0.8, 1], [1.05, 2], [1.65, 3]]) {
+  test(`slides require deliberate travel without accelerating past the hand: ${direction}`, () => {
+    for (const [distance, cells] of [[0.2, 0], [0.42, 0], [0.75, 0], [0.8, 1], [1.9, 2], [3, 3]]) {
       const drag = createDrag(4, 0, 8);
       followDrag(drag, distance * direction);
       assert.equal(drag.target, 4 + cells * direction);
+      assert.ok(Math.abs(drag.vx - 4) < distance);
       followDrag(drag, 0);
       assert.equal(drag.target, 4 + cells * direction);
     }
@@ -25,16 +26,16 @@ for (const direction of [-1, 1]) {
       followDrag(drag, -direction * DRAG_DEAD_ZONE * 0.9);
       assert.equal(drag.target, 4);
     }
-    followDrag(drag, direction * 1.05);
+    followDrag(drag, direction * 1.9);
     assert.equal(drag.target, 4 + direction * 2);
-    followDrag(drag, -direction * 1.05);
+    followDrag(drag, -direction * 1.9);
     close(drag.vx, 4);
     assert.equal(drag.target, 4);
   });
 
   test(`release jitter preserves the landing, deliberate reversal changes it: ${direction}`, () => {
     const drag = createDrag(4, 0, 8);
-    followDrag(drag, direction * 0.42);
+    followDrag(drag, direction * 0.8);
     const committed = drag.target;
     for (let i = 0; i < 10; i++) {
       followDrag(drag, -direction * 0.02);
@@ -43,12 +44,12 @@ for (const direction of [-1, 1]) {
       assert.equal(drag.target, committed);
     }
     // Accumulate small events into a real reversal, rather than gating each event.
-    for (let i = 0; i < 10; i++) followDrag(drag, -direction * 0.02);
+    for (let i = 0; i < 15; i++) followDrag(drag, -direction * 0.02);
     assert.equal(drag.target, 4);
   });
 
   test(`travel is independent of pointer event frequency: ${direction}`, () => {
-    for (const distance of [0.2, 0.42, 1.05, 1.65]) {
+    for (const distance of [0.2, 0.75, 0.8, 1.9, 3]) {
       const single = createDrag(4, 0, 8), many = createDrag(4, 0, 8);
       followDrag(single, direction * distance);
       for (let i = 0; i < 100; i++) followDrag(many, direction * distance / 100);
@@ -64,8 +65,8 @@ for (const direction of [-1, 1]) {
 
   test(`small forward jitters do not mask an intentional reversal: ${direction}`, () => {
     const drag = createDrag(4, 0, 8);
-    followDrag(drag, direction * 0.42);
-    for (let i = 0; i < 10; i++) {
+    followDrag(drag, direction * 0.8);
+    for (let i = 0; i < 15; i++) {
       followDrag(drag, -direction * 0.03);
       followDrag(drag, direction * 0.01);
     }
@@ -78,12 +79,36 @@ for (const direction of [-1, 1]) {
     assert.equal(drag.target, edge);
     close(followDrag(drag, 20 * direction), edge);
     const reversed = followDrag(drag, -direction * 0.1);
-    assert.ok((edge - reversed) * direction > 0.1);
+    assert.ok((edge - reversed) * direction > 0.08);
     assert.equal(drag.target, edge);
-    followDrag(drag, -direction * 0.3);
+    followDrag(drag, -direction * 0.6);
     assert.equal(drag.target, edge - direction);
   });
 }
+
+test('vertical gestures cannot turn into accidental slides later in the gesture', () => {
+  const drag = createDrag(3, 0, 7);
+  followDrag(drag, 0.08, 0.2);
+  followDrag(drag, 2, 0.1);
+  assert.equal(drag.rejected, true);
+  assert.equal(drag.active, false);
+  assert.equal(drag.vx, 3);
+  assert.equal(drag.target, 3);
+});
+
+test('ambiguous diagonal travel waits for horizontal intent, then locks the axis', () => {
+  const drag = createDrag(3, 0, 7);
+  followDrag(drag, 0.2, 0.2);
+  assert.equal(drag.active, false);
+  assert.equal(drag.vx, 3);
+  followDrag(drag, 0.6, 0.05);
+  assert.equal(drag.active, true);
+  assert.equal(drag.target, 4);
+  const vx = drag.vx;
+  followDrag(drag, 0, 5);
+  assert.equal(drag.vx, vx);
+  assert.equal(drag.target, 4);
+});
 
 test('a blocked block stays in place', () => {
   const drag = createDrag(3, 3, 3);

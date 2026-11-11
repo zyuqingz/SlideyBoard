@@ -48,3 +48,13 @@ test('difficulty sits below map, shape, and play mode with a larger gap', () => 
     assert.ok(card.y >= 0 && card.y + card.h <= H);
   }
 });
+
+test('password lock stacks header, box, and back on three lines inside the card', () => {
+  const { card, passwordTitleY, passwordBox, passwordBack } = modePopup([classic, shaped]);
+  assert.ok(passwordTitleY > card.y);
+  assert.ok(passwordTitleY < passwordBox.y);
+  assert.ok(passwordBox.y + passwordBox.h < passwordBack.y);
+  assert.ok(passwordBack.y + passwordBack.h < card.y + card.h);
+  assert.equal(passwordBox.x, 185);
+  assert.equal(passwordBack.w, 260);
+});

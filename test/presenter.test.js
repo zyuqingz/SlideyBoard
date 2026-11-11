@@ -64,7 +64,65 @@ test('slide restores pickup pop after adopt then eases slot', async () => {
   assert.equal(v.slot, 0);
 });
 
-test('slide and clear playback emit matching sfx cues', async () => {
+test('release snaps from the preview, seats on the grid, then unlocks input', async () => {
+  for (const commit of [false, true]) {
+    const cues = [];
+    const presenter = createPresenter({ sfx: name => cues.push(name) });
+    const initial = { ...createState(), blocks: [{ id: 1, row: 9, col: 3, len: 2, color: 0 }] };
+    presenter.reset(initial);
+    const b = presenter.state.blocks[0], v = presenter.viewOf(b);
+    presenter.pickup(b);
+    v.vx = 3.65;
+    const final = structuredClone(initial);
+    final.blocks[0].col = commit ? 4 : 3;
+    const done = commit ? presenter.play({ accepted: true, events: [
+      { type: 'slide', id: 1, from: 3, to: 4, state: final },
+      { type: 'turn-complete', state: final }
+    ] }) : presenter.snapBack(b);
+    assert.equal(v.vx, 3.65, 'release does not teleport the block');
+    for (let i = 0; i < 10; i++) {
+      await advance(presenter, 10);
+      assert.ok(v.vx >= 3 && v.vx <= 4, 'snap never crosses a neighboring cell');
+      assert.equal(presenter.busy, true);
+    }
+    await advance(presenter, 40);
+    assert.equal(v.vx, commit ? 4 : 3);
+    assert.equal(v.slot, 0);
+    assert.ok(v.sq > 0, 'contact visibly compresses the block');
+    assert.equal(presenter.busy, true, 'contact settles before another gesture');
+    assert.equal(cues.length, 0);
+    await drain(presenter, 16);
+    assert.equal(await done, true);
+    assert.equal(v.sq, 0);
+    assert.equal(v.vx, commit ? 4 : 3);
+    assert.equal(presenter.effects.hasTweens(), false, 'no slot tween can overwrite a new pickup');
+    presenter.pickup(presenter.state.blocks[0]);
+    await advance(presenter, 250);
+    assert.equal(v.slot, 1);
+  }
+});
+
+test('snap-back pauses and reset cancels its contact cue and stale writes', async () => {
+  const { presenter, engine } = setup();
+  const b = presenter.state.blocks[1], v = presenter.viewOf(b);
+  presenter.pickup(b);
+  v.vx += 0.35;
+  const done = presenter.snapBack(b);
+  await advance(presenter, 40);
+  presenter.present.menu = 'pause';
+  const pose = { ...v };
+  await advance(presenter, 1000);
+  assert.deepEqual(v, pose);
+  presenter.reset(engine.snapshot());
+  await advance(presenter, 1000);
+  assert.equal(await done, false);
+  assert.equal(presenter.busy, false);
+  assert.equal(presenter.viewOf(b).vx, b.col);
+  assert.equal(presenter.viewOf(b).slot, 0);
+  assert.equal(presenter.viewOf(b).sq, 0);
+});
+
+test('slide and clear playback completes without sfx cues', async () => {
   const cues = [];
   const initial = { ...createState(), nextId: 20, nextRow: [{ col: 0, len: 1, color: 0 }],
     blocks: [{ id: 1, row: 9, col: 0, len: 7, color: 0 }, { id: 2, row: 8, col: 6, len: 1, color: 1 }] };
@@ -76,8 +134,7 @@ test('slide and clear playback emit matching sfx cues', async () => {
   const done = presenter.play(result);
   await drain(presenter);
   assert.equal(await done, true);
-  assert.ok(cues.includes('slide'));
-  assert.ok(cues.includes('clear'));
+  assert.equal(cues.length, 0);
 });
 
 test('input unlocks once the board has settled, while the score text is still playing', async () => {
@@ -491,6 +548,7 @@ test('opening clears and collections animate once, pause, and cancel on reset', 
   for (const step of [16, 250, 1000]) {
     const engine = createEngine({ modeId: 'classic', playMode: 'totem-building',
       random: () => 0, modes: [{ ...classic, reset(state, random, options, emit) {
+        state.shape = { rows: Array.from({ length: 10 }, (_, row) => ({ left: 0, right: row === 0 ? 1 : 8 })) };
         state.blocks = [{ id: 1, row: 9, col: 1, len: 7, color: 0 }];
         state.nextId = 2;
         spawnOpeningTotem(state, random, emit);
@@ -529,9 +587,8 @@ test('real Classic and Shaped openings finish at the engine snapshot', async () 
     const random = () => ((rng = (Math.imul(rng, 1664525) + 1013904223) >>> 0) / 4294967296);
     const engine = createEngine({ modeId, playMode: 'totem-building', modeOptions: { shapeId }, random });
     const opening = engine.opening();
-    assert.ok(opening.events.some(e => e.type === 'clear'));
-    if (shapeId === 'diamond')
-      assert.ok(opening.events.some(e => e.type === 'shaped-rise'), 'an emptied opening gets a playable refill');
+    assert.ok(opening.events.some(e => e.type === 'totem-drop'));
+    assert.ok(opening.events.some(e => e.type === 'gravity'));
     const presenter = createPresenter({ sfx: () => {} });
     presenter.reset(opening.events[0].state);
     const done = presenter.play(opening);

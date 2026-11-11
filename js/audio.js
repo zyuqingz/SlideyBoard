@@ -2,16 +2,7 @@
 const KEY = 'slidey_muted';
 const BASE = 'assets/sfx/';
 
-export const SFX = {
-  click: 'click.wav',
-  slide: 'slide.wav',
-  clear: 'clear.wav',
-  combo: 'combo.wav',
-  pickup: 'pickup.wav',
-  place: 'place.wav',
-  rise: 'rise.wav',
-  error: 'error.wav'
-};
+export const SFX = {};
 
 function browserStorage() {
   try { return globalThis.localStorage ?? null; } catch { return null; }
@@ -56,7 +47,7 @@ export function createAudio({
   }
 
   function play(name, { volume = 1, rate = 1 } = {}) {
-    if (muted || !AudioCtor) return false;
+    if (muted || !AudioCtor || !SFX[name]) return false;
     unlock();
     const proto = load(name);
     if (!proto) return false;

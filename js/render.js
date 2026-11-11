@@ -493,7 +493,7 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   }
 
   const drag = present.drag;
-  const dragged = drag && state.blocks.find(b => b.id === drag.blockId);
+  const dragged = drag?.active && state.blocks.find(b => b.id === drag.blockId);
   if (dragged) {
     ctx.fillStyle = 'rgba(255,255,255,0.06)';
     const corridor = new Set();

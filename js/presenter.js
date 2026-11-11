@@ -190,11 +190,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
         const v = viewOf(moved);
         v.vx = from;
         pickup(moved);
-        const dist = Math.abs(event.to - from);
-        sfx('slide', { volume: 0.45 + 0.15 * Math.min(1, dist / 4), rate: 0.88 });
-        slotIn(v);
-        return tween(85 + 65 * Math.min(1, dist),
-          p => { v.vx = from + (event.to - from) * p; }, Ease.out);
+        return snapTo(v, event.to);
       }
       case 'gravity': {
         interruptSquash();
@@ -283,18 +279,11 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
               v.s = 1.12 * (1 - Ease.inCubic(q));
               v.flash = 1 - Ease.out(q);
               if (!clear.burst) {
-                const first = !clears.some(c => c.burst);
                 clear.burst = true;
                 burstBlock(b);
                 if (clear.god && !celebrated) {
                   celebrated = true;
                   celebrateGodClear();
-                  sfx('combo', { volume: 0.5 });
-                }
-                if (first) {
-                  const mult = event.award?.mult || 1;
-                  sfx('clear', { volume: 0.62, rate: 0.86 });
-                  if (mult > 1) sfx('combo', { volume: 0.38, rate: 0.82 });
                 }
               }
             }
@@ -319,7 +308,6 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
           v.collecting = true;
         }
         const scores = collectionScores(collected, event.award);
-        sfx('clear', { volume: 0.62, rate: 0.9 });
         if (!await tween(340, p => {
           // Compress against the floor, stretch on rebound, then settle.
           const squash = p < 0.28 ? 0.24 * Ease.out(p / 0.28)
@@ -352,7 +340,6 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
       case 'totem-drop':
         interruptSquash();
         adopt(event.state);
-        sfx('place', { volume: 0.45, rate: 0.88 });
         return true;
       case 'rise':
       case 'shaped-rise': {
@@ -366,11 +353,9 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
           v.vy = b.row + 1;
           return { v, row: b.row };
         });
-        sfx('rise', { volume: 0.4, rate: 0.88 });
         if (!await tween(shaped ? 240 : 210, p => {
           for (const { v, row } of moving) v.vy = row + 1 - p;
         }, Ease.out) || !current()) return false;
-        if (event.trimmed?.length) sfx('clear', { volume: 0.4, rate: 0.84 });
         for (const fragment of event.trimmed ?? []) burstBlock(fragment);
         adopt(event.state);
         return true;
@@ -379,7 +364,6 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
         interruptSquash();
         if (!await bankScore(present, effects, current) || !current()) return false;
         const top = state.blocks.filter(b => event.blockIds.includes(b.id));
-        sfx('error', { volume: 0.55, rate: 0.8 });
         tween(450, p => { present.shake = (1 - p) * 14 * Math.sin(p * 45); }, Ease.lin);
         if (!await tween(350, p => top.forEach(b => { viewOf(b).danger = p; }), Ease.out) || !current()) return false;
         const moving = state.blocks.slice();
@@ -423,11 +407,25 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     viewOf(block).slot = 1;
   }
 
-  // Cubic ease-in keeps the hover size, then accelerates into the cell.
-  function slotIn(v) {
-    const from = v.slot;
-    if (from <= 0) return;
-    return tween(200, p => { v.slot = from * (1 - p); }, Ease.inCubic);
+  function snapTo(v, col) {
+    const from = v.vx, lift = v.slot;
+    const travelMs = 100 + 45 * Math.min(1, Math.abs(col - from));
+    const settleMs = 65, duration = travelMs + settleMs;
+    const feedback = lift > 0 || Math.abs(col - from) > 0.001;
+    let contacted = false;
+    // Position never overshoots into neighbors. A brief compression gives the
+    // snap a firm contact beat, and completes before gravity or input resumes.
+    return tween(duration, p => {
+      const elapsed = p * duration;
+      const travel = Math.min(1, elapsed / travelMs);
+      v.vx = travel === 1 ? col : from + (col - from) * Ease.out(travel);
+      v.slot = lift * (1 - Ease.inCubic(travel));
+      if (travel === 1) {
+        contacted = true;
+        const settle = clamp((elapsed - travelMs) / settleMs, 0, 1);
+        v.sq = feedback ? 0.07 * (1 - Ease.out(settle)) : 0;
+      }
+    }, Ease.lin);
   }
 
   async function snapBack(block) {
@@ -437,12 +435,11 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     interruptSquash();
     const run = generation;
     const mine = ++lock;
-    const v = viewOf(block), from = v.vx;
+    const v = viewOf(block);
+    if (v.vx === block.col && v.slot === 0) return true;
     busy = true;
     try {
-      slotIn(v);
-      return await tween(85 + 65 * Math.min(1, Math.abs(block.col - from)),
-        p => { v.vx = from + (block.col - from) * p; }, Ease.out);
+      return await snapTo(v, block.col);
     } finally {
       if (lock === mine && run === generation) busy = false;
     }

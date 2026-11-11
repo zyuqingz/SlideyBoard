@@ -20,17 +20,15 @@ export function spawnBuildingTotem(state, random, recentColumns = []) {
     while (fitsBlock(state, block, row + 1, col, grid)) row++;
     candidates.push({ block, landingRow: row });
   }
-  // Spread Building faces across columns. Each landed drop is already on the
-  // board before the next choice. Turn-local columns also remember collected
-  // drops so an empty floor column cannot attract the rest of the batch.
+  // Smaller landing rows mean taller columns. Prefer the two highest safe
+  // landings, using distance from existing/recent totems to break height ties.
   const safe = candidates.filter(candidate => candidate.landingRow > 0);
   const pool = safe.length ? safe : candidates;
   const totemCols = [...recentColumns, ...state.blocks.filter(b => b.kind === 'totem').map(b => b.col)];
   const spacing = candidate => totemCols.length
     ? Math.min(...totemCols.map(col => Math.abs(candidate.block.col - col))) : 0;
-  const widest = Math.max(...pool.map(spacing));
-  const spread = pool.filter(candidate => spacing(candidate) === widest);
-  const block = spread[Math.floor(random() * spread.length)].block;
+  const highest = pool.sort((a, b) => a.landingRow - b.landingRow || spacing(b) - spacing(a)).slice(0, 2);
+  const block = highest[Math.floor(random() * highest.length)].block;
   state.nextId++;
   state.blocks.push(block);
   return block;

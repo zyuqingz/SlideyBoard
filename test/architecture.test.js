@@ -23,7 +23,7 @@ test('the engine dependency graph cannot reach visual modules or browser APIs', 
 
 test('presentation modules cannot import the engine or turn policies', async () => {
   for (const name of ['presenter.js', 'input.js', 'render.js', 'canvas-layout.js', 'canvas-draw.js',
-    'overlay-render.js', 'theme.js', 'fx.js', 'score-fx.js', 'drag.js', 'mode-popup.js', 'settings-popup.js', 'i18n.js', 'audio.js']) {
+    'overlay-render.js', 'theme.js', 'fx.js', 'score-fx.js', 'drag.js', 'mode-popup.js', 'settings-popup.js', 'i18n.js', 'audio.js', 'mode-lock.js']) {
     const source = await readFile(new URL(`../js/${name}`, import.meta.url), 'utf8');
     assert.doesNotMatch(source, /from\s*['"].*\/(engine|modes|sim|spawn|shapes|shaped-board|shaped-spawn|shaped-mode|totem-spawn|turn|difficulty)\.js['"]/);
     const boardImport = source.match(/import\s*\{([^}]+)\}\s*from\s*['"]\.\/board\.js['"]/);

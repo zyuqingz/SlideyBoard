@@ -73,12 +73,13 @@ existing live totems do not count toward this spawn cap. Every drop spends its
 allowance even if it immediately clears or collects, and further level-ups during
 drop cascades cannot reset the cap. If all drops collect, replacement becomes
 eligible again next turn. Drops wait until refill rows have risen and settled.
-Among reachable below-ceiling columns, choose those farthest from existing totems
-and earlier drops in the same turn, then pick randomly among ties. This spreads
-level-up drops instead of repeatedly choosing the same or neighboring columns.
-Collected drops still count for spacing until the turn ends. Empty floor cells
-and landings on existing totems remain eligible; stacking is allowed when the
-available columns are already occupied. Resolve each tile before choosing the next. Floor drops collect
+Among reachable below-ceiling columns, rank the landings from highest to lowest,
+breaking height ties by greater distance from existing totems and earlier drops
+in the same turn. Collected drops still count for spacing until the turn ends.
+Pick randomly between the top two columns, or use the sole safe column. Resolve
+each tile before ranking the next drop. This favors tall stacks and can repeatedly
+choose the same column; lower stacks and empty floor cells are excluded when two
+higher safe landings exist. Floor drops collect
 normally. Drops may complete
 rows. No Building drop is deferred or left waiting for space. A landed tile or
 row rise reaching row zero ends the game immediately, before clears; temporary

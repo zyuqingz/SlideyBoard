@@ -46,7 +46,8 @@ owns a separate copy of the state currently on screen, which may trail the engin
 | `js/settings-popup.js` | Settings card layout, language buttons, restart and resume |
 | `js/i18n.js` | English/Chinese UI strings and language persistence |
 | `js/input.js` | Browser gestures, hit testing, drag preview, menu interaction |
-| `js/drag.js` | Distance-based drag gain, starting dead zone, reversal hysteresis and bounded landing preview |
+| `js/mode-lock.js` | Session-local mode-menu unlock state and password entry |
+| `js/drag.js` | Horizontal intent lock, resisted drag travel, cell hysteresis and bounded landing preview |
 | `js/audio.js` | Sound cues, guarded browser-storage access, mute persistence |
 | `js/storage.js` | Per-map best scores and shared difficulty/play-mode preferences |
 | `js/main.js` | Browser composition and visual frame loop |
@@ -297,11 +298,12 @@ to the base mode; the retired Totem mode's score key is no longer read or writte
   with already-spawned extras deducted. Refill and drop cascades cannot renew it.
   Each drop lands and resolves before the next is chosen. There is no persistent
   spawn queue or waiting-for-space state; the cap limits drops, not live totems.
-- Drops choose reachable, below-ceiling columns with the greatest distance from
-  existing totem columns and earlier drops this turn, randomly breaking ties.
-  Turn-local spacing includes already-collected drops. Stacks, shaped ledges and
-  direct floor landings remain eligible; restricted entry paths can still force
-  stacking. Floor drops collect normally. Row-completing
+- Drops randomly choose between the two highest reachable, below-ceiling landings
+  (or the sole safe landing). Height ties favor greater distance from existing
+  totem columns and earlier drops this turn, including already-collected drops.
+  Recalculate after each drop settles; repeated stacking is allowed and lower
+  stacks or direct floor landings are excluded when two higher safe landings exist.
+  Floor drops collect normally. Row-completing
   drops resolve normal clears and smile upgrades. If only ceiling landings remain,
   the tile lands and ends the game instead of deferring.
 - Full rows containing ordinary tiles clear those tiles and improve each touched
@@ -349,6 +351,13 @@ to the base mode; the retired Totem mode's score key is no longer read or writte
   and both rise variants start one row below their destination. Dragging identifies
   a block by ID and resolves its current shown geometry for rendering and release.
 - Menus freeze the visual clock. Resume continues playback from the same point.
+- Drags require horizontal intent beyond a 0.12-cell dead zone; vertical starts
+  are rejected for that contact. Travel uses a steady 0.92 gain and selects a new
+  cell only past 0.6 cells, leaving a 0.2-cell hysteresis band against release jitter.
+  Walls discard overshoot so reversal responds immediately. The selected ghost is
+  the release destination. Both accepted slides and returns snap without positional
+  overshoot, then finish a short compression/contact cue before unlocking input or
+  continuing board playback. Position, pickup scale and contact share one tween.
 - Hover transitions continue in menus. The presenter reports visible changes;
   once hover settles, rendering skips unchanged menu frames. Input, resizing,
   font readiness and icon loading invalidate the paint. Active play retains its

@@ -463,7 +463,7 @@ test('Totem Building opening totem is already on the board', () => {
   assert.ok(totems[0].row >= 1);
 });
 
-test('Building openings resolve completed rows and floor drops before the first slide', () => {
+test('Building openings settle before the first slide', () => {
   for (const [modeId, shapeId, seed] of [
     ['classic', undefined, 1], ['shaped', 'funnel', 35],
     ['shaped', 'diamond', 5], ['shaped', 'corridor', 4]
@@ -472,7 +472,8 @@ test('Building openings resolve completed rows and floor drops before the first 
       modeOptions: { shapeId }, random: seeded(seed) });
     const state = engine.snapshot();
     const opening = engine.opening();
-    assert.ok(opening.events.some(e => e.type === 'clear'));
+    assert.ok(opening.events.some(e => e.type === 'totem-drop'));
+    assert.ok(opening.events.some(e => e.type === 'gravity'));
     assert.deepEqual(totemFullRows(state), []);
     assert.ok(!state.blocks.some(b => b.kind === 'totem' && b.row === 9));
     assert.ok(hasMoves(state));
@@ -657,37 +658,45 @@ test('Totem Building can stack when every column already contains a totem', () =
   valid(state);
 });
 
-test('Building spreads successive drops even with an identical random roll', () => {
+test('Building recalculates the highest columns after each landed drop', () => {
   const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
     blocks: [block(1, 9, 0, 8)] };
-  const cols = [];
+  const cols = [], rows = [];
   for (let i = 0; i < 4; i++) {
     const incoming = spawnBuildingTotem(state, () => 0);
     cols.push(incoming.col);
     totemGravity(state);
+    rows.push(incoming.row);
     valid(state);
   }
-  assert.equal(new Set(cols).size, 4);
-  assert.ok(cols.every((col, i) => cols.slice(i + 1).every(other => Math.abs(col - other) >= 2)));
+  assert.deepEqual(cols, [0, 0, 0, 0]);
+  assert.deepEqual(rows, [8, 7, 6, 5]);
 });
 
-test('Building randomly chooses between equally spaced columns and avoids ceiling landings', () => {
+test('Building randomly chooses the highest columns and avoids ceiling landings', () => {
   const choices = new Set();
   for (const roll of [0, 0.999]) {
     const state = { ...fixture([block(1, 9, 0, 8), pole(2, 8, 0, 1), pole(3, 8, 7, 1)]),
       playMode: 'totem-building' };
     choices.add(spawnBuildingTotem(state, () => roll).col);
   }
-  assert.deepEqual([...choices].sort(), [3, 4]);
+  assert.deepEqual([...choices].sort(), [0, 7]);
   const crowded = { ...fixture([pole(1, 8, 0, 1), block(2, 9, 0, 8),
     ...Array.from({ length: 8 }, (_, i) => block(i + 3, i + 1, 7))]), playMode: 'totem-building' };
   const incoming = spawnBuildingTotem(crowded, () => 0);
-  assert.equal(incoming.col, 6, 'choose the widest safe spacing rather than column 7 at the ceiling');
+  assert.equal(incoming.col, 0, 'choose the highest safe stack rather than column 7 at the ceiling');
   totemGravity(crowded);
   valid(crowded);
 });
 
-test('Building remembers collected drop columns until the turn ends', () => {
+test('Building breaks equal-height ties using existing and recent totem spacing', () => {
+  for (const roll of [0, 0.999]) {
+    const state = { ...fixture([block(1, 9, 0, 8)]), playMode: 'totem-building' };
+    assert.equal(spawnBuildingTotem(state, () => roll, [0, 7]).col, roll === 0 ? 3 : 4);
+  }
+});
+
+test('Building level-up drops prefer stacks over immediate floor collections', () => {
   const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
     lines: 19, level: 4, blocks: [block(1, 9, 0, 8)] };
   const cols = [], collected = [];
@@ -696,8 +705,8 @@ test('Building remembers collected drop columns until the turn ends', () => {
     if (type === 'totem-collect') collected.push(...data.blocks);
   }, () => insertRow(state, [{ col: 0, len: 2, color: 0 }]));
   assert.equal(cols.length, 5);
-  assert.equal(new Set(cols).size, 5, 'floor collections must not attract every remaining drop to one column');
-  assert.ok(collected.length > 0);
+  assert.deepEqual(cols, [0, 0, 0, 0, 0]);
+  assert.equal(collected.length, 0);
   valid(state);
 });
 
@@ -740,6 +749,7 @@ test('an empty Building opening resolves and scores its floor collection', () =>
 
 test('Building drops may complete a row and resolve its normal clear and collection', () => {
   const state = { ...createState(0, 'easy', 'totem-building'), nextId: 10,
+    shape: { rows: Array.from({ length: 10 }, (_, row) => ({ left: row === 0 ? 7 : 0, right: 8 })) },
     blocks: [block(1, 8, 0, 7), block(2, 9, 0, 8)] };
   const incoming = spawnBuildingTotem(state, () => 0.999);
   const events = [];
@@ -801,11 +811,11 @@ test('nested Building board copies preserve live collection and clear rules with
   }
 });
 
-test('Totem Building randomly chooses floor and stacked columns', () => {
+test('Totem Building randomly chooses only the two highest columns', () => {
   const landings = new Set(), cols = new Set();
   for (const random of [() => 0, () => 0.49, () => 0.999]) {
     const state = { ...fixture([
-      block(1, 7, 2, 2), block(2, 8, 2, 2), block(3, 9, 2, 2),
+      block(1, 7, 2), block(2, 8, 2, 2), block(3, 9, 2, 2),
       block(4, 9, 5, 2)
     ]), playMode: 'totem-building' };
     const incoming = spawnBuildingTotem(state, random);
@@ -819,9 +829,8 @@ test('Totem Building randomly chooses floor and stacked columns', () => {
     assert.deepEqual(totemFullRows(state), []);
     valid(state);
   }
-  assert.ok(cols.size > 1, 'different rolls pick different columns');
-  assert.ok(landings.has(9), 'empty columns remain valid floor landings');
-  assert.ok([...landings].some(row => row < 9), 'occupied columns remain valid stacked landings');
+  assert.deepEqual([...cols].sort(), [2, 3], 'both highest columns can be chosen despite unequal heights');
+  assert.deepEqual([...landings].sort(), [6, 7], 'lower stacks and empty floor columns are excluded');
 });
 
 test('Totem Building always drops with floor or totem support', () => {
