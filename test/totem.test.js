@@ -12,6 +12,7 @@ import { SHAPES } from '../js/shapes.js';
 import { insertShapedRow } from '../js/shaped-board.js';
 import { generateNextRow } from '../js/spawn.js';
 import { generateShapedNextRow } from '../js/shaped-spawn.js';
+import { tetrisDropInterval } from '../js/play-mode.js';
 
 const block = (id, row, col, len = 1) => ({ id, row, col, len, color: 0 });
 const pole = (id, row, col, height) => ({ ...block(id, row, col), kind: 'totem', height });
@@ -67,22 +68,40 @@ test('a live tetromino with no ordinary tiles rises one row, not three', () => {
   assert.equal(result.events.filter(e => e.type === 'rise').length, 1);
 });
 
-test('Tetris waits three turns between drops at level 1', () => {
+test('Tetris waits five turns between drops at level 1', () => {
   const engine = createEngine({ modeId: 'classic', playMode: 'tetris', random: seeded(3) });
-  assert.equal(engine.snapshot().tetrisDropIn, 3);
+  assert.equal(engine.snapshot().tetrisDropIn, 5);
   let drops = 0;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 5; i++) {
     const command = firstMove(engine);
     assert.ok(command);
     const result = engine.dispatch(command);
     drops += result.events.filter(e => e.type === 'totem-drop').length;
-    if (i < 2) {
+    if (i < 4) {
       assert.equal(drops, 0);
-      assert.equal(engine.snapshot().tetrisDropIn, 2 - i);
+      assert.equal(engine.snapshot().tetrisDropIn, 4 - i);
     }
   }
   assert.equal(drops, 1);
-  assert.equal(engine.snapshot().tetrisDropIn, 3);
+  assert.equal(engine.snapshot().tetrisDropIn, 5);
+});
+
+test('Tetris later levels wait four turns between drops', () => {
+  assert.equal(tetrisDropInterval(1), 5);
+  assert.equal(tetrisDropInterval(2), 4);
+  assert.equal(tetrisDropInterval(9), 4);
+  const initial = { ...fixture([block(1, 8, 0, 3), block(2, 8, 4, 3)]),
+    level: 4, lines: 30, tetrisDropIn: 4 };
+  const engine = engineFor(initial);
+  let drops = 0;
+  for (let i = 0; i < 4; i++) {
+    const command = firstMove(engine);
+    assert.ok(command);
+    drops += engine.dispatch(command).events.filter(e => e.type === 'totem-drop').length;
+    if (i < 3) assert.equal(drops, 0);
+  }
+  assert.equal(drops, 1);
+  assert.equal(engine.snapshot().tetrisDropIn, 4);
 });
 
 test('Totems default off, persist across maps/restarts, and can be disabled without changing difficulty', () => {

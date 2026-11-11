@@ -45,7 +45,44 @@ function drawIcon(icon, cx, cy, size = 50, light = 0) {
 
 const CEILING_WARN = '#6b1218';
 
+function totemHitsCeiling(b, v, shape) {
+  if (b.kind !== 'totem') return false;
+  const vx = Number.isFinite(v?.vx) ? v.vx : b.col;
+  for (const face of facesOf(b)) {
+    const row = b.row + face.row, col = vx + face.col;
+    if (row < 0) continue;
+    if (row === 0) return true;
+    const above = shape?.rows[row - 1];
+    if (above && (col + 0.5 < above.left || col + 0.5 >= above.right)) return true;
+  }
+  return false;
+}
+
+function drawPanicFace(sx, sy, w) {
+  ctx.strokeStyle = '#583d37';
+  ctx.lineWidth = 6;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const eyeY = sy + 24;
+  const lx = sx + w * 0.30, rx = sx + w * 0.70;
+  ctx.beginPath();
+  ctx.moveTo(lx - 4, eyeY - 5);
+  ctx.lineTo(lx + 3, eyeY);
+  ctx.lineTo(lx - 4, eyeY + 5);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(rx + 4, eyeY - 5);
+  ctx.lineTo(rx - 3, eyeY);
+  ctx.lineTo(rx + 4, eyeY + 5);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(sx + w * 0.32, sy + 42);
+  ctx.lineTo(sx + w * 0.68, sy + 42);
+  ctx.stroke();
+}
+
 function drawCeilingWarn(b, v, x, y, shape) {
+  if (b.kind === 'totem') return;
   if (isCarved(b)) {
     for (const face of facesOf(b))
       drawCeilingWarn({ id: b.id, kind: 'face', row: b.row + face.row, col: b.col, len: 1, height: 1 },
@@ -82,13 +119,15 @@ function drawCeilingWarn(b, v, x, y, shape) {
   flush(v.vx + b.len - run);
 }
 
-function drawBlock(b, v, hover = 0, shape = null) {
+function drawBlock(b, v, hover = 0, shape = null, now = 0) {
   if (v.s <= 0) return;
   const x = BX + v.vx * CELL + PAD, y = layout.BY + v.vy * CELL + PAD;
   const w = b.len * CELL - 2 * PAD, h = (b.height ?? 1) * CELL - 2 * PAD;
   const pop = Math.max(v.slot, hover);
   const scale = v.s * (1 + 0.07 * pop);
+  const panic = totemHitsCeiling(b, v, shape) && v.vy === b.row && !v.clearing;
   ctx.save();
+  if (panic) ctx.translate(Math.sin(now / 40) * 3.5, 0);
   if (scale !== 1) {
     ctx.translate(x + w / 2, y + h / 2);
     ctx.scale(scale, scale);
@@ -124,25 +163,29 @@ function drawBlock(b, v, hover = 0, shape = null) {
     ctx.fillStyle = isCarved(b) ? '#e9ba78' : COLORS[b.color];
     rr(sx, sy, w, cellH, BLOCK_R); ctx.fill();
     if (isCarved(b)) {
-      ctx.fillStyle = '#583d37';
-      rr(sx + w * 0.22, sy + 20, 9, 10, 3); ctx.fill();
-      rr(sx + w * 0.65, sy + 20, 9, 10, 3); ctx.fill();
-      if (b.face === 'smile') {
-        ctx.strokeStyle = '#583d37';
-        ctx.lineWidth = 3;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.arc(sx + w * 0.5, sy + 36, w * 0.16, 0.15 * Math.PI, 0.85 * Math.PI);
-        ctx.stroke();
-      } else {
-        rr(sx + w * 0.32, sy + 39, w * 0.36, 6, 3); ctx.fill();
+      const topRow = Math.min(...faces.map(f => f.row));
+      if (panic && face.row === topRow) drawPanicFace(sx, sy, w);
+      else {
+        ctx.fillStyle = '#583d37';
+        rr(sx + w * 0.22, sy + 20, 9, 10, 3); ctx.fill();
+        rr(sx + w * 0.65, sy + 20, 9, 10, 3); ctx.fill();
+        if (b.face === 'smile') {
+          ctx.strokeStyle = '#583d37';
+          ctx.lineWidth = 3;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.arc(sx + w * 0.5, sy + 36, w * 0.16, 0.15 * Math.PI, 0.85 * Math.PI);
+          ctx.stroke();
+        } else {
+          rr(sx + w * 0.32, sy + 39, w * 0.36, 6, 3); ctx.fill();
+        }
       }
     }
     if (v.flash > 0) {
       ctx.fillStyle = `rgba(255,255,255,${Math.min(0.85, 0.85 * v.flash)})`;
       rr(sx, sy, w, cellH, BLOCK_R); ctx.fill();
     }
-    if (v.danger > 0) {
+    if (v.danger > 0 && !panic) {
       ctx.fillStyle = `rgba(40,0,10,${0.45 * v.danger})`;
       rr(sx, sy, w, cellH, BLOCK_R); ctx.fill();
       ctx.strokeStyle = `rgba(255,90,70,${v.danger})`; ctx.lineWidth = 4;
@@ -285,13 +328,12 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
     text(`${t('nextDrop')}  ${n}`, W / 2, layout.DROP_Y, 22, '#e9ba78', 'center', 800);
   }
 
-  if (!present.scoreFx && !state.hasMoved && state.phase !== 'over') {
+  if (!present.scoreFx && !state.hasMoved && state.phase !== 'over'
+    && playId === 'standard') {
     const a = 0.55 + 0.25 * Math.sin(now / 400);
     ctx.globalAlpha = a;
-    const hint = playId === 'totem-building' ? t('hintTotemBuilding')
-      : playId === 'tetris' ? t('hintTetris')
-        : state.shape ? t('hintShaped') : t('hintClassic');
-    text(hint, W / 2, COMBO_Y + 6, state.shape || playId !== 'standard' ? 25 : 30, '#9c89a8', 'center', 700);
+    const hint = state.shape ? t('hintShaped') : t('hintClassic');
+    text(hint, W / 2, COMBO_Y + 6, state.shape ? 25 : 30, '#9c89a8', 'center', 700);
     ctx.globalAlpha = 1;
   }
 
@@ -320,13 +362,23 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   }
   ctx.closePath(); ctx.stroke();
 
-  if (state.phase !== 'over' && state.blocks.some(b => b.row === 0)) {
+  if (state.phase !== 'over'
+    && state.blocks.some(b => b.row <= 0 && b.kind !== 'totem')) {
     const { left, right } = state.shape?.rows[0] ?? { left: 0, right: COLS };
     const pulse = 0.5 + 0.5 * Math.sin(now / 140);
     ctx.fillStyle = `rgba(210,75,45,${0.10 + 0.12 * pulse})`;
     ctx.fillRect(BX + left * CELL, BY, (right - left) * CELL, CELL);
     ctx.fillStyle = `rgba(230,85,60,${0.5 + 0.5 * pulse})`;
     ctx.fillRect(BX + left * CELL, BY - 6, (right - left) * CELL, 4);
+  }
+
+  if (!present.scoreFx && !state.hasMoved && state.phase !== 'over'
+    && (playId === 'tetris' || playId === 'totem-building')) {
+    const a = 0.55 + 0.25 * Math.sin(now / 400);
+    ctx.globalAlpha = a;
+    const hint = playId === 'totem-building' ? t('hintTotemBuilding') : t('hintTetris');
+    text(hint, W / 2, BY + CELL * 0.55, 22, '#9c89a8', 'center', 700);
+    ctx.globalAlpha = 1;
   }
 
   const drag = present.drag;
@@ -369,11 +421,11 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   const aboveBoard = b => b.id === drag?.blockId
     || viewOf(b).slot > 0 || hoverOf(present, 'block:' + b.id) > 0;
   for (const b of state.blocks) if (!aboveBoard(b))
-    drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape);
+    drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape, now);
   ctx.restore();
   // Active and hovered tiles draw last so their feedback is not clipped.
   for (const b of state.blocks) if (aboveBoard(b))
-    drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape);
+    drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape, now);
 
   ctx.globalAlpha = 1;
   effects.eachParticle(p => {

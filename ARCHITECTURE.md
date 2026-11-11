@@ -200,7 +200,9 @@ Rendering reads shape data directly, with no imports of shaped rule functions.
 It draws the playable-silhouette outline on Classic and Shaped (full rectangle
 on Classic) and the bottom-width preview, clips rising blocks to playable
 cells, and marks current exposure to the next narrowing with a dark red outline
-and matching chevrons that scale with the tile. Lifted and hovered tiles draw
+and matching chevrons that scale with the tile. A totem whose cells sit on the
+ceiling or in that exposed band shakes and draws a >_< face instead of the
+outline and chevrons. Lifted and hovered tiles draw
 above the board silhouette so pickup and hover scale are not clipped by cells
 outside the shape.
 During `shaped-rise`, the presenter temporarily shows pre-trim blocks, animates
@@ -219,8 +221,8 @@ gravity, picking, particles, and rendering use occupied cells, so notches remain
 empty and can contain other blocks. Gravity repeats bottom-up passes to settle
 overhangs whose supports fall later in the traversal.
 
-- After an accepted turn, level 1 waits 3 slides between drops (`tetrisDropIn`);
-  later levels drop every turn. A counter at the top of the board shows the wait.
+- After an accepted turn, level 1 waits 5 slides between drops (`tetrisDropIn`);
+  later levels wait 4. A counter at the top of the board shows the wait.
   Sample height 2 or 3 and enumerate that height's shape/column placements. Keep
   one live totem, replacing it after the piece is cleared.
   Every intermediate footprint from above the board must fit the
