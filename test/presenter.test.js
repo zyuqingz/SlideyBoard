@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEngine } from '../js/engine.js';
 import { classic } from '../js/modes.js';
-import { createState } from '../js/sim.js';
+import { createState, createTurnScore, awardTotemCollect, awardRows } from '../js/sim.js';
 import { createPresenter } from '../js/presenter.js';
 import { insertShapedRow } from '../js/shaped-board.js';
 import { clearRows as clearTotemRows, computeGravity as totemGravity } from '../js/board.js';
-import { spawnTotemLayer } from '../js/totem-spawn.js';
+import { spawnBuildingTotem } from '../js/totem-spawn.js';
 
 function setup({ loss = false } = {}) {
   const initial = { ...createState(), nextId: 20, nextRow: [{ col: 0, len: 1, color: 0 }],
@@ -31,7 +31,8 @@ async function advance(presenter, ms) {
 
 async function drain(presenter, step = 50) {
   const pending = () => presenter.busy || presenter.effects.hasTweens()
-    || presenter.present.scoreFx || presenter.present.scoreScale !== 1;
+    || presenter.present.scoreFx || presenter.present.totemScoreFx.length > 0 || presenter.present.scoreScale !== 1
+    || presenter.present.levelScale !== 1;
   for (let i = 0; i < 1000 && pending(); i++) await advance(presenter, step);
   assert.equal(presenter.busy, false, 'playback must terminate');
   assert.equal(pending(), false, 'score text must finish');
@@ -391,56 +392,123 @@ function totemSetup() {
   return { initial: engine.snapshot(), presenter, result };
 }
 
-function stackingSetup() {
-  const initial = { ...createState(0, 'easy', 'totem-building'), blocks: [
-    { id: 1, row: 7, col: 4, len: 1, height: 3, kind: 'totem', color: 4 }
+function dropSetup() {
+  const initial = { ...createState(0, 'easy', 'totem-building'), nextId: 100, blocks: [
+    { id: 1, row: 7, col: 4, len: 1, height: 1, kind: 'totem', color: 4, smile: 1 },
+    { id: 20, row: 9, col: 0, len: 2, color: 0 }
   ] };
   const final = structuredClone(initial);
-  const { ids } = spawnTotemLayer(final, () => 0);
+  const { block } = spawnBuildingTotem(final, () => 0);
   const result = { accepted: true, state: final, events: [
-    { type: 'totem-stack', ids, state: final }, { type: 'turn-complete', state: final }
+    { type: 'totem-drop', id: block.id, state: final }, { type: 'turn-complete', state: final }
   ] };
   const presenter = createPresenter({ sfx: () => {} });
   presenter.reset(initial);
   return { initial, final, result, presenter };
 }
 
-test('stacked caps fall from above while the existing pole stays fixed, then merge on landing', async () => {
-  for (const step of [16, 250, 1000]) {
-    const { initial, final, result, presenter } = stackingSetup();
-    const saved = structuredClone(result);
+test('landing rebounds before a following rise and cancels cleanly on restart', async () => {
+  const initial = { ...createState(), blocks: [
+    { id: 1, row: 5, col: 2, len: 2, color: 0 }
+  ] };
+  const landed = structuredClone(initial);
+  landed.blocks[0].row = 9;
+  const risen = structuredClone(landed);
+  risen.blocks[0].row = 8;
+  const result = { accepted: true, events: [
+    { type: 'gravity', moves: [{ id: 1, from: 5, to: 9 }], state: landed },
+    { type: 'rise', state: risen }, { type: 'turn-complete', state: risen }
+  ] };
+  for (const restart of [false, true]) {
+    const presenter = createPresenter({ sfx: () => {} });
+    presenter.reset(initial);
     const done = presenter.play(result);
-    const cap = presenter.state.blocks.find(b => b.id !== 1);
-    assert.equal(presenter.viewOf(cap).vy, -1);
-    assert.deepEqual(presenter.state.blocks.find(b => b.id === 1), initial.blocks[0]);
-    await advance(presenter, 100);
-    assert.ok(presenter.viewOf(cap).vy > -1 && presenter.viewOf(cap).vy < cap.row);
-    assert.equal(presenter.viewOf(initial.blocks[0]).vy, 7);
-    await drain(presenter, step);
-    assert.equal(await done, true);
-    assert.deepEqual(presenter.state, final);
-    assert.equal(presenter.viewOf(final.blocks[0]).vy, 6);
-    assert.deepEqual(result, saved);
+    const v = presenter.viewOf(initial.blocks[0]);
+    await advance(presenter, 300);
+    assert.equal(v.vy, 9);
+    assert.ok(v.sq > 0 && v.land > 0, 'contact is visible before the next frame');
+    const dust = presenter.present.landingDust[0];
+    assert.ok(dust, 'landing emits an independent dust burst');
+    const dustPose = structuredClone(dust);
+    presenter.present.menu = 'pause';
+    const pose = { ...v };
+    await advance(presenter, 1000);
+    assert.deepEqual(v, pose, 'pause freezes the landing reaction');
+    assert.deepEqual(dust, dustPose, 'pause also freezes the dust');
+    presenter.present.menu = null;
+    await advance(presenter, 90);
+    assert.ok(v.sq < 0, 'compression rebounds before rise can interrupt');
+    assert.equal(presenter.state.blocks[0].row, 9);
+    if (restart) {
+      presenter.reset(initial);
+      assert.equal(presenter.present.landingDust.length, 0, 'restart removes lingering dust');
+    } else {
+      await advance(presenter, 40);
+      assert.equal(v.land, 0, 'rise interrupts the impact highlight');
+      assert.ok(presenter.present.landingDust.includes(dust), 'dust survives the following rise');
+      assert.ok(dust.progress > 0 && dust.progress < 1, 'dust continues its own fade');
+      assert.deepEqual(dust.particles, dustPose.particles, 'dust stays at the original impact location');
+    }
+    await drain(presenter, 16);
+    assert.equal(await done, !restart);
+    assert.deepEqual(presenter.state, restart ? initial : risen);
+    const finalView = presenter.viewOf(presenter.state.blocks[0]);
+    assert.equal(finalView.sq, 0, 'no stale squash writes survive');
+    assert.equal(finalView.land, 0, 'no stale impact highlight survives');
+    assert.equal(presenter.present.landingDust.length, 0, 'dust is removed after its fade finishes');
   }
 });
 
-test('stacked cap flight freezes on pause and cannot rejoin after a reset', async () => {
-  for (const elapsed of [100, 1000]) {
-    const { initial, result, presenter } = stackingSetup();
+test('opening totems fall from above the board at level start', async () => {
+  const initial = { ...createState(0, 'easy', 'totem-building'), nextId: 100, blocks: [
+    { id: 1, row: 7, col: 4, len: 1, height: 1, kind: 'totem', color: 4, smile: 1 },
+    { id: 20, row: 9, col: 0, len: 2, color: 0 }
+  ] };
+  const presenter = createPresenter({ sfx: () => {} });
+  presenter.reset(initial);
+  const done = presenter.playOpening();
+  await advance(presenter, 16);
+  const v = presenter.viewOf(presenter.state.blocks[0]);
+  assert.ok(v.vy < 7, 'the opening face starts its fall above the landing row');
+  await drain(presenter);
+  assert.equal(await done, true);
+  assert.equal(v.vy, 7);
+  assert.equal(presenter.busy, false);
+});
+
+test('multiple opening totems stagger their falls', async () => {
+  const initial = { ...createState(0, 'easy', 'totem-building'), nextId: 100, blocks: [
+    { id: 1, row: 7, col: 2, len: 1, height: 1, kind: 'totem', color: 4, smile: 1 },
+    { id: 2, row: 8, col: 5, len: 1, height: 1, kind: 'totem', color: 4, smile: 1 }
+  ] };
+  const presenter = createPresenter({ sfx: () => {} });
+  presenter.reset(initial);
+  const done = presenter.playOpening();
+  await advance(presenter, 0);
+  await advance(presenter, 16);
+  const first = presenter.viewOf(presenter.state.blocks.find(b => b.id === 1));
+  const second = presenter.viewOf(presenter.state.blocks.find(b => b.id === 2));
+  assert.ok(first.vy > second.vy, 'the lead totem falls before the rest');
+  assert.equal(second.vy, -1, 'later totems wait before they start falling');
+  await drain(presenter);
+  assert.equal(await done, true);
+  assert.equal(first.vy, 7);
+  assert.equal(second.vy, 8);
+});
+
+test('a new building totem appears as its own tile and does not join', async () => {
+  for (const step of [16, 250, 1000]) {
+    const { initial, final, result, presenter } = dropSetup();
+    const saved = structuredClone(result);
     const done = presenter.play(result);
-    await advance(presenter, 80);
-    const cap = presenter.state.blocks.find(b => b.id !== 1);
-    const before = { ...presenter.viewOf(cap) };
-    presenter.present.menu = 'pause';
-    await advance(presenter, 1000);
-    assert.deepEqual(presenter.viewOf(cap), before);
-    presenter.present.menu = null;
-    presenter.update(elapsed);
-    presenter.reset(initial);
-    await advance(presenter, 1000);
-    assert.equal(await done, false);
-    assert.deepEqual(presenter.state, initial);
-    assert.equal(presenter.busy, false);
+    await drain(presenter, step);
+    assert.equal(await done, true);
+    assert.deepEqual(presenter.state, final);
+    assert.equal(final.blocks.filter(b => b.kind === 'totem').length, 2);
+    const totems = final.blocks.filter(b => b.kind === 'totem');
+    assert.notEqual(totems[0].col, totems[1].col);
+    assert.deepEqual(result, saved);
+    assert.deepEqual(initial.blocks[0].height, 1);
   }
 });
 
@@ -464,9 +532,9 @@ test('totem rise playback reaches the authoritative state at any speed', async (
   }
 });
 
-function buildingClearSetup(rows = [7]) {
+function buildingClearSetup(rows = [7], smile = 1) {
   const initial = { ...createState(0, 'easy', 'totem-building'), blocks: [
-    { id: 1, row: 5, col: 7, len: 1, height: 5, kind: 'totem', color: 4 },
+    { id: 1, row: 7, col: 7, len: 1, height: 1, kind: 'totem', color: 4, smile },
     ...rows.map(row => ({ id: row + 2, row, col: 0, len: 7, color: 0 }))
   ] };
   const final = structuredClone(initial);
@@ -474,8 +542,8 @@ function buildingClearSetup(rows = [7]) {
   const cleared = structuredClone(final);
   const moves = totemGravity(final);
   const result = { accepted: true, state: final, events: [
-    { type: 'clear', ...geometry, award: { pts: rows.length * 80, mult: 1 }, state: cleared },
-    { type: 'gravity', moves, state: final },
+    { type: 'clear', ...geometry, award: { pts: 0, mult: 1 }, state: cleared },
+    ...(moves.length ? [{ type: 'gravity', moves, state: final }] : []),
     { type: 'turn-complete', state: final }
   ] };
   const presenter = createPresenter({ sfx: () => {} });
@@ -483,54 +551,69 @@ function buildingClearSetup(rows = [7]) {
   return { presenter, initial, result };
 }
 
-test('building clears keep surviving faces visible and drop only sections above each gap', async () => {
+test('building clears leave the totem in place and do not score', async () => {
   const { presenter, result } = buildingClearSetup();
   const saved = structuredClone(result);
   const done = presenter.play(result);
-  const faces = presenter.state.blocks.filter(b => b.kind === 'totem');
-  assert.equal(faces.length, 5, 'the entire tower remains visible at the start of a clear');
-  const kept = faces.filter(b => b.row !== 7);
-  const cleared = faces.find(b => b.row === 7);
-  const normal = presenter.state.blocks.find(b => b.kind !== 'totem');
-  await advance(presenter, 100);
-  assert.ok(presenter.viewOf(cleared).flash > 0);
-  for (const b of kept) {
-    const v = presenter.viewOf(b);
-    assert.equal(v.flash, 0);
-    assert.equal(v.s, 1);
-    assert.equal(v.vy, b.row);
-  }
-  await advance(presenter, 220);
-  assert.equal(presenter.viewOf(cleared).s, presenter.viewOf(normal).s,
-    'totem tiles use the normal blocks’ shared shrink window');
-  assert.ok(presenter.viewOf(cleared).s < 1);
-  await advance(presenter, 80);
-  assert.equal(presenter.state.blocks.length, 4, 'only surviving tower faces remain during collapse');
-  for (const b of kept) assert.equal(presenter.viewOf(b).vy, b.row, 'no jump before falling');
-  await advance(presenter, 100);
-  for (const b of kept) {
-    const v = presenter.viewOf(b);
-    assert.equal(v.s, 1);
-    if (b.row < 7) assert.ok(v.vy > b.row && v.vy < b.row + 1);
-    else assert.equal(v.vy, b.row, 'faces below the gap stay fixed');
-  }
   await drain(presenter);
   assert.equal(await done, true);
-  assert.deepEqual(presenter.state, result.state);
+  const totem = presenter.state.blocks.find(b => b.kind === 'totem');
+  assert.ok(totem);
+  assert.equal(totem.smile, 2);
+  assert.equal(presenter.present.displayScore, 0);
   assert.deepEqual(result, saved);
 });
 
-test('building clear playback reconciles top, bottom, multiple, and full clears at any speed', async () => {
-  for (const rows of [[5], [9], [6, 8], [5, 6, 7, 8, 9]]) {
+test('building faces morph and pulse during the clear before gravity starts, including at the cap', async () => {
+  for (const stage of [1, 2, 3]) {
+    const { presenter, initial, result } = buildingClearSetup([7], stage);
+    const saved = structuredClone(result);
+    const done = presenter.play(result);
+    const v = presenter.viewOf(initial.blocks[0]);
+    assert.equal(v.expression, stage, 'the old expression is the starting pose');
+    await advance(presenter, 200);
+    const target = Math.min(3, stage + 1);
+    if (stage < 3) assert.ok(v.expression > stage && v.expression < target);
+    else assert.equal(v.expression, 3);
+    assert.ok(v.evolve > 0 && v.s > 1, 'even the final stage acknowledges a clear');
+    assert.equal(v.vy, 7, 'reaction completes before the totem falls');
+    assert.equal(v.clearing, false, 'the totem must not shrink away with the row');
+    await advance(presenter, 100);
+    assert.ok(v.s < 1 && v.s >= 0.95, 'the impact recoils slightly before settling');
+    await drain(presenter);
+    assert.equal(await done, true);
+    assert.equal(v.expression, target);
+    assert.equal(v.evolve, 0);
+    assert.equal(v.s, 1);
+    assert.deepEqual(presenter.state, result.state);
+    assert.deepEqual(result, saved);
+  }
+});
+
+test('building clear reactions leave untouched totems at rest', async () => {
+  const { presenter, initial, result } = buildingClearSetup();
+  const untouched = { id: 50, row: 5, col: 3, len: 1, height: 1, kind: 'totem', color: 4, smile: 2 };
+  initial.blocks.push(untouched);
+  for (const event of result.events) event.state.blocks.push(structuredClone(untouched));
+  presenter.reset(initial);
+  const done = presenter.play(result);
+  await advance(presenter, 200);
+  const v = presenter.viewOf(untouched);
+  assert.equal(v.expression, 2);
+  assert.equal(v.evolve, 0);
+  assert.equal(v.s, 1);
+  await drain(presenter);
+  assert.equal(await done, true);
+});
+
+test('building clear playback keeps the totem through every speed', async () => {
+  for (const rows of [[7], [7, 8]]) {
     for (const step of [16, 250, 1000]) {
       const { presenter, result } = buildingClearSetup(rows);
       const done = presenter.play(result);
-      const faces = presenter.state.blocks.filter(b => b.kind === 'totem');
-      assert.equal(faces.length, 5);
-      for (const b of faces) assert.equal(presenter.viewOf(b).clearing, rows.includes(b.row));
       await drain(presenter, step);
       assert.equal(await done, true);
-      assert.deepEqual(presenter.state, result.state);
+      assert.ok(presenter.state.blocks.some(b => b.kind === 'totem'));
       for (const b of presenter.state.blocks) {
         assert.equal(presenter.viewOf(b).vy, b.row);
         assert.equal(presenter.viewOf(b).s, 1);
@@ -539,22 +622,282 @@ test('building clear playback reconciles top, bottom, multiple, and full clears 
   }
 });
 
-test('building collapse pauses and cannot restore the shortened tower after reset', async () => {
+test('building clear pause then reset restores the pre-clear totem', async () => {
   const { presenter, initial, result } = buildingClearSetup();
   const done = presenter.play(result);
-  await advance(presenter, 400);
-  await advance(presenter, 80);
-  const face = presenter.state.blocks.find(b => b.row === 5);
-  const before = { ...presenter.viewOf(face) };
+  await advance(presenter, 200);
+  const before = { ...presenter.viewOf(initial.blocks[0]) };
+  assert.ok(before.expression > 1 && before.expression < 2);
   presenter.present.menu = 'pause';
   await advance(presenter, 1000);
-  assert.deepEqual(presenter.viewOf(face), before);
+  assert.deepEqual(presenter.viewOf(initial.blocks[0]), before);
   presenter.present.menu = null;
-  presenter.update(1000);
   presenter.reset(initial);
   await advance(presenter, 1000);
   assert.equal(await done, false);
   assert.deepEqual(presenter.state, initial);
+  assert.equal(presenter.viewOf(initial.blocks[0]).expression, 1);
+  assert.equal(presenter.viewOf(initial.blocks[0]).evolve, 0);
+});
+
+test('totem-building row clear eases the level ring without particles', async () => {
+  const tile = { id: 1, row: 9, col: 0, len: 8, color: 0 };
+  const initial = { ...createState(0, 'easy', 'totem-building'),
+    lines: 0, level: 1, levelProgress: 0, blocks: [tile] };
+  const after = { ...structuredClone(initial), blocks: [],
+    lines: 1, level: 1, levelProgress: 0.2 };
+  const result = { accepted: true, state: after, events: [
+    { type: 'clear', rows: [9], blocks: [tile], displayBlocks: [],
+      award: { pts: 0, mult: 1 }, state: after },
+    { type: 'turn-complete', state: after }
+  ] };
+  const presenter = createPresenter({ sfx: () => {} });
+  presenter.reset(initial);
+  assert.equal(presenter.present.displayProgress, 0);
+  assert.equal(presenter.present.levelScale, 1);
+  const done = presenter.play(result);
+  await advance(presenter, 80);
+  assert.ok(presenter.present.levelScale > 1, 'ring punches when progress increases');
+  assert.ok(presenter.present.displayProgress > 0 && presenter.present.displayProgress < 0.2,
+    'arc eases toward the new fill');
+  await drain(presenter);
+  assert.equal(await done, true);
+  assert.equal(presenter.present.displayProgress, 0.2);
+  assert.equal(presenter.present.levelScale, 1);
+});
+
+function collectSetup() {
+  const totem = { id: 1, row: 9, col: 4, len: 1, height: 1, kind: 'totem', color: 4, smile: 2 };
+  const tile = { id: 2, row: 8, col: 0, len: 2, color: 0 };
+  const initial = { ...createState(0, 'easy', 'totem-building'), blocks: [totem, tile] };
+  const after = { ...structuredClone(initial), blocks: [tile], score: 100 };
+  const risen = { ...structuredClone(after), blocks: [{ ...tile, row: 7 }] };
+  const result = { accepted: true, state: risen, events: [
+    { type: 'totem-collect', blocks: [totem],
+      award: { pts: 100, mult: 1, totems: [{ id: totem.id, pts: 100, mult: 1 }] }, state: after },
+    { type: 'rise', state: risen },
+    { type: 'turn-complete', state: risen }
+  ] };
+  const presenter = createPresenter({ sfx: () => {} });
+  presenter.reset(initial);
+  return { presenter, initial, result, totem };
+}
+
+test('successive Building collections bank every point once at any playback speed', async () => {
+  for (const step of [16, 250, 1000]) {
+    const initial = { ...createState(0, 'easy', 'totem-building'), nextId: 10,
+      nextRow: [{ col: 0, len: 2, color: 0 }], blocks: [
+        { id: 1, row: 9, col: 4, len: 1, height: 1, kind: 'totem', smile: 1, color: 4 },
+        { id: 2, row: 8, col: 4, len: 1, height: 1, kind: 'totem', smile: 2, color: 4 },
+        { id: 3, row: 9, col: 0, len: 2, color: 0 }
+      ] };
+    const engine = createEngine({ random: () => 0.5, modes: [{ ...classic,
+      reset(state) { Object.assign(state, structuredClone(initial)); }
+    }] });
+    const presenter = createPresenter({ sfx: () => {} });
+    presenter.reset(engine.snapshot());
+    const result = engine.dispatch({ type: 'slide', id: 3, col: 1 });
+    assert.equal(result.events.filter(e => e.type === 'totem-collect').length, 2);
+    assert.equal(result.state.score, 150);
+    const done = presenter.play(result);
+    await drain(presenter, step);
+    assert.equal(await done, true);
+    assert.equal(presenter.present.displayScore, result.state.score);
+    assert.deepEqual(presenter.state, result.state);
+  }
+});
+
+test('collected totems signal arrival, slide down at full size, then yield to rise', async () => {
+  const { presenter, result, totem } = collectSetup();
+  const saved = structuredClone(result);
+  const done = presenter.play(result);
+  await advance(presenter, 80);
+  const scorePopup = presenter.present.totemScoreFx[0];
+  const live = presenter.state.blocks.find(b => b.id === totem.id);
+  assert.ok(live, 'the totem remains visible after landing');
+  assert.equal(presenter.viewOf(live).vy, 9);
+  assert.ok(presenter.state.blocks.some(b => b.id === 2 && b.row === 8),
+    'the board must not rise while the totem is still collecting');
+  const v = presenter.viewOf(live);
+  assert.ok(v.sq > 0.2, 'arrival visibly compresses the body against the floor');
+  assert.equal(v.flash, 0);
+  assert.equal(v.evolve, 0);
+  assert.equal(v.collecting, true, 'collection must use the floor mask');
+  await advance(presenter, 180);
+  assert.ok(v.sq < 0, 'the compressed body rebounds into a brief stretch');
+  assert.equal(v.vy, 9, 'arrival feedback has its own beat before sinking');
+  await advance(presenter, 80);
+  assert.equal(v.sq, 0, 'body settles before sinking');
+  let previous = v.vy;
+  const travel = [];
+  for (let i = 0; i < 39; i++) {
+    await advance(presenter, 15.5);
+    assert.ok(v.vy > previous && v.vy < 10, 'the descent moves smoothly every frame');
+    const step = v.vy - previous;
+    travel.push(step);
+    assert.equal(v.s, 1, 'disappearance comes from masking, never shrinking');
+    assert.equal(v.sq, 0);
+    assert.equal(presenter.state.blocks.find(b => b.id === 2).row, 8,
+      'rise waits until the tile has fully passed below the floor');
+    previous = v.vy;
+  }
+  await advance(presenter, 15.5);
+  assert.equal(v.vy, 10, 'the whole tile passes below the mask');
+  assert.equal(scorePopup.flight, 1, 'the popup reaches the HUD edge');
+  assert.equal(presenter.present.totemScoreFx.length, 0, 'the popup disappears on contact');
+  assert.equal(presenter.present.displayScore, 0, 'impact precedes banking the points');
+  await advance(presenter, 70);
+  assert.equal(presenter.present.displayScore, 100, 'points bank at the impact peak, before the rise');
+  assert.equal(presenter.present.scoreScale, 1.28);
+  assert.equal(presenter.busy, true, 'the rest of the turn is still playing');
+  travel.push(v.vy - previous);
+  for (let chunk = 0; chunk < 4; chunk++) {
+    const motion = travel.slice(chunk * 10, (chunk + 1) * 10);
+    assert.ok(motion[4] > motion[0] * 3 && motion[5] > motion[9] * 3,
+      'each chunk eases in and out instead of snapping or holding');
+  }
+  assert.ok(Math.max(...travel) < 0.06, 'no frame jumps a large part of a cell');
+  await drain(presenter);
+  assert.equal(await done, true);
+  assert.ok(!presenter.state.blocks.some(b => b.kind === 'totem'));
+  assert.equal(presenter.state.blocks.find(b => b.id === 2).row, 7);
+  assert.deepEqual(result, saved);
+});
+
+test('simultaneous collections show individual values and bank before the next chain collection', async () => {
+  const first = { id: 1, row: 9, col: 2, len: 1, height: 1, kind: 'totem', color: 4, smile: 1 };
+  const second = { ...first, id: 2, col: 5, smile: 3 };
+  const next = { ...first, id: 3, row: 8, smile: 2 };
+  const initial = { ...createState(0, 'easy', 'totem-building'), blocks: [first, second, next] };
+  const after = { ...structuredClone(initial), blocks: [next] };
+  const award = awardTotemCollect(after, [first, second]);
+  const landed = { ...structuredClone(after), blocks: [{ ...next, row: 9 }] };
+  const final = { ...structuredClone(landed), blocks: [] };
+  const nextAward = awardTotemCollect(final, landed.blocks);
+  const result = { accepted: true, events: [
+    { type: 'totem-collect', blocks: [first, second], award, state: after },
+    { type: 'gravity', moves: [{ id: 3, from: 8, to: 9 }], state: landed },
+    { type: 'totem-collect', blocks: landed.blocks, award: nextAward, state: final },
+    { type: 'turn-complete', state: final }
+  ] };
+  const presenter = createPresenter({ sfx: () => {} });
+  presenter.reset(initial);
+  const done = presenter.play(result);
+  const popups = presenter.present.totemScoreFx.slice();
+  assert.deepEqual(popups.map(fx => fx.pts), [50, 150]);
+  assert.notEqual(popups[0].origin.x, popups[1].origin.x);
+  assert.equal(presenter.present.scoreFx, null);
+  await advance(presenter, 340);
+  await advance(presenter, 619);
+  assert.equal(presenter.present.displayScore, 0);
+  assert.ok(popups.every(fx => fx.flight > 0.9 && fx.flight < 1));
+  await advance(presenter, 1);
+  assert.ok(popups.every(fx => fx.flight === 1), 'every popup reaches the target before removal');
+  assert.equal(presenter.present.totemScoreFx.length, 0, 'arriving labels disappear on contact');
+  assert.equal(presenter.present.displayScore, 0);
+  await advance(presenter, 35);
+  assert.ok(presenter.present.scoreScale > 1, 'simultaneous arrivals trigger a shared bounce');
+  assert.equal(presenter.present.displayScore, 0);
+  await advance(presenter, 35);
+  assert.equal(presenter.present.displayScore, 200);
+  assert.equal(presenter.present.totemScoreFx.length, 0);
+  assert.equal(presenter.busy, true);
+  await advance(presenter, 150);
+  assert.equal(presenter.present.scoreScale, 1);
+  await advance(presenter, 205);
+  await advance(presenter, 120);
+  assert.deepEqual(presenter.present.totemScoreFx.map(fx => fx.pts), [100]);
+  assert.equal(presenter.present.displayScore, 200);
+  await drain(presenter);
+  assert.equal(await done, true);
+  assert.equal(presenter.present.displayScore, 300);
+});
+
+test('all-totem row faces jump to max and clear in place with separate scores', async () => {
+  for (const step of [16, 250, 1000]) {
+    const initial = { ...createState(0, 'easy', 'totem-building'), blocks:
+      Array.from({ length: 8 }, (_, col) => ({ id: col + 1, row: 8, col, len: 1,
+        height: 1, kind: 'totem', color: 4, smile: col % 3 + 1 })) };
+    const final = structuredClone(initial);
+    const geometry = clearTotemRows(final, [8]);
+    const turn = createTurnScore();
+    const award = awardRows(final, [8], turn);
+    const collectionAward = awardTotemCollect(final, geometry.collected);
+    const result = { accepted: true, events: [
+      { type: 'clear', ...geometry, award, collectionAward, state: final },
+      { type: 'turn-complete', state: final }
+    ] };
+    const saved = structuredClone(result);
+    const presenter = createPresenter({ sfx: () => {} });
+    presenter.reset(initial);
+    const done = presenter.play(result);
+    for (const b of presenter.state.blocks) {
+      assert.equal(b.smile, 3);
+      const v = presenter.viewOf(b);
+      assert.equal(v.expression, 3);
+      assert.equal(v.vy, 8);
+      assert.equal(v.clearing, true);
+      assert.equal(v.collecting, false, 'row cash-out does not sink through the floor');
+    }
+    assert.deepEqual(presenter.present.totemScoreFx.map(fx => fx.pts), Array(8).fill(150));
+    const popups = presenter.present.totemScoreFx.slice();
+    await advance(presenter, 400);
+    assert.ok(popups.every(fx => fx.flight === 1));
+    assert.equal(presenter.present.totemScoreFx.length, 0);
+    assert.equal(presenter.present.displayScore, 0);
+    await advance(presenter, 35);
+    assert.ok(presenter.present.scoreScale > 1, 'row cash-out also bounces the total');
+    await advance(presenter, 35);
+    assert.equal(presenter.present.totemScoreFx.length, 0);
+    assert.equal(presenter.present.displayScore, 1200);
+    await drain(presenter, step);
+    assert.equal(await done, true);
+    assert.equal(presenter.present.displayScore, 1200);
+    assert.equal(presenter.state.blocks.length, 0);
+    assert.deepEqual(result, saved);
+  }
+});
+
+test('collection feedback and sinking pause and cancel cleanly', async () => {
+  for (const sinking of [false, true]) {
+    const { presenter, initial, result, totem } = collectSetup();
+    const done = presenter.play(result);
+    await advance(presenter, sinking ? 340 : 160);
+    if (sinking) await advance(presenter, 200);
+    const pose = { ...presenter.viewOf(totem) };
+    presenter.present.menu = 'pause';
+    await advance(presenter, 1000);
+    assert.deepEqual(presenter.viewOf(totem), pose);
+    presenter.reset(initial);
+    await advance(presenter, 1000);
+    assert.equal(await done, false);
+    assert.deepEqual(presenter.state, initial);
+    assert.equal(presenter.viewOf(totem).collecting, false);
+    assert.equal(presenter.present.displayScore, 0);
+    assert.deepEqual(presenter.present.totemScoreFx, []);
+  }
+});
+
+test('totem score impact pauses and reset cancels pending points and rebound', async () => {
+  for (const elapsed of [35, 100]) {
+    const { presenter, initial, result } = collectSetup();
+    const done = presenter.play(result);
+    await advance(presenter, 340);
+    await advance(presenter, 620);
+    await advance(presenter, elapsed);
+    const score = structuredClone(presenter.present);
+    presenter.present.menu = 'pause';
+    await advance(presenter, 1000);
+    assert.equal(presenter.present.scoreScale, score.scoreScale);
+    assert.equal(presenter.present.displayScore, score.displayScore);
+    assert.deepEqual(presenter.present.totemScoreFx, score.totemScoreFx);
+    presenter.reset(initial);
+    await advance(presenter, 1000);
+    assert.equal(await done, false);
+    assert.equal(presenter.present.displayScore, 0);
+    assert.equal(presenter.present.scoreScale, 1);
+    assert.deepEqual(presenter.present.totemScoreFx, []);
+  }
 });
 
 function detachedTotemSetup() {

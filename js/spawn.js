@@ -4,6 +4,7 @@ import {
   settleBoard, slideRange, touchingTop
 } from './board.js';
 import { generateNormalRow } from './difficulty.js';
+import { isBuilding, levelForBuildingLines } from './play-mode.js';
 
 // Search budget and difficulty tuning live together; no hidden per-player state.
 const SEARCH = Object.freeze({
@@ -56,8 +57,8 @@ function rowWeights(level) {
 
 // Used for opening rows and as input to the preview search, never as a second
 // preview policy. Sampling without replacement guarantees bounded RNG calls.
-export function generateRowCandidate(level, random = Math.random, difficulty = 'easy') {
-  if (difficulty === 'normal') return generateNormalRow(level, random);
+export function generateRowCandidate(level, random = Math.random, difficulty = 'easy', minLen = 1) {
+  if (difficulty === 'normal') return generateNormalRow(level, random, 0, COLS, minLen);
   const weights = rowWeights(level);
   const gapCount = weightedIndex(random, weights.gaps) + 1;
   const columns = Array.from({ length: COLS }, (_, i) => i);
@@ -74,7 +75,8 @@ export function generateRowCandidate(level, random = Math.random, difficulty = '
     while (col + run < COLS && !gaps.has(col + run)) run++;
     while (run > 0) {
       const maxLength = Math.min(DIFFICULTY.maxBlockLength, run);
-      const len = weightedIndex(random, weights.lengths.slice(0, maxLength)) + 1;
+      if (maxLength < minLen) { col += run; run = 0; continue; }
+      const len = weightedIndex(random, weights.lengths.slice(minLen - 1, maxLength)) + minLen;
       const adjacent = previousEnd === col;
       let color = Math.floor(random() * (COLOR_GROUPS - (adjacent ? 1 : 0)));
       if (adjacent && color >= previousColor) color++;
@@ -85,7 +87,9 @@ export function generateRowCandidate(level, random = Math.random, difficulty = '
       run -= len;
     }
   }
-  return row;
+  // Isolated runs can all be skipped in Building. A contiguous-gap fallback
+  // guarantees a usable row without retrying the same fragmented RNG pattern.
+  return row.length ? row : generateNormalRow(level, random, 0, COLS, minLen);
 }
 
 function boardQuality(board) {
@@ -136,12 +140,12 @@ function rowKey(row) {
   return row.map(block => `${block.col}:${block.len}:${block.color}`).join(',');
 }
 
-function generateCandidates(level, relief, random, difficulty) {
+function generateCandidates(level, relief, random, difficulty, minLen = 1) {
   const candidates = [];
   const seen = new Set();
   for (let i = 0; i < SEARCH.candidateAttempts; i++) {
     const gentle = relief && i % DIFFICULTY.reliefCandidateInterval === 0;
-    const row = generateRowCandidate(gentle ? 1 : level, random, difficulty);
+    const row = generateRowCandidate(gentle ? 1 : level, random, difficulty, minLen);
     const key = rowKey(row);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -196,6 +200,9 @@ function selectCandidate(candidates, relief, random) {
 export function generateNextRow(state, random = Math.random) {
   const board = copyBoard(state);
   const lines = state.lines + settleBoard(board);
+  const building = isBuilding(state);
+  const minLen = building ? 2 : 1;
+  const level = building ? levelForBuildingLines(lines) : levelForLines(lines);
   const context = {
     relief: boardQuality(board).height >= DIFFICULTY.reliefHeight,
     opening: lines < DIFFICULTY.openingLines,
@@ -204,8 +211,10 @@ export function generateNextRow(state, random = Math.random) {
   const preparations = preparationBoards(board);
   // No legal turn means no useful continuation to simulate. Still return a valid
   // preview, rather than inventing a no-op move that the player cannot perform.
-  if (!preparations.length) return generateRowCandidate(levelForLines(lines), random, state.difficulty);
-  const candidates = generateCandidates(levelForLines(lines), context.relief, random, state.difficulty);
+  if (!preparations.length)
+    return generateRowCandidate(level, random, state.difficulty, minLen);
+  const candidates = generateCandidates(level, context.relief, random,
+    state.difficulty, minLen);
   const evaluated = candidates.map(candidate => evaluateCandidate(candidate, preparations, context));
   return selectCandidate(evaluated, context.relief, random);
 }

@@ -8,7 +8,9 @@ const ATTEMPTS = 12, PREPARATIONS = 3;
 
 export function generateShapedCandidate(state, random) {
   const { left, right } = state.shape.rows[ROWS - 1];
-  if (state.difficulty === 'normal') return generateNormalRow(state.level, random, left, right);
+  const minLen = state.playMode === 'totem-building' ? 2 : 1;
+  if (state.difficulty === 'normal')
+    return generateNormalRow(state.level, random, left, right, minLen);
   const columns = Array.from({ length: right - left }, (_, i) => left + i);
   const gapCount = 1 + Math.floor(random() * Math.min(4, columns.length - 1));
   const gaps = new Set();
@@ -19,15 +21,19 @@ export function generateShapedCandidate(state, random) {
     if (gaps.has(col)) { col++; previousColor = -1; continue; }
     let run = 0;
     while (col + run < right && !gaps.has(col + run)) run++;
+    if (run < minLen) { col += run; previousColor = -1; continue; }
     const max = Math.min(4, run);
-    const len = 1 + Math.floor(Math.pow(random(), 1 / (1 + Math.min(10, state.level - 1) * 0.1)) * max);
+    const span = max - minLen + 1;
+    const len = minLen + Math.floor(Math.pow(random(),
+      1 / (1 + Math.min(10, state.level - 1) * 0.1)) * span);
     let color = Math.floor(random() * (COLOR_GROUPS - (previousColor < 0 ? 0 : 1)));
     if (previousColor >= 0 && color >= previousColor) color++;
     row.push({ col, len, color });
     col += len;
     previousColor = color;
   }
-  return row;
+  // Narrow Building spans can contain only isolated cells after gap sampling.
+  return row.length ? row : generateNormalRow(state.level, random, left, right, minLen);
 }
 
 function quality(board) {

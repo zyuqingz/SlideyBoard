@@ -1,6 +1,5 @@
-// Optional rigid Tetris-style drops. Row previews remain owned by the mode.
+// Tetris pieces and Building tile drops. Row previews remain owned by the mode.
 import { COLS, buildGrid, fitsBlock, copyBoard, computeGravity, fullRows } from './board.js';
-import { cellsOf } from './block-geometry.js';
 
 const SHAPES = [
   ['###', '.#.'], ['.#.', '###'], ['##.', '.##'], ['.##', '##.'],
@@ -11,24 +10,13 @@ const SHAPES = [
   cells: rows.flatMap((row, r) => [...row].flatMap((cell, c) =>
     cell === '#' ? [{ row: r, col: c }] : [])) }));
 
-function stackedTile(block) {
-  const cells = cellsOf(block);
-  const top = Math.min(...cells.map(cell => cell.row));
-  const cap = cells.find(cell => cell.row === top);
-  const shifted = cells.map(cell => ({ row: cell.row - top + 1, col: cell.col }));
-  return {
-    ...block,
-    row: block.row - 1,
-    height: (block.height ?? 1) + 1,
-    len: 1,
-    cells: [{ row: 0, col: cap.col }, ...shifted]
-  };
-}
-
 function spawnSingleTile(state, random) {
   const grid = buildGrid(state), candidates = [];
+  const taken = new Set(state.blocks.filter(b => b.kind === 'totem').map(b => b.col));
   for (let col = 0; col < COLS; col++) {
-    const block = { id: state.nextId, kind: 'totem', col, row: -1, len: 1, height: 1, color: 4 };
+    if (taken.has(col)) continue;
+    const block = { id: state.nextId, kind: 'totem', col, row: -1, len: 1, height: 1,
+      color: 4, smile: 1 };
     let row = block.row;
     while (fitsBlock(state, block, row + 1, col, grid)) row++;
     if (row < 1) continue;
@@ -36,35 +24,36 @@ function spawnSingleTile(state, random) {
     trial.blocks.push({ ...block, row });
     computeGravity(trial);
     if (fullRows(trial).length) continue;
-    candidates.push(block);
+    const landed = trial.blocks.find(b => b.id === block.id);
+    const support = landed && buildGrid(trial)[landed.row + 1]?.[landed.col];
+    // A new face must land on an ordinary block, never the floor or a ledge.
+    if (!support || support.kind === 'totem') continue;
+    candidates.push({ block, landingRow: landed.row });
   }
   if (!candidates.length) return null;
-  const block = structuredClone(candidates[Math.floor(random() * candidates.length)]);
+  const topRow = Math.min(...candidates.map(candidate => candidate.landingRow));
+  const highest = candidates.filter(candidate => candidate.landingRow === topRow);
+  const block = structuredClone(highest[Math.floor(random() * highest.length)].block);
   state.nextId++;
   state.blocks.push(block);
   return block;
 }
 
-export function spawnTotemLayer(state, random) {
-  const totems = state.blocks.filter(b => b.kind === 'totem');
-  if (!totems.length) {
-    const block = spawnSingleTile(state, random);
-    return block ? { type: 'drop', block } : { type: 'blocked' };
+export function spawnBuildingTotem(state, random) {
+  const block = spawnSingleTile(state, random);
+  return block ? { type: 'drop', block } : { type: 'blocked' };
+}
+
+export function spawnOpeningTotem(state, random) {
+  if (state.playMode !== 'totem-building' || state.blocks.some(b => b.kind === 'totem')) return;
+  state.pendingTotemSpawns++;
+  const result = spawnBuildingTotem(state, random);
+  state.totemSpawnBlocked = result.type === 'blocked';
+  // Land before the first slide so the opening face is on the board at level start.
+  if (result.type === 'drop') {
+    state.pendingTotemSpawns--;
+    computeGravity(state);
   }
-  const options = [];
-  for (const b of totems) {
-    const next = stackedTile(b);
-    const ceiling = next.cells.some(cell => next.row + cell.row < 0);
-    if (ceiling || !fitsBlock(state, next, next.row, next.col, buildGrid(state))) continue;
-    options.push([b, next]);
-  }
-  if (!options.length) return { type: 'blocked' };
-  const [b, next] = options[Math.floor(random() * options.length)];
-  b.row = next.row;
-  b.height = next.height;
-  b.len = next.len;
-  b.cells = next.cells;
-  return { type: 'stack', ids: [b.id] };
 }
 
 export function spawnTotem(state, random) {

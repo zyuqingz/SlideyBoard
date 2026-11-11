@@ -23,9 +23,9 @@ owns a separate copy of the state currently on screen, which may trail the engin
 | --- | --- |
 | `js/engine.js` | Authoritative state, base-state reset, command validation, snapshots, per-mode best scores/options |
 | `js/modes.js` | Classic/Shaped map registry and Classic's turn adapter |
-| `js/play-mode.js` | Standard / Tetris / Totem Building identifiers |
+| `js/play-mode.js` | Standard / Tetris / Totem Building identifiers and progression tuning |
 | `js/turn.js` | Shared settling, scoring, rescue timing, refills and optional Totem drops |
-| `js/board.js` | Shared rectangular/shaped collision, rigid gravity, row clears and Totem removal/activation |
+| `js/board.js` | Shared rectangular/shaped collision, rigid gravity, row clears and Totem collection |
 | `js/block-geometry.js` | Occupied-cell and face geometry shared by rules and presentation |
 | `js/sim.js` | State creation, scoring, opening setup, preview commitment |
 | `js/spawn.js` | Classic row generation and board-aware preview search |
@@ -33,7 +33,7 @@ owns a separate copy of the state currently on screen, which may trail the engin
 | `js/shaped-board.js` | Shaped rise trimming and cell-counted search settling |
 | `js/shaped-spawn.js` | Shaped candidate generation and bounded continuation search |
 | `js/shaped-mode.js` | Shape selection, opening and shaped turn adapter |
-| `js/totem-spawn.js` | Totem drop placement, layer stacking, and spirit cost |
+| `js/totem-spawn.js` | Tetris piece placement and supported Building tile drops |
 | `js/difficulty.js` | Shared Normal row geometry and difficulty normalization |
 | `js/presenter.js` | Shown state, animated block views, event playback, playback cancellation |
 | `js/fx.js`, `js/score-fx.js` | Instance-local visual clocks, particles, score feedback |
@@ -83,8 +83,10 @@ state and publishes it only after the mode hook succeeds.
 
 Classic and Shaped are maps (board outlines), registered in `GAME_MODES`. Play
 modes are `standard`, `tetris`, and `totem-building`. Tetris keeps one live drop.
-Totem Building spends spirit from cleared rows (3 lines per tile) to drop and
-stack 1×1 tiles. Neither play mode blasts rows when a totem reaches the top.
+Totem Building starts with one independent 1×1 totem and queues more on level-ups.
+Clears improve totem smiles; reaching the floor collects them for points. An
+all-totem row immediately upgrades its totems to max smile and clears them in place.
+Neither play mode blasts rows when a totem reaches the top.
 Gameplay branches on `playMode`. Snapshots still expose `totemsEnabled` as
 `playMode === 'tetris'` for older callers. Stored `'totem'` migrates to `'tetris'`.
 
@@ -111,17 +113,22 @@ Every event has `type` and a detached `state` **after** that logical step.
 | --- | --- | --- |
 | `slide` | `id`, `from`, `to` | Snap dragged block to its accepted column |
 | `gravity` | `moves: [{ id, from, to }]` | Animate falling blocks |
-| `clear` | `rows`, pre-removal `blocks`, `award` | Animate departing blocks, then adopt snapshot and stack score |
+| `clear` | `rows`, pre-removal `blocks`, `award`, optional `displayBlocks`, `collected`, `collectionAward` | Animate departing blocks and surviving Building faces; all-totem rows show max faces and bank individual awards when clearing finishes |
 | `rise` | — | Animate the committed row and existing blocks upward |
 | `shaped-rise` | `blocks` (pre-trim, destination coordinates), `trimmed` (discarded spans) | Animate original spans upward, emit chips, adopt surviving geometry |
 | `totem-drop` | `id` | Introduce the incoming totem above the board; subsequent gravity animates its fall |
-| `totem-stack` | `ids` | Drop a new cap from above the board onto each growing totem, then join the stack |
+| `totem-collect` | collected `blocks`, `award` | Show individual scores while totems sink beneath the floor, then bank their points and adopt the snapshot |
 | `game-over` | `blockIds` | Bank score, show danger feedback, reveal result |
 | `turn-complete` | — | Finish score feedback and adopt final snapshot |
 
 Events contain facts, not durations, easing curves, pixels, colors or drawing
 instructions. Their snapshots are deliberately simple for this small board;
 there is no global event bus or event-sourced persistence system.
+Standard/Tetris row awards contain cumulative points for the current turn, so
+successive clears replace the pending popup. Building collection awards contain
+only that batch's points and `totems: [{ id, pts, mult }]` for individual popups.
+An all-totem row supplies these in `collectionAward`, alongside its zero-point
+row `award`; collection scoring uses the level after row progression.
 
 ## Adding a mode
 
@@ -159,8 +166,9 @@ these spans as unavailable, defaulting to the full rectangle for Classic. Each
 mode keeps its own candidate generator and preview search. Engine reset reconstructs base state before
 calling the mode, so shape and loss metadata cannot leak between modes.
 Mode hooks initialize only their geometry and preview; Classic uses `setupClassic`.
-All modes share `awardRows` bookkeeping. Shaped supplies playable row widths; the
-entire clear batch scores at its pre-update level before lines and level advance.
+All modes share `awardRows` bookkeeping. Standard and Tetris clear batches score
+at their pre-update level using playable row widths. Building clears advance
+lines and level without awarding points; collections use `awardTotemCollect`.
 
 ### Shaped mode
 
@@ -184,15 +192,17 @@ wide, and differ gradually; consecutive random runs may select the same shape.
 - Rising intersects each existing block with the destination row. Discarded cells
   disappear without score; surviving blocks keep their ID/color and never regrow.
   Contiguous spans ensure a trim never splits a block.
-- Gravity resolves before clearing. Filling all playable cells clears a row;
-  points are `playable width × 10 × level × combo`, using the level before that
-  clear batch's level update. Trimming itself awards no points or lines.
+- Gravity resolves before clearing. Standard and Tetris row-clear points are
+  `playable width × 10 × level × combo`, using the level before that clear batch's
+  level update. Building uses the collection rules below. Trimming itself awards
+  no points or lines.
 - Top-out matches Classic's timing: settle the player's move, then check the top
   before rising. A rise reaching the top still allows a rescue move.
 - Empty boards refill. A nonempty board without slides ends with `no-moves`
   rather than stalling. Opening setup includes a bounded movable-seed fallback.
-- Preview rows contain blocks of length 1–4, at least one occupied cell and one
-  gap, wholly within the bottom span. The displayed preview is committed exactly.
+- Standard and Tetris preview rows contain blocks of length 1–4, at least one
+  occupied cell and one gap, wholly within the bottom span. Building candidates
+  use lengths 2–4 and omit isolated cells. The displayed preview is committed exactly.
   Search runs on detached copies with the same shaped rules, preferring a surviving
   preparation/response when its bounded search finds one; it is not a guarantee.
 
@@ -210,9 +220,10 @@ them upward, emits particles for discarded spans, and snaps to the authoritative
 survivors. Cancellation uses the same playback generation guard as other events.
 Best scores use the existing `slidey_best_shaped` storage key.
 
-### Optional Totems
+### Tetris pieces
 
-Totems are an On/Off modifier for both Classic and Shaped, not a registered mode.
+Tetris is a play mode that selects the Classic map. Shared geometry also supports
+shaped outlines for custom callers and tests.
 Normal blocks keep `{ row, col, len, color, id }`; totems add `kind: 'totem'`,
 `height: 2..3`, and `cells: [{ row, col }]` offsets. `row`/`col` are the bounding-box
 origin and `len` is its width. Spawned pieces are four-cell L/J, T, and S/Z shapes
@@ -234,15 +245,14 @@ overhangs whose supports fall later in the traversal.
 - On Shaped boards, a rise chips away Totem cells outside the destination outline,
   using the same particles as ordinary edge trimming. Remaining cells keep their
   world positions and piece ID with rebased bounds; fully trimmed pieces disappear.
-  Trimming awards no score or spirit and never regrows cells.
+  Trimming awards no score or lines and never regrows cells.
 - The entire starting footprint is above the board and the highest existing
   block. Only the landing snapshot is playable. Drops land with at least one row
   of top clearance.
 - Filled rows count occupied Totem cells normally. In Tetris mode, only cells in
   the filled rows leave; leftover cells stay in orthogonally connected groups as
   smiling shards (intact tetrominos keep a grimace). A new tetromino can still
-  spawn. Only the selected rows score. In Totem Building, leftovers compact into
-  one pole. Gravity then resolves falls.
+  spawn. Only the selected rows score. Gravity then resolves falls.
 - A totem that reaches row zero does not clear extra rows. Ordinary top-out keeps
   the rescue-turn timing: settle the slide and check the ceiling before the next
   rise. Empty boards refill with three rows (one on Shaped). A live tetromino
@@ -264,6 +274,36 @@ and gaps as normal one-cell blocks. Drag ghosts and hit testing follow occupied
 cells rather than filling the bounding rectangle.
 Pause and cancellation use the existing presenter lifecycle. Best scores belong
 to the base mode; the retired Totem mode's score key is no longer read or written.
+
+### Totem Building
+
+- Reset attempts one independent 1×1 totem with `smile: 1`. Opening geometry is
+  settled before input; the presenter animates its fall from above the board.
+- Every five cleared rows advances a level. Each new level queues `min(level, 5)`
+  totems. `pendingTotemSpawns` persists unplaced drops across turns, including a
+  blocked opening drop; `totemSpawnBlocked` indicates a queue waiting for space.
+- Drops choose among the highest supported landings in columns without another
+  totem. They must enter through the outline, land on an ordinary block, leave
+  top clearance, and avoid automatic full rows. Pending drops retry after settling.
+- Full rows containing ordinary tiles clear those tiles and improve each touched
+  totem's smile, up to stage 3. Totem-only rows immediately set every participating
+  totem to stage 3 and collect them in place. Rows still advance level progression;
+  points come from the collected totems.
+- After gravity and row clears finish, floor totems are collected for
+  `50 × smile × level` points each. Collection can release another totem or cascade;
+  each totem has its own score popup and banks its points as its collection
+  animation finishes, before the rest of the chain completes.
+- Incoming candidates use lengths 2–4. Before rising, zero ordinary tile rows
+  requests four rises, one tile row requests three, and larger boards request one.
+  Fragmented candidates with no usable run fall back to a contiguous-gap row.
+  Refills stop if settling reaches the ceiling, preserving the next rescue slide.
+- Both preview searches retain `playMode` in every detached board copy, so clears
+  preserve Building faces and floor collections remove them during simulation.
+  Classic candidates use the Building five-line progression curve.
+- Sand, jade, and gold faces blend through ordinary smile upgrades. Floor
+  collections compress and rebound, then sink beneath the board mask. All-totem
+  row clears show gold faces immediately and clear in place. Individual score
+  popups originate beside each totem and fly toward the total during its animation.
 
 ## Playback and lifecycle
 
@@ -301,8 +341,11 @@ with the old logical sequence, mode injection, snapshot isolation, playback spee
 independence, pause/resume, restart cancellation and dependency boundaries.
 Totem tests cover notches/overhang collisions, row-only clears and leftover smiling tiles, safe drops,
 seeded multi-turn geometry for both difficulties and every shape, play-mode persistence,
-committed previews, no top-edge row blast, Totem Building spirit tiles,
+committed previews, no top-edge row blast, Building smile upgrades and floor collection,
 and split clear/shard/drop playback including pause and restart cancellation.
+Building regressions cover individual collection score presentation and immediate
+banking, max-smile all-totem row clears, deferred
+drop retries, rule-preserving board copies, level pacing, and usable row runs.
 Regression tests also cover mirrored drag thresholds, stationary/repeated pointer
 events, direction reversal, board bounds, blocked-storage audio import, seeded
 engine resets and per-mode best-score/options isolation.

@@ -4,11 +4,16 @@ import { W, H, BH, CELL, C } from './theme.js';
 const PANEL_H = 124, BOARD_GAP = 24, PREVIEW_TOP = 48;
 const ICON_EDGE = 18;
 const HUD_ICON_SIZE = 64, HUD_GAP = 12;
+const SCORE_HALF = 38, LEVEL_TOP = 58;
+// Tighter than the mode–score pair; board placement ignores this stack.
+const SCORE_LEVEL_GAP = 12;
+// Previous 18px "BEST" was centered at ICON_EDGE+52; keep that label's left inset.
+const BEST_LEFT = ICON_EDGE + 28;
 export const GO_RESTART = { x: 215, y: 850, w: 320, h: 100 };
 export const layout = {
   VH: H, OY: 0, BY: 0, HY: 0, SCORE_Y: 0, COMBO_Y: 0,
-  LEVEL_X: ICON_EDGE + 52, LEVEL_Y: 0, MODE_Y: 0, SPIRIT_Y: 0,
-  DROP_Y: 0,
+  LEVEL_X: W / 2, LEVEL_Y: 0, MODE_Y: 0,
+  BEST_X: BEST_LEFT, BEST_Y: 0, BEST_SCORE_Y: 0,
   PANEL: { x: 48, y: 0, w: 654, h: PANEL_H },
   PREV_Y: 0, PREV_H: CELL / 2,
   MODE_BTN: { x: W - ICON_EDGE - 80, y: 0, w: 80, h: HUD_ICON_SIZE },
@@ -23,21 +28,21 @@ function place(safeTop, safeBot) {
   const top = safeTop + 24;
   layout.HY = top + 40;
   layout.MODE_Y = layout.HY - 6;
-  // Upper HUD slot (live total, or spirit in Totem Building). Lower slot is the swap.
-  layout.SCORE_Y = layout.MODE_Y + 50;
-  layout.SPIRIT_Y = layout.HY + 118;
-  layout.LEVEL_Y = layout.MODE_Y + 50;
+  layout.SCORE_Y = layout.MODE_Y + 70;
+  layout.LEVEL_Y = layout.SCORE_Y + SCORE_HALF + SCORE_LEVEL_GAP + LEVEL_TOP;
+  // BEST label shares the mode heading row; the best value stays under that label.
+  layout.BEST_Y = layout.MODE_Y;
+  layout.BEST_SCORE_Y = layout.BEST_Y + 32;
   // Align the icon stack's top with the 22px center heading, keeping equal gaps.
   const hudTop = layout.MODE_Y - 11;
   layout.MODE_BTN.y = hudTop;
   layout.PAUSE_BTN.y = layout.MODE_BTN.y + layout.MODE_BTN.h + HUD_GAP;
-  // Reserve space under the lower HUD slot for hint/score FX.
+  // Board, preview panel, and combo lane stay on the original HUD floor.
   const hudBottom = layout.HY + 168;
   const minBY = hudBottom + 64;
   const floorY = layout.VH - safeBot - 20 - PANEL_H;
   const maxBY = floorY - BOARD_GAP - BH;
   layout.BY = Math.round(minBY + Math.max(0, maxBY - minBY) * 0.28);
-  layout.DROP_Y = layout.BY - 28;
   const hugged = layout.BY + BH + BOARD_GAP;
   layout.PANEL.y = Math.max(layout.BY + BH + 16, Math.min(floorY, hugged));
   layout.PREV_Y = layout.PANEL.y + PREVIEW_TOP;

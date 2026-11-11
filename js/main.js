@@ -24,11 +24,20 @@ const engine = createEngine({ modeId: 'shaped', best: loadBest('shaped'),
   difficulty: loadDifficulty(), playMode: loadPlayMode(),
   modeOptions: { shapeId: activeShapeSelection } });
 const presenter = createPresenter({ boardY: () => layout.BY });
-presenter.reset(engine.snapshot());
+
+function showBoard(snapshot) {
+  presenter.reset(snapshot);
+  presenter.playOpening().catch(error => {
+    console.error('Opening drop presentation failed', error);
+    presenter.reset(engine.snapshot());
+  });
+}
+
+showBoard(engine.snapshot());
 
 function restart() {
   input.cancelDrag();
-  presenter.reset(engine.reset());
+  showBoard(engine.reset());
 }
 
 function toggleDifficulty() {
@@ -50,7 +59,7 @@ function cycleMap() {
   const next = modes[(index < 0 ? 0 : index + 1) % modes.length];
   input.cancelDrag();
   activeShapeSelection = shapeSelection.value;
-  presenter.reset(engine.reset(next.id, { best: loadBest(next.id),
+  showBoard(engine.reset(next.id, { best: loadBest(next.id),
     modeOptions: next.id === 'shaped' ? { shapeId: activeShapeSelection } : {} }));
   presenter.present.menu = 'mode';
 }
@@ -66,7 +75,7 @@ function cycleShape(direction) {
 
 function resetOptions(options) {
   input.cancelDrag();
-  presenter.reset(engine.reset(undefined, options));
+  showBoard(engine.reset(undefined, options));
   presenter.present.menu = 'mode';
 }
 
@@ -109,8 +118,8 @@ window.__slidey = {
         return { ...b, vx: v.vx, vy: v.vy, s: v.s, sq: v.sq };
       }),
       score: state.score, displayScore: present.displayScore,
-      pendingScore: present.scoreFx?.pts || 0,
-      scoreAnimating: !!(present.scoreFx || present.scoreScale !== 1),
+      pendingScore: (present.scoreFx?.pts || 0) + present.totemScoreFx.reduce((sum, fx) => sum + fx.pts, 0),
+      scoreAnimating: !!(present.scoreFx || present.totemScoreFx.length || present.scoreScale !== 1),
       combo: present.comboFx?.mult || 0, level: state.level, lines: state.lines,
       busy: presenter.busy, over: state.phase === 'over', paused: present.menu === 'pause',
       modeOpen: present.menu === 'mode', mode: state.mode, best: state.best,

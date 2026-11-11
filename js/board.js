@@ -1,6 +1,6 @@
 // Grid-space rules only. Pixel geometry and palettes belong to theme.js.
 import { cellsOf } from './block-geometry.js';
-import { isBuilding } from './play-mode.js';
+import { isBuilding, TOTEM_SMILE_MAX } from './play-mode.js';
 export const COLS = 8, ROWS = 10;
 // Abstract color-group IDs in block data; no dependency on a visual palette.
 export const COLOR_GROUPS = 5;
@@ -12,6 +12,7 @@ export function levelForLines(lines) {
 export function copyBoard(state) {
   return { blocks: state.blocks.map(b => ({ ...b,
     ...(b.cells ? { cells: b.cells.map(cell => ({ ...cell })) } : {}) })), nextId: state.nextId,
+    playMode: state.playMode,
     ...(state.shape ? { shape: structuredClone(state.shape) } : {}) };
 }
 
@@ -101,7 +102,9 @@ export function fullRows(state) {
   const out = [];
   for (let r = 0; r < ROWS; r++) {
     const { left, right } = rowSpan(state, r);
-    if (g[r].slice(left, right).every(Boolean)) out.push(r);
+    const cells = g[r].slice(left, right);
+    if (!cells.every(Boolean)) continue;
+    out.push(r);
   }
   return out;
 }
@@ -124,19 +127,6 @@ export function hasMoves(state) {
     const [min, max] = slideRange(state, b);
     return min !== max;
   });
-}
-
-function compactBuildingTotem(block, kept) {
-  const world = kept.map(cell => ({ row: block.row + cell.row, col: block.col + cell.col }))
-    .sort((a, b) => a.row - b.row || a.col - b.col);
-  const height = world.length;
-  const bottom = world.at(-1).row;
-  const col = Math.min(...world.map(cell => cell.col));
-  block.row = bottom - height + 1;
-  block.col = col;
-  block.len = 1;
-  block.height = height;
-  block.cells = Array.from({ length: height }, (_, i) => ({ row: i, col: 0 }));
 }
 
 function takeNextId(state) {
@@ -187,33 +177,28 @@ function smilingShard(state, world, color) {
 }
 
 // Tetris leftovers keep orthogonally connected groups as smiling shards.
-// Building keeps leftover cells as one pole (holes collapse).
+// Building totems gain a smile stage; all-totem rows cash out at the maximum.
 export function clearRows(state, rows) {
   const removed = new Set(rows), blocks = [], displayBlocks = [], survivors = [];
-  const compaction = [];
+  const collected = [];
   let split = false;
   const building = isBuilding(state);
+  const grid = building ? buildGrid(state) : null;
+  const totemRows = new Set(building ? rows.filter(row => {
+    const { left, right } = rowSpan(state, row);
+    return grid[row].slice(left, right).every(b => b?.kind === 'totem');
+  }) : []);
   for (const b of state.blocks) {
     const cells = cellsOf(b);
     const touched = cells.some(cell => removed.has(b.row + cell.row));
     if (touched && b.kind === 'totem' && building) {
-      split = true;
-      const kept = [], faces = [];
-      for (const [i, cell] of cells.entries()) {
-        const fragment = { id: `fragment:${b.id}:${i}`, kind: 'totem', color: b.color,
-          row: b.row + cell.row, col: b.col + cell.col, len: 1, height: 1 };
-        displayBlocks.push(fragment);
-        if (removed.has(fragment.row)) blocks.push(fragment);
-        else { kept.push(cell); faces.push(fragment); }
-      }
-      if (!kept.length) continue;
-      compactBuildingTotem(b, kept);
-      faces.sort((a, b) => a.row - b.row || a.col - b.col);
-      for (const [i, face] of faces.entries()) {
-        const to = b.row + i;
-        if (face.row !== to) compaction.push({ id: face.id, from: face.row, to });
-      }
-      survivors.push(b);
+      const cashOut = cells.some(cell => totemRows.has(b.row + cell.row));
+      b.smile = cashOut ? TOTEM_SMILE_MAX : Math.min(TOTEM_SMILE_MAX, (b.smile ?? 1) + 1);
+      displayBlocks.push(structuredClone(b));
+      if (cashOut) {
+        collected.push(structuredClone(b));
+        blocks.push(structuredClone(b));
+      } else survivors.push(b);
     } else if (touched && (b.kind === 'totem' || b.face === 'smile')) {
       split = true;
       const kept = [];
@@ -239,8 +224,8 @@ export function clearRows(state, rows) {
   }
   state.blocks = survivors;
   return { rows: [...removed].sort((a, b) => a - b), blocks,
-    ...(split ? { displayBlocks } : {}),
-    ...(compaction.length ? { compaction } : {}) };
+    ...(split || collected.length ? { displayBlocks } : {}),
+    ...(collected.length ? { collected } : {}) };
 }
 
 // Shared by real rises, opening setup, and preview simulations.
@@ -255,15 +240,35 @@ export function insertRow(state, row) {
 }
 
 // Setup/search settle immediately; live turns use onStep for scoring and events.
+function collectBuildingTotems(board) {
+  if (!isBuilding(board)) return [];
+  const kept = [], collected = [];
+  for (const b of board.blocks) {
+    if (b.kind === 'totem' && b.row + heightOf(b) - 1 >= ROWS - 1) collected.push(b);
+    else kept.push(b);
+  }
+  if (!collected.length) return [];
+  board.blocks = kept;
+  return collected;
+}
+
 export function settleBoard(board, onStep = () => {}) {
   let cleared = 0;
   for (;;) {
     const moves = computeGravity(board);
     if (moves.length) onStep('gravity', { moves });
     const rows = fullRows(board);
-    if (!rows.length) return cleared;
-    const clear = clearRows(board, rows);
-    cleared += clear.rows.length;
-    onStep('clear', clear);
+    if (rows.length) {
+      const clear = clearRows(board, rows);
+      cleared += clear.rows.length;
+      onStep('clear', clear);
+      continue;
+    }
+    const collected = collectBuildingTotems(board);
+    if (collected.length) {
+      onStep('totem-collect', { blocks: collected });
+      continue;
+    }
+    return cleared;
   }
 }

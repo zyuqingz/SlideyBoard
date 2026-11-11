@@ -4,6 +4,7 @@ import { resolveTurn } from './turn.js';
 import { SHAPES, chooseShape } from './shapes.js';
 import { insertShapedRow, settleShapedBoard } from './shaped-board.js';
 import { generateShapedCandidate, generateShapedNextRow } from './shaped-spawn.js';
+import { spawnOpeningTotem } from './totem-spawn.js';
 
 function reset(state, random, { shapeId = 'random' } = {}) {
   const selected = SHAPES.find(shape => shape.id === shapeId);
@@ -20,6 +21,7 @@ function reset(state, random, { shapeId = 'random' } = {}) {
       col: state.shape.rows[ROWS - 1].left, len: 1, color: 0 }];
   }
   state.nextRow = generateShapedNextRow(state, random);
+  spawnOpeningTotem(state, random);
 }
 
 export const shaped = Object.freeze({

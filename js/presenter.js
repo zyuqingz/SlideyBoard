@@ -1,9 +1,9 @@
 // Plays detached engine events. This module never imports or invokes game rules.
-import { COLS } from './board.js';
-import { cellsOf } from './block-geometry.js';
-import { W, CELL, BX, COLORS } from './theme.js';
+import { COLS, ROWS } from './board.js';
+import { cellsOf, facesOf } from './block-geometry.js';
+import { W, CELL, PAD, BX, COLORS, totemPaint } from './theme.js';
 import { Ease, createEffects } from './fx.js';
-import { createScorePresentation, stackScore, bankScore } from './score-fx.js';
+import { createScorePresentation, stackScore, bankScore, showTotemScore, finishTotemScores } from './score-fx.js';
 import { playSfx } from './audio.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -12,22 +12,23 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
   const views = new Map();
   const present = {
     ...createScorePresentation(), shake: 0, overlayA: 0, drag: null, menu: null,
-    hoverKey: null, hoverAmt: {}
+    hoverKey: null, hoverAmt: {}, landingDust: [],
+    displayProgress: 0, displayLevel: 1, levelScale: 1
   };
   const { tween, wait } = effects;
   let state, busy = false, generation = 0, lock = 0, motion = 0;
 
-  // Landing squash keeps writing after its fall returns. A later slide, drop,
+  // Landing feedback keeps writing after its fall returns. A later slide, drop,
   // clear, or rise must invalidate that write or blocks flatten mid-motion.
   function interruptSquash() {
     motion++;
-    for (const v of views.values()) v.sq = 0;
+    for (const v of views.values()) { v.sq = 0; v.land = 0; }
   }
 
   function viewOf(block) {
     if (!views.has(block.id)) views.set(block.id, {
-      vx: block.col, vy: block.row, flash: 0, s: 1, sq: 0, slot: 0,
-      danger: 0, clearing: false
+      vx: block.col, vy: block.row, flash: 0, s: 1, sq: 0, land: 0, slot: 0,
+      danger: 0, clearing: false, collecting: false, expression: block.smile ?? 1, evolve: 0
     });
     return views.get(block.id);
   }
@@ -38,7 +39,8 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     // A snapshot is a geometry boundary. Only an explicit animation may offset
     // it; cached views must never retain a removed block's scale or old position.
     for (const b of state.blocks) Object.assign(viewOf(b), {
-      vx: b.col, vy: b.row, s: 1, flash: 0, slot: 0, clearing: false
+      vx: b.col, vy: b.row, s: 1, flash: 0, slot: 0, clearing: false, collecting: false,
+      expression: b.smile ?? 1, evolve: 0
     });
     for (const id of views.keys()) if (!keep.has(id)) views.delete(id);
   }
@@ -52,7 +54,10 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     adopt(snapshot);
     Object.assign(present, createScorePresentation(), {
       displayScore: state.score, shake: 0, overlayA: state.phase === 'over' ? 1 : 0,
-      drag: null, menu: null, hoverKey: null, hoverAmt: {}
+      drag: null, menu: null, hoverKey: null, hoverAmt: {}, landingDust: [],
+      displayProgress: state.levelProgress ?? 0,
+      displayLevel: state.level ?? 1,
+      levelScale: 1
     });
     busy = false;
   }
@@ -68,28 +73,83 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
         vy: velocity ? velocity.y + (Math.random() - 0.5) * 400 * Math.sqrt(power)
           : (-240 - Math.random() * 400) * Math.sqrt(power),
         size: (8 + Math.random() * 12) * Math.sqrt(power),
-        color: power > 1 && b.kind === 'totem' ? (k % 3 === 0 ? '#ffe3a8' : '#e9ba78') : COLORS[b.color],
+        color: b.kind === 'totem' && state.playMode === 'totem-building'
+          ? totemPaint(b.smile).fill
+          : power > 1 && b.kind === 'totem' ? (k % 3 === 0 ? '#ffe3a8' : '#e9ba78') : COLORS[b.color],
         life: 0.55 + Math.random() * 0.35 + (power - 1) * 0.12, rot: Math.random() * 6
       });
     }
   }
 
   const fallMs = d => 110 + 95 * Math.sqrt(d);
+  const TOTEM_STAGGER_MS = 28;
 
-  async function fall(moves, current, { squash = true } = {}) {
-    const results = await Promise.all(moves.map(async move => {
-      const v = viewOf(state.blocks.find(b => b.id === move.id));
-      const d = move.to - move.from;
+  function collectionScores(blocks, award) {
+    return (award?.totems ?? []).map(points => {
+      const b = blocks.find(block => block.id === points.id);
+      return showTotemScore(present, points, effects, {
+        x: BX + (b.col + b.len / 2) * CELL,
+        y: boardY() + (b.row - 0.4) * CELL
+      });
+    });
+  }
+
+  function landingDust(b) {
+    const faces = facesOf(b);
+    const bottom = Math.max(...faces.map(face => face.row));
+    const feet = faces.filter(face => face.row === bottom);
+    const burst = { progress: 0, particles: [] };
+    for (const face of feet) for (const side of [-1, 1]) {
+      const edge = side < 0 ? face.col : face.col + face.len;
+      if (feet.some(other => other !== face
+        && (side < 0 ? other.col + other.len === edge : other.col === edge))) continue;
+      for (let i = 0; i < 2; i++) {
+        const travel = 14 + i * 18 + Math.random() * 10;
+        burst.particles.push({
+          x: BX + (b.col + edge) * CELL,
+          y: (b.row + face.row + 1) * CELL - PAD,
+          side, travel, hop: 6 + travel * 0.65 + Math.random() * 4,
+          size: 6 + Math.random() * 4,
+          offset: 2 + i * 9 + Math.random() * 5
+        });
+      }
+    }
+    present.landingDust.push(burst);
+    // Independent of block poses: subsequent rises and clears cannot cut off the fade.
+    tween(420, p => {
+      burst.progress = p;
+      if (p === 1) present.landingDust.splice(present.landingDust.indexOf(burst), 1);
+    }, Ease.lin);
+  }
+
+  async function fall(moves, current) {
+    const items = moves.map(move => {
+      const b = state.blocks.find(block => block.id === move.id);
+      const v = viewOf(b);
       // Pin the pre-fall row before the first paint of the landing snapshot.
       v.vy = move.from;
+      return { move, b, v, d: move.to - move.from };
+    });
+    let totemWave = 0;
+    const results = await Promise.all(items.map(async ({ move, b, v, d }) => {
+      const delay = b?.kind === 'totem' ? totemWave++ * TOTEM_STAGGER_MS : 0;
+      if (delay && (!await wait(delay) || !current())) return false;
       if (!await tween(fallMs(d), t => { v.vy = move.from + d * t; }, Ease.in) || !current())
         return false;
-      if (squash) {
-        const amp = Math.min(0.22, 0.1 + 0.04 * d);
-        const stamp = motion;
-        tween(320, t => { if (stamp === motion) v.sq = amp * t; }, Ease.damped);
-      }
-      return true;
+      if (d <= 0) return true;
+      // Show contact immediately, then let the compression rebound before the
+      // next event can interrupt it. The soft tail can outlive the turn.
+      const amp = Math.min(0.24, 0.12 + 0.035 * d) / Math.sqrt(b.height ?? 1);
+      const stamp = motion;
+      v.sq = amp;
+      landingDust(b);
+      v.land = 1;
+      tween(300, p => {
+        if (stamp !== motion) return;
+        v.sq = amp * Ease.damped(p);
+        v.land = 1 - p;
+      }, Ease.lin);
+      return await wait(120) && current();
     }));
     return results.every(Boolean);
   }
@@ -122,7 +182,43 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
         // shrinks on the same final window. An early block used to hit scale 0
         // and leave a hole until the slowest block finished.
         interruptSquash();
+        if (state.playMode === 'totem-building') {
+          const fromP = present.displayProgress;
+          const toP = event.state.levelProgress ?? 0;
+          const fromL = present.displayLevel;
+          const toL = event.state.level ?? fromL;
+          if (toL > fromL || toP > fromP) {
+            const fillTo = toL > fromL ? 1 : toP;
+            tween(500, p => {
+              present.displayProgress = fromP + (fillTo - fromP) * p;
+              present.displayLevel = fromL;
+              // Fast swell, long Ease.out settle — UI motion, not particles.
+              present.levelScale = p < 0.18
+                ? 1 + 0.2 * Ease.out(p / 0.18)
+                : 1.2 - 0.2 * Ease.out((p - 0.18) / 0.82);
+            }, t => 1 - (1 - t) ** 4).then(ok => {
+              if (!ok || !current()) return;
+              present.displayProgress = toP;
+              present.displayLevel = toL;
+              present.levelScale = 1;
+            });
+          }
+        }
+        // Capture the old expression before any display snapshot can replace it.
+        // Capped faces still acknowledge a clear with the same small pulse.
+        const reactions = state.playMode === 'totem-building' ? state.blocks
+          .filter(b => b.kind === 'totem'
+            && cellsOf(b).some(cell => event.rows.includes(b.row + cell.row)))
+          .flatMap(b => {
+            const after = event.state.blocks.find(next => next.id === b.id);
+            return after ? [{ b, from: b.smile ?? 1, to: after.smile ?? 1 }] : [];
+          }) : [];
         if (event.displayBlocks) adopt({ ...state, blocks: event.displayBlocks });
+        const scores = collectionScores(event.collected ?? [], event.collectionAward);
+        for (const reaction of reactions) {
+          reaction.v = viewOf(reaction.b);
+          reaction.v.expression = reaction.from;
+        }
         const rowOrder = event.rows.slice().sort((a, b) => b - a);
         const clears = event.blocks.map(b => ({ b, v: viewOf(b), burst: false,
           delay: Math.abs(b.col + b.len / 2 - COLS / 2) / (COLS / 2) * 70
@@ -132,7 +228,18 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
         const shrink = 150;
         if (!await tween(duration, t => {
           const elapsed = t * duration;
+          for (const fx of scores) fx.flight = clamp((t - 0.4) / 0.6, 0, 1) ** 4;
           const flashEnd = duration - shrink;
+          for (const { v, from, to } of reactions) {
+            const p = clamp((elapsed - 50) / (duration - 50), 0, 1);
+            const blend = p * p * (3 - 2 * p);
+            v.expression = from + (to - from) * blend;
+            v.evolve = Math.sin(Math.PI * p);
+            // Pop on impact, recoil slightly, then settle at the cell size.
+            v.s = p < 0.4 ? 1 + 0.16 * Ease.out(p / 0.4)
+              : p < 0.8 ? 1.16 - 0.21 * ((p - 0.4) / 0.4)
+                : 0.95 + 0.05 * Ease.out((p - 0.8) / 0.2);
+          }
           for (const clear of clears) {
             const { b, v, delay } = clear;
             if (elapsed < flashEnd) {
@@ -156,45 +263,60 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
             }
           }
         }, Ease.lin) || !current()) return false;
-        if (event.compaction?.length) {
-          // Surviving tower faces stay in place through the clear, then fall
-          // into the gaps before rejoining the authoritative compacted pole.
-          const removed = new Set(event.blocks.map(b => b.id));
-          adopt({ ...state, blocks: state.blocks.filter(b => !removed.has(b.id)) });
-          if (!await fall(event.compaction, current, { squash: false }) || !current()) return false;
-        }
         adopt(event.state);
-        stackScore(present, event.award, effects);
+        if (!await finishTotemScores(present, scores, effects, current) || !current()) return false;
+        if (event.award?.pts) stackScore(present, event.award, effects);
         return true;
+      }
+      case 'totem-collect': {
+        interruptSquash();
+        const collected = event.blocks;
+        // Hold contact for a readable arrival cue, then slide full-sized tiles
+        // beneath the floor mask before allowing any subsequent board motion.
+        adopt({ ...event.state, blocks: [...event.state.blocks, ...collected] });
+        for (const b of collected) {
+          const v = viewOf(b);
+          v.vy = b.row;
+          v.s = 1;
+          v.clearing = true;
+          v.collecting = true;
+        }
+        const scores = collectionScores(collected, event.award);
+        sfx('clear', { volume: 0.62, rate: 0.9 });
+        if (!await tween(340, p => {
+          // Compress against the floor, stretch on rebound, then settle.
+          const squash = p < 0.28 ? 0.24 * Ease.out(p / 0.28)
+            : p < 0.65 ? 0.24 - 0.33 * Ease.out((p - 0.28) / 0.37)
+              : -0.09 * (1 - Ease.out((p - 0.65) / 0.35));
+          for (const b of collected) {
+            viewOf(b).sq = p === 1 ? 0 : squash / Math.sqrt(b.height ?? 1);
+          }
+        }, Ease.lin) || !current()) return false;
+        const distance = Math.max(1, ...collected.map(b => ROWS - b.row));
+        const duration = 620 + (distance - 1) * 215;
+        const steps = Math.ceil(duration / 155);
+        if (!await tween(duration, p => {
+          for (const fx of scores) fx.flight = clamp((p * duration - (duration - 560)) / 560, 0, 1) ** 4;
+          // Smooth each chunk from rest to rest, giving the descent a rhythmic
+          // pull without frozen frames or position jumps between beats.
+          const phase = p * steps;
+          const chunk = Math.floor(phase), local = phase - chunk;
+          const blend = local * local * (3 - 2 * local);
+          const beat = (chunk + blend) / steps;
+          const slide = 0.5 * beat + 0.5 * Ease.in(beat);
+          for (const b of collected) {
+            const v = viewOf(b);
+            v.vy = b.row + (ROWS - b.row) * slide;
+          }
+        }, Ease.lin) || !current()) return false;
+        adopt(event.state);
+        return finishTotemScores(present, scores, effects, current);
       }
       case 'totem-drop':
         interruptSquash();
         adopt(event.state);
         sfx('place', { volume: 0.45, rate: 0.88 });
         return true;
-      case 'totem-stack': {
-        interruptSquash();
-        // Keep the existing pole in place while its new cap falls independently.
-        // Only join the geometry after landing, so the pole never snaps taller.
-        const incoming = event.ids.map(id => {
-          const b = event.state.blocks.find(b => b.id === id);
-          const cap = cellsOf(b).find(cell => cell.row === 0);
-          return { id: `stack:${id}`, kind: 'totem', color: b.color,
-            row: b.row, col: b.col + cap.col, len: 1, height: 1 };
-        });
-        adopt({ ...event.state, blocks: [...state.blocks, ...incoming] });
-        sfx('place', { volume: 0.45, rate: 0.88 });
-        const landed = await fall(incoming.map(b => ({ id: b.id, from: -1, to: b.row })),
-          current, { squash: false });
-        if (!landed || !current()) return false;
-        adopt(event.state);
-        const stamp = motion;
-        for (const id of event.ids) {
-          const v = viewOf(state.blocks.find(b => b.id === id));
-          tween(320, t => { if (stamp === motion) v.sq = 0.22 * t; }, Ease.damped);
-        }
-        return true;
-      }
       case 'rise':
       case 'shaped-rise': {
         interruptSquash();
@@ -234,6 +356,21 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
       default:
         throw new Error(`No presentation handler for event: ${event.type}`);
     }
+  }
+
+  function playOpening() {
+    if (busy || state?.playMode !== 'totem-building') return Promise.resolve(false);
+    const totems = state.blocks.filter(b => b.kind === 'totem');
+    if (!totems.length) return Promise.resolve(false);
+    const snap = structuredClone(state);
+    return play({
+      accepted: true,
+      events: [
+        { type: 'totem-drop', id: totems[0].id, state: snap },
+        { type: 'gravity', moves: totems.map(b => ({ id: b.id, from: -1, to: b.row })), state: snap },
+        { type: 'turn-complete', state: snap }
+      ]
+    });
   }
 
   async function play(result) {
@@ -308,6 +445,6 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     return true;
   }
 
-  return { reset, play, pickup, snapBack, update, viewOf, present, effects,
+  return { reset, play, playOpening, pickup, snapBack, update, viewOf, present, effects,
     get state() { return state; }, get busy() { return busy; } };
 }

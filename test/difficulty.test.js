@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { COLS, ROWS } from '../js/board.js';
 import { createEngine } from '../js/engine.js';
-import { generateRowCandidate } from '../js/spawn.js';
+import { generateRowCandidate, generateNextRow } from '../js/spawn.js';
+import { generateNormalRow } from '../js/difficulty.js';
+import { createState } from '../js/sim.js';
 import { generateShapedCandidate } from '../js/shaped-spawn.js';
 import { SHAPES } from '../js/shapes.js';
 
@@ -106,5 +108,56 @@ test('Normal generation remains bounded for constant random streams and narrow s
       return value;
     });
     assert.ok(row.length);
+  }
+});
+
+test('Building Normal rows fill usable runs without dropping avoidable single cells', () => {
+  for (const run of [2, 3, 4, 5, 6, 7]) {
+    for (const value of [0, 0.25, 0.75, 0.999999]) {
+      let calls = 0;
+      // Choose one gap at the left edge, then exercise the block-length weights.
+      const random = () => ++calls <= 2 ? 0 : value;
+      const row = generateNormalRow(1, random, 0, run + 1, 2);
+      assert.ok(row.every(b => b.len >= 2 && b.len <= 4));
+      assert.equal(row.reduce((sum, b) => sum + b.len, 0), run);
+      assert.equal(row[0].col, 1);
+    }
+  }
+});
+
+test('Building candidates always contain usable blocks and a gap, including narrow spans and constant RNG', () => {
+  for (const shape of [null, ...SHAPES]) for (const difficulty of ['easy', 'normal']) {
+    const { left, right } = shape?.rows[ROWS - 1] ?? { left: 0, right: COLS };
+    for (const level of [1, 11]) {
+      const streams = [seeded(1), ...[0, 0.25, 0.5, 0.75, 0.999999].map(value => () => value)];
+      for (const stream of streams) for (let i = 0; i < 100; i++) {
+        let calls = 0;
+        const random = () => { assert.ok(++calls < 100, 'generation must be bounded'); return stream(); };
+        const row = shape
+          ? generateShapedCandidate({ shape, difficulty, level, playMode: 'totem-building' }, random)
+          : generateRowCandidate(level, random, difficulty, 2);
+        assert.ok(row.length, `${shape?.id ?? 'classic'} ${difficulty}: empty row`);
+        let end = left, occupied = 0;
+        for (const b of row) {
+          assert.ok(b.len >= 2 && b.len <= 4);
+          assert.ok(b.col >= end && b.col + b.len <= right);
+          end = b.col + b.len;
+          occupied += b.len;
+        }
+        assert.ok(occupied < right - left, 'leave a gap');
+      }
+    }
+  }
+});
+
+test('Classic Building preview generation uses its five-line level curve', () => {
+  for (const difficulty of ['easy', 'normal']) for (const lines of [5, 25, 50]) {
+    const state = { ...createState(0, difficulty, 'totem-building'), lines, level: 1 + lines / 5 };
+    // Empty boards use the candidate fallback, allowing identical RNG streams to
+    // compare the preview against candidate generation at the actual game level.
+    for (let seed = 0; seed < 20; seed++) {
+      assert.deepEqual(generateNextRow(state, seeded(seed)),
+        generateRowCandidate(state.level, seeded(seed), difficulty, 2));
+    }
   }
 });

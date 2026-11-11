@@ -15,7 +15,7 @@ function weightedIndex(random, weights) {
   return weights.length - 1;
 }
 
-export function generateNormalRow(level, random, left = 0, right = COLS) {
+export function generateNormalRow(level, random, left = 0, right = COLS, minLen = 1) {
   const offset = Math.max(0, Math.min(10, level - 1));
   const gapCount = Math.min(right - left - 1,
     weightedIndex(random, [65 + offset * 2, 35]) + 1);
@@ -30,9 +30,15 @@ export function generateNormalRow(level, random, left = 0, right = COLS) {
     let col = start, previousColor = -1;
     while (col < end) {
       const run = end - col;
+      if (run < minLen) { col += run; continue; }
       const weights = [3, 32, 36 + offset, 29 + offset * 2].slice(0, Math.min(4, run));
+      for (let i = 0; i < minLen - 1 && i < weights.length; i++) weights[i] = 0;
       // Don't choose a long block that unnecessarily leaves a singleton behind.
-      if (run > 2 && run <= 5) weights[run - 2] = 0;
+      if (minLen < 2 && run > 2 && run <= 5) weights[run - 2] = 0;
+      if (minLen >= 2) for (let i = minLen - 1; i < weights.length; i++) {
+        const remainder = run - (i + 1);
+        if (remainder > 0 && remainder < minLen) weights[i] = 0;
+      }
       const len = weightedIndex(random, weights) + 1;
       let color = Math.floor(random() * (COLOR_GROUPS - (previousColor < 0 ? 0 : 1)));
       if (previousColor >= 0 && color >= previousColor) color++;

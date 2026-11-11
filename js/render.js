@@ -2,7 +2,7 @@
 
 import { COLS, ROWS } from './board.js';
 import { facesOf, isCarved } from './block-geometry.js';
-import { W, CELL, PAD, BX, BW, BH, COLORS, C, FONT } from './theme.js';
+import { W, CELL, PAD, BX, BW, BH, COLORS, BLOCK_PALETTE, CARVED_PAINT, C, FONT, totemPaint } from './theme.js';
 import { Ease } from './fx.js';
 import { t, modeLabel } from './i18n.js';
 import { ctx, layout, paintRevision, invalidateCanvas } from './canvas-layout.js';
@@ -81,6 +81,14 @@ function drawPanicFace(sx, sy, w) {
   ctx.stroke();
 }
 
+function drawShockedMouth(x, y, w, ink = '#583d37') {
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.ellipse(x + w / 2, y + 44, 6, 8, 0, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
 function drawCeilingWarn(b, v, x, y, shape) {
   if (b.kind === 'totem') return;
   if (isCarved(b)) {
@@ -119,21 +127,75 @@ function drawCeilingWarn(b, v, x, y, shape) {
   flush(v.vx + b.len - run);
 }
 
-function drawBlock(b, v, hover = 0, shape = null, now = 0) {
+function drawTile(x, y, w, h, paint, radius = BLOCK_R) {
+  const detail = Math.min(1, h / (CELL - 2 * PAD));
+  const depth = 5 * detail, inset = 4 * detail;
+  ctx.fillStyle = paint.shade;
+  rr(x, y, w, h, radius); ctx.fill();
+  ctx.fillStyle = paint.fill;
+  rr(x, y, w, h - depth, radius); ctx.fill();
+  // Shared shallow bevel, scaled down for the next-row preview.
+  ctx.strokeStyle = 'rgba(255,255,255,0.32)'; ctx.lineWidth = 2 * detail;
+  rr(x + inset, y + inset, w - 2 * inset, h - depth - 2 * inset, radius - inset); ctx.stroke();
+}
+
+function drawBuildingFace(x, y, w, h, stage, pulse, panic, shocked) {
+  const paint = totemPaint(stage);
+  drawTile(x, y, w, h, paint);
+  const happy = clamp(stage - 2, 0, 1);
+  const smile = clamp(stage - 1, 0, 1);
+  ctx.strokeStyle = paint.ink;
+  ctx.lineCap = 'round';
+  if (panic) drawPanicFace(x, y + 2, w);
+  else {
+    ctx.lineWidth = 5;
+    for (const cx of [x + w * 0.31, x + w * 0.69]) {
+      ctx.beginPath();
+      ctx.moveTo(cx - 5 * happy, y + 26);
+      ctx.quadraticCurveTo(cx, y + 26 - 9 * happy, cx + 5 * happy, y + 31 - 5 * happy);
+      ctx.stroke();
+    }
+    if (shocked) drawShockedMouth(x, y, w, paint.ink);
+    else {
+      ctx.lineWidth = 4;
+      const halfMouth = w * (0.13 + 0.05 * smile + 0.03 * happy);
+      const mouthY = y + 44 - 3 * happy;
+      ctx.beginPath();
+      ctx.moveTo(x + w / 2 - halfMouth, mouthY);
+      ctx.quadraticCurveTo(x + w / 2, mouthY + 14 * smile + 7 * happy,
+        x + w / 2 + halfMouth, mouthY);
+      ctx.stroke();
+    }
+  }
+  if (pulse > 0) {
+    ctx.strokeStyle = `rgba(255,250,220,${0.85 * pulse})`;
+    ctx.lineWidth = 2 + 2 * pulse;
+    rr(x + 2, y + 2, w - 4, h - 4, BLOCK_R - 1); ctx.stroke();
+  }
+}
+
+function drawBlock(b, v, hover = 0, shape = null, now = 0, building = false, held = false) {
   if (v.s <= 0) return;
   const x = BX + v.vx * CELL + PAD, y = layout.BY + v.vy * CELL + PAD;
   const w = b.len * CELL - 2 * PAD, h = (b.height ?? 1) * CELL - 2 * PAD;
-  const pop = Math.max(v.slot, hover);
+  const pop = v.collecting ? 0 : Math.max(v.slot, hover);
   const scale = v.s * (1 + 0.07 * pop);
-  const panic = totemHitsCeiling(b, v, shape) && v.vy === b.row && !v.clearing;
+  const panic = totemHitsCeiling(b, v, shape) && v.vy === b.row && !v.clearing && !v.evolve;
+  const shocked = held && b.kind === 'totem' && !panic;
   ctx.save();
+  if (v.collecting) {
+    // Clip in board space, before any tile transforms, including hover scale.
+    ctx.beginPath();
+    ctx.rect(0, 0, W, layout.BY + BH);
+    ctx.clip();
+  }
   if (panic) ctx.translate(Math.sin(now / 40) * 3.5, 0);
   if (scale !== 1) {
     ctx.translate(x + w / 2, y + h / 2);
     ctx.scale(scale, scale);
     ctx.translate(-(x + w / 2), -(y + h / 2));
   }
-  if (v.sq && !v.clearing) {
+  if (v.sq && (!v.clearing || v.collecting)) {
     const sx = 1 + v.sq * 0.6 / b.len, sy = 1 - v.sq;
     ctx.translate(x + w / 2, y + h); ctx.scale(sx, sy); ctx.translate(-(x + w / 2), -(y + h));
   }
@@ -143,7 +205,7 @@ function drawBlock(b, v, hover = 0, shape = null, now = 0) {
   const cellH = CELL - 2 * PAD;
   const faceW = CELL - 2 * PAD;
   if (isCarved(b) && faces.length > 1) {
-    ctx.fillStyle = '#c48a4a';
+    ctx.fillStyle = CARVED_PAINT.shade;
     for (const a of faces) for (const n of faces) {
       if (a.row === n.row && n.col === a.col + 1) {
         const sx = x + a.col * CELL + faceW * 0.55;
@@ -160,26 +222,38 @@ function drawBlock(b, v, hover = 0, shape = null, now = 0) {
   for (const face of faces) {
     const sx = x + face.col * CELL, sy = y + face.row * CELL;
     const w = face.len * CELL - 2 * PAD;
-    ctx.fillStyle = isCarved(b) ? '#e9ba78' : COLORS[b.color];
-    rr(sx, sy, w, cellH, BLOCK_R); ctx.fill();
-    if (isCarved(b)) {
+    if (building && b.kind === 'totem') {
+      drawBuildingFace(sx, sy, w, cellH, v.expression ?? b.smile ?? 1, v.evolve ?? 0, panic, shocked);
+    } else {
+      drawTile(sx, sy, w, cellH, isCarved(b) ? CARVED_PAINT : BLOCK_PALETTE[b.color]);
+    }
+    if (isCarved(b) && !(building && b.kind === 'totem')) {
       const topRow = Math.min(...faces.map(f => f.row));
       if (panic && face.row === topRow) drawPanicFace(sx, sy, w);
       else {
         ctx.fillStyle = '#583d37';
         rr(sx + w * 0.22, sy + 20, 9, 10, 3); ctx.fill();
         rr(sx + w * 0.65, sy + 20, 9, 10, 3); ctx.fill();
-        if (b.face === 'smile') {
+        const smile = b.smile ?? (b.face === 'smile' ? 2 : 1);
+        if (shocked) drawShockedMouth(sx, sy, w);
+        else if (smile >= 2) {
           ctx.strokeStyle = '#583d37';
           ctx.lineWidth = 3;
           ctx.lineCap = 'round';
           ctx.beginPath();
-          ctx.arc(sx + w * 0.5, sy + 36, w * 0.16, 0.15 * Math.PI, 0.85 * Math.PI);
+          const r = smile >= 3 ? w * 0.22 : w * 0.16;
+          const y = smile >= 3 ? 34 : 36;
+          ctx.arc(sx + w * 0.5, sy + y, r, 0.12 * Math.PI, 0.88 * Math.PI);
           ctx.stroke();
         } else {
           rr(sx + w * 0.32, sy + 39, w * 0.36, 6, 3); ctx.fill();
         }
       }
+    }
+    if (v.land > 0 && !v.clearing) {
+      ctx.strokeStyle = `rgba(255,250,225,${0.65 * v.land * v.land})`;
+      ctx.lineWidth = 2;
+      rr(sx + 2, sy + 2, w - 4, cellH - 4, BLOCK_R - 1); ctx.stroke();
     }
     if (v.flash > 0) {
       ctx.fillStyle = `rgba(255,255,255,${Math.min(0.85, 0.85 * v.flash)})`;
@@ -197,11 +271,13 @@ function drawBlock(b, v, hover = 0, shape = null, now = 0) {
 }
 
 let digitWidth, digitRevision = -1;
-function hudSlots(playId) {
-  const building = playId === 'totem-building';
-  const scoreY = building ? layout.SPIRIT_Y : layout.SCORE_Y;
-  const spiritY = building ? layout.SCORE_Y : layout.SPIRIT_Y;
-  return { scoreY, spiritY, bestY: scoreY + 50, bestScoreY: scoreY + 74 };
+function hudSlots() {
+  return {
+    scoreY: layout.SCORE_Y,
+    bestX: layout.BEST_X,
+    bestY: layout.BEST_Y,
+    bestScoreY: layout.BEST_SCORE_Y
+  };
 }
 
 function drawScore(present, scoreY) {
@@ -220,39 +296,55 @@ function drawScore(present, scoreY) {
     text(digit, (i - (digits - 1) / 2) * cellW, 0, 76, '#a493b0');
   });
   ctx.restore();
+  return { x: W / 2, y: scoreY, halfWidth: digits * cellW * fit / 2, halfHeight: 38 * fit };
 }
 
-function drawScorePopup(now, fx, scoreY) {
+function drawScorePopup(now, fx, target) {
   const age = Math.max(0, now - fx.t0);
   const p = fx.flight ?? 0;
-  const x = W / 2;
-  const y = layout.COMBO_Y + (scoreY - layout.COMBO_Y) * p;
-  const scale = fx.flight === null ? Ease.outBack(clamp(age / 220, 0, 1)) : 1;
+  const totem = fx.id != null;
+  if (totem && p >= 1) return;
+  const x0 = fx.origin?.x ?? W / 2;
+  const y0 = fx.origin?.y ?? layout.COMBO_Y;
+  const dx = x0 - target.x, dy = y0 - target.y;
+  // Intersect the approach with the score's bounds, rather than its center.
+  const edge = totem ? Math.min(1, target.halfWidth / Math.abs(dx), target.halfHeight / Math.abs(dy)) : 0;
+  const x = x0 + (target.x + dx * edge - x0) * p;
+  const y = y0 + (target.y + dy * edge - y0) * p;
+  const arrival = clamp((p - 0.5) / 0.5, 0, 1);
+  const scale = fx.flight === null || fx.flight === 0
+    ? Ease.outBack(clamp(age / 220, 0, 1)) : totem ? 1 : 1 - Ease.in(arrival);
   ctx.save();
-  // Dissolve text and glow before they overlap the total score's center.
-  ctx.globalAlpha = 1 - Ease.out(clamp((p - 0.4) / 0.4, 0, 1));
+  // Totem labels remain visible until contact with the HUD edge.
+  ctx.globalAlpha = totem ? 1 : 1 - Ease.out(clamp((p - 0.5) / 0.4, 0, 1));
   ctx.translate(x, y); ctx.scale(scale, scale);
-  const glow = ctx.createRadialGradient(0, 4, 0, 0, 4, 46);
-  glow.addColorStop(0, 'rgba(155,70,215,0.32)');
-  glow.addColorStop(1, 'rgba(155,70,215,0)');
-  ctx.fillStyle = glow;
-  ctx.fillRect(-46, -42, 92, 92);
-  text('+' + fx.pts, 0, 0, 48, C.white);
+  if (fx.id == null) {
+    const glow = ctx.createRadialGradient(0, 4, 0, 0, 4, 46);
+    glow.addColorStop(0, 'rgba(155,70,215,0.32)');
+    glow.addColorStop(1, 'rgba(155,70,215,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(-46, -42, 92, 92);
+  }
+  const label = '+' + fx.pts;
+  const size = fx.id == null ? 48 : Math.min(32, (CELL - 12) / (label.length * 0.65));
+  text(label, 0, 0, size, C.white);
   ctx.restore();
 }
 
-function drawLevelRing(cx, cy, level, prog) {
+function drawLevelRing(cx, cy, level, prog, scale = 1) {
   ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(scale, scale);
   ctx.strokeStyle = '#43374c';
   ctx.lineWidth = 6;
   ctx.beginPath();
-  ctx.arc(cx, cy, LEVEL_RING_R, 0, Math.PI * 2);
+  ctx.arc(0, 0, LEVEL_RING_R, 0, Math.PI * 2);
   ctx.stroke();
   if (prog > 0) {
     ctx.strokeStyle = '#c5adc9';
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.arc(cx, cy, LEVEL_RING_R, -Math.PI / 2, -Math.PI / 2 + prog * Math.PI * 2);
+    ctx.arc(0, 0, LEVEL_RING_R, -Math.PI / 2, -Math.PI / 2 + prog * Math.PI * 2);
     ctx.stroke();
   }
   ctx.restore();
@@ -280,7 +372,7 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   lastMenu = present.menu;
   lastState = state;
   const phase = present.menu || state.phase;
-  const { VH, BY, COMBO_Y, PANEL, PREV_Y, PREV_H } = layout;
+  const { VH, BY, PANEL, PREV_Y, PREV_H } = layout;
   ctx.fillStyle = C.bg;
   ctx.fillRect(0, 0, W, VH);
   ctx.save();
@@ -298,43 +390,39 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
     layout.MODE_BTN.y + layout.MODE_BTN.h / 2, layout.MODE_BTN.h, hoverOf(present, 'icon:mode'));
   drawIcon(gearIcon, pauseCx,
     layout.PAUSE_BTN.y + layout.PAUSE_BTN.h / 2, layout.PAUSE_BTN.h, hoverOf(present, 'icon:pause'));
-  drawLevelRing(layout.LEVEL_X, layout.LEVEL_Y, state.level, (state.lines % 10) / 10);
   const playId = state.playMode || 'standard';
-  const slots = hudSlots(playId);
-  text(t('best'), W / 2, slots.bestY, 18, C.muted, 'center', 800);
+  const buildingHud = playId === 'totem-building';
+  drawLevelRing(layout.LEVEL_X, layout.LEVEL_Y,
+    buildingHud ? (present.displayLevel ?? state.level) : state.level,
+    buildingHud
+      ? (present.displayProgress ?? state.levelProgress ?? 0)
+      : (state.levelProgress ?? (state.lines % 10) / 10),
+    buildingHud ? (present.levelScale ?? 1) : 1);
+  const slots = hudSlots();
+  text(t('best'), slots.bestX, slots.bestY, 22, C.muted, 'left', 700);
   text(String(Math.max(state.best, state.score)),
-    W / 2, slots.bestScoreY, 24, C.muted, 'center', 800);
+    slots.bestX, slots.bestScoreY, 24, C.muted, 'left', 800);
   if (playId !== 'standard')
     text(`${modeLabel(playId, playId)} ${t('mode')}`,
       W / 2, layout.MODE_Y, 22, C.muted, 'center', 700);
-  drawScore(present, slots.scoreY);
-  if (playId === 'totem-building') {
-    const cap = state.spiritualEnergyMax;
-    const fill = Math.min(1, (state.spiritualEnergy || 0) / cap);
-    const bx = W / 2 - 140, by = slots.spiritY, bw = 280, bh = 16;
-    ctx.fillStyle = C.panel;
-    rr(bx, by, bw, bh, 8); ctx.fill();
-    ctx.fillStyle = '#e9ba78';
-    if (fill > 0) { rr(bx, by, Math.max(10, bw * fill), bh, 8); ctx.fill(); }
-    ctx.strokeStyle = '#43374c'; ctx.lineWidth = 2;
-    rr(bx, by, bw, bh, 8); ctx.stroke();
-    text(t('energy'), bx - 12, by + bh / 2 + 1, 16, C.muted, 'right');
-    if (state.totemSpawnBlocked)
-      text(t('waitingForSpace'), W / 2, by + 28, 18, '#e9ba78');
-  }
-  if (playId === 'tetris' && state.phase === 'play'
-    && !state.blocks.some(b => b.kind === 'totem')) {
-    const n = Number.isInteger(state.tetrisDropIn) ? state.tetrisDropIn : 1;
-    text(`${t('nextDrop')}  ${n}`, W / 2, layout.DROP_Y, 22, '#e9ba78', 'center', 800);
-  }
-
-  if (!present.scoreFx && !state.hasMoved && state.phase !== 'over'
-    && playId === 'standard') {
-    const a = 0.55 + 0.25 * Math.sin(now / 400);
-    ctx.globalAlpha = a;
-    const hint = state.shape ? t('hintShaped') : t('hintClassic');
-    text(hint, W / 2, COMBO_Y + 6, state.shape ? 25 : 30, '#9c89a8', 'center', 700);
-    ctx.globalAlpha = 1;
+  const scoreTarget = drawScore(present, slots.scoreY);
+  const guideY = layout.LEVEL_Y + LEVEL_RING_R + 22;
+  // One guide lane below the ring: blocked drops take priority, then the
+  // opening instructions, then the live countdown after the first move.
+  if (state.phase === 'play') {
+    if (playId === 'totem-building' && state.totemSpawnBlocked) {
+      text(t('waitingForSpace'), W / 2, guideY, 18, '#e9ba78');
+    } else if (!present.scoreFx && !state.hasMoved) {
+      ctx.globalAlpha = 0.55 + 0.25 * Math.sin(now / 400);
+      const hint = playId === 'totem-building' ? t('hintTotemBuilding')
+        : playId === 'tetris' ? t('hintTetris')
+          : state.shape ? t('hintShaped') : t('hintClassic');
+      text(hint, W / 2, guideY, 22, '#9c89a8', 'center', 700);
+      ctx.globalAlpha = 1;
+    } else if (playId === 'tetris' && !state.blocks.some(b => b.kind === 'totem')) {
+      const n = Number.isInteger(state.tetrisDropIn) ? state.tetrisDropIn : 1;
+      text(`${t('nextDrop')}  ${n}`, W / 2, guideY, 22, '#e9ba78', 'center', 800);
+    }
   }
 
   ctx.fillStyle = C.line;
@@ -370,15 +458,6 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
     ctx.fillRect(BX + left * CELL, BY, (right - left) * CELL, CELL);
     ctx.fillStyle = `rgba(230,85,60,${0.5 + 0.5 * pulse})`;
     ctx.fillRect(BX + left * CELL, BY - 6, (right - left) * CELL, 4);
-  }
-
-  if (!present.scoreFx && !state.hasMoved && state.phase !== 'over'
-    && (playId === 'tetris' || playId === 'totem-building')) {
-    const a = 0.55 + 0.25 * Math.sin(now / 400);
-    ctx.globalAlpha = a;
-    const hint = playId === 'totem-building' ? t('hintTotemBuilding') : t('hintTetris');
-    text(hint, W / 2, BY + CELL * 0.55, 22, '#9c89a8', 'center', 700);
-    ctx.globalAlpha = 1;
   }
 
   const drag = present.drag;
@@ -418,14 +497,31 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   } else ctx.rect(BX - 10, BY - 40, BW + 20, BH + 40);
   ctx.clip();
   const warnShape = state.phase === 'play' ? state.shape : null;
-  const aboveBoard = b => b.id === drag?.blockId
-    || viewOf(b).slot > 0 || hoverOf(present, 'block:' + b.id) > 0;
+  const aboveBoard = b => !viewOf(b).collecting && (b.id === drag?.blockId
+    || viewOf(b).slot > 0 || hoverOf(present, 'block:' + b.id) > 0);
   for (const b of state.blocks) if (!aboveBoard(b))
-    drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape, now);
+    drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape, now, playId === 'totem-building');
   ctx.restore();
   // Active and hovered tiles draw last so their feedback is not clipped.
   for (const b of state.blocks) if (aboveBoard(b))
-    drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape, now);
+    drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape, now,
+      playId === 'totem-building', b.id === drag?.blockId);
+
+  ctx.save();
+  ctx.fillStyle = '#ffefcb';
+  for (const burst of present.landingDust) {
+    const p = burst.progress;
+    const fade = clamp((p - 0.15) / 0.85, 0, 1);
+    ctx.globalAlpha = 0.85 * (1 - fade * fade * (3 - 2 * fade));
+    for (const dust of burst.particles) {
+      const travel = dust.travel * Ease.out(p);
+      const hop = dust.hop * Math.sin(Math.PI * p);
+      const size = dust.size * (1 - 0.55 * Ease.out(p));
+      ctx.fillRect(dust.x + dust.side * (dust.offset + travel) - size / 2,
+        BY + dust.y - hop - size, size, size);
+    }
+  }
+  ctx.restore();
 
   ctx.globalAlpha = 1;
   effects.eachParticle(p => {
@@ -445,13 +541,13 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
     ctx.fill();
   }
   for (const s of state.nextRow) {
-    ctx.fillStyle = COLORS[s.color];
-    rr(BX + s.col * CELL + PAD, PREV_Y + PAD, s.len * CELL - 2 * PAD, PREV_H - 2 * PAD, 8);
-    ctx.fill();
+    drawTile(BX + s.col * CELL + PAD, PREV_Y + PAD,
+      s.len * CELL - 2 * PAD, PREV_H - 2 * PAD, BLOCK_PALETTE[s.color], 8);
   }
 
   // Keep feedback above the board and particles, but below modal overlays.
-  if (present.scoreFx) drawScorePopup(now, present.scoreFx, slots.scoreY);
+  if (present.scoreFx) drawScorePopup(now, present.scoreFx, scoreTarget);
+  for (const fx of present.totemScoreFx) drawScorePopup(now, fx, scoreTarget);
   if (present.comboFx) drawCombo(now, present.comboFx);
   ctx.restore();
 

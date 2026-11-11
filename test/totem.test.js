@@ -1,18 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEngine } from '../js/engine.js';
-import { createState } from '../js/sim.js';
+import { createState, rise, awardTotemCollect } from '../js/sim.js';
+import { resolveTurn } from '../js/turn.js';
 import { classic } from '../js/modes.js';
+import { shaped } from '../js/shaped-mode.js';
 import { buildGrid as totemGrid, computeGravity as totemGravity, slideRange as totemSlideRange,
   fullRows as totemFullRows, clearRows as clearTotemRows,
   settleBoard, copyBoard } from '../js/board.js';
 import { cellsOf } from '../js/block-geometry.js';
-import { spawnTotem } from '../js/totem-spawn.js';
+import { spawnTotem, spawnBuildingTotem, spawnOpeningTotem } from '../js/totem-spawn.js';
 import { SHAPES } from '../js/shapes.js';
 import { insertShapedRow } from '../js/shaped-board.js';
 import { generateNextRow } from '../js/spawn.js';
 import { generateShapedNextRow } from '../js/shaped-spawn.js';
-import { tetrisDropInterval } from '../js/play-mode.js';
+import { tetrisDropInterval, buildingTotemsForLevelUp } from '../js/play-mode.js';
 
 const block = (id, row, col, len = 1) => ({ id, row, col, len, color: 0 });
 const pole = (id, row, col, height) => ({ ...block(id, row, col), kind: 'totem', height });
@@ -166,7 +168,6 @@ test('Shaped trimming handles both edges, whole Totems, and Building poles witho
     assert.deepEqual(motion.trimmed.map(b => [b.row, b.col]), [[7, 1], [8, 1], [8, 7], [7, 6], [8, 6]]);
     assert.deepEqual(state.blocks.map(b => [b.id, b.row, b.col, b.len, b.height]),
       [[1, 7, 2, 2, 1], [3, 7, 5, 1, 1]]);
-    assert.equal(state.spiritualEnergy, 0);
     assert.equal(state.score, 0);
     valid(state);
     insertShapedRow(state, []);
@@ -443,33 +444,49 @@ test('optional Totems are deterministic on classic for both difficulties', () =>
   assert.ok(drops > 0);
 });
 
-test('Totem Building spends spirit to drop, then stack, and never blasts at the top', () => {
-  const ready = { ...fixture([block(1, 9, 4)]), playMode: 'totem-building',
-    spiritualEnergy: 3, spiritualEnergyMax: 3 };
-  const drop = engineFor(ready).dispatch({ type: 'slide', id: 1, col: 5 });
+test('building level-ups spawn one extra totem per new level, capped at 5', () => {
+  assert.equal(buildingTotemsForLevelUp(1, 1), 0);
+  assert.equal(buildingTotemsForLevelUp(1, 2), 2);
+  assert.equal(buildingTotemsForLevelUp(2, 3), 3);
+  assert.equal(buildingTotemsForLevelUp(4, 5), 5);
+  assert.equal(buildingTotemsForLevelUp(5, 6), 5);
+  assert.equal(buildingTotemsForLevelUp(1, 3), 2 + 3);
+  assert.equal(buildingTotemsForLevelUp(4, 6), 5 + 5);
+});
+
+test('Totem Building opening totem is already on the board', () => {
+  const engine = createEngine({ modeId: 'classic', playMode: 'totem-building', random: seeded(123) });
+  const totems = engine.snapshot().blocks.filter(b => b.kind === 'totem');
+  assert.equal(totems.length, 1);
+  assert.ok(totems[0].row >= 1);
+});
+
+test('Totem Building drops a new totem on level-up and never stacks', () => {
+  const ready = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
+    nextRow: [{ col: 0, len: 2, color: 0 }],
+    lines: 4, level: 1,
+    blocks: [
+      { id: 1, row: 9, col: 0, len: 7, color: 0 },
+      { id: 2, row: 8, col: 6, len: 1, color: 1 }
+    ] };
+  const drop = engineFor(ready).dispatch({ type: 'slide', id: 2, col: 7 });
   assert.ok(drop.events.some(e => e.type === 'totem-drop'));
   assert.ok(!drop.events.some(e => e.type === 'totem-stack'));
-  const totem = drop.state.blocks.find(b => b.kind === 'totem');
-  assert.ok(totem);
-  assert.equal(totem.height, 1);
-  assert.equal(totem.len, 1);
-  assert.equal(drop.state.spiritualEnergy, 0);
-  assert.equal(drop.state.totemSpawnBlocked, false);
+  assert.equal(drop.state.level, 2);
+  assert.equal(drop.events.filter(e => e.type === 'totem-drop').length, 2);
 
-  const stacked = { ...fixture([pole(1, 8, 4, 1), block(2, 9, 0)]),
-    playMode: 'totem-building', spiritualEnergy: 0, spiritualEnergyMax: 3 };
-  const idle = engineFor(stacked).dispatch({ type: 'slide', id: 2, col: 1 });
-  assert.ok(!idle.events.some(e => e.type === 'totem-stack' || e.type === 'totem-drop'));
-  assert.equal(idle.state.blocks.find(b => b.id === 1).height, 1);
-
-  const stack = engineFor({ ...stacked, spiritualEnergy: 3 }).dispatch({ type: 'slide', id: 2, col: 1 });
-  assert.ok(stack.events.some(e => e.type === 'totem-stack'));
-  assert.equal(stack.state.blocks.find(b => b.id === 1).height, 2);
+  const idle = { ...fixture([
+    { ...pole(1, 8, 3, 1), smile: 1 },
+    block(2, 9, 3),
+    block(3, 9, 0, 2)
+  ]), playMode: 'totem-building', level: 1, lines: 0 };
+  const stay = engineFor(idle).dispatch({ type: 'slide', id: 3, col: 5 });
+  assert.ok(!stay.events.some(e => e.type === 'totem-stack' || e.type === 'totem-drop'));
+  assert.equal(stay.state.blocks.filter(b => b.kind === 'totem').length, 1);
 
   const atTop = { ...fixture([
-    pole(1, 0, 4, 2),
-    block(2, 2, 4),
-    ...Array.from({ length: 7 }, (_, i) => block(i + 3, i + 3, 4)),
+    pole(1, 0, 4, 1),
+    ...Array.from({ length: 9 }, (_, i) => block(i + 2, i + 1, 4)),
     block(30, 9, 0)
   ]), playMode: 'totem-building' };
   const top = engineFor(atTop).dispatch({ type: 'slide', id: 30, col: 1 });
@@ -477,28 +494,278 @@ test('Totem Building spends spirit to drop, then stack, and never blasts at the 
   assert.equal(top.state.gameOverReason, 'top-out');
 });
 
-test('Totem Building waits when a layer cannot stack', () => {
-  const blocked = { ...fixture([
-    pole(1, 8, 4, 2),
-    block(2, 7, 4),
-    block(3, 9, 0)
-  ]), playMode: 'totem-building', spiritualEnergy: 3, spiritualEnergyMax: 3 };
-  const result = engineFor(blocked).dispatch({ type: 'slide', id: 3, col: 1 });
-  assert.ok(!result.events.some(e => e.type === 'totem-drop' || e.type === 'totem-stack'));
-  assert.equal(result.state.totemSpawnBlocked, true);
-  assert.equal(result.state.spiritualEnergy, 3);
-  assert.equal(result.state.blocks.find(b => b.id === 1).height, 2);
+test('Totem Building waits when no free column remains', () => {
+  const blocked = { ...createState(0, 'easy', 'totem-building'),
+    blocks: Array.from({ length: 8 }, (_, i) => ({ id: i + 1, row: 5, col: i, len: 1, height: 1,
+      kind: 'totem', color: 4, smile: 1 })) };
+  const result = spawnBuildingTotem(blocked, () => 0);
+  assert.equal(result.type, 'blocked');
 });
 
-test('Totem Building clears only the totem tiles in the filled rows', () => {
+test('blocked Building level-up drops survive turns and retry when support becomes available', () => {
+  const state = { ...createState(0, 'easy', 'totem-building'), nextId: 10, lines: 4,
+    nextRow: [{ col: 0, len: 2, color: 0 }], blocks: [
+      block(1, 9, 0, 8),
+      ...[6, 7, 8].map((row, i) => block(i + 2, row, 0, 2)),
+      ...[0, 1].map((col, i) => ({ ...pole(i + 5, 5, col, 1), smile: 1 }))
+    ] };
+  const events = [];
+  const turn = () => resolveTurn(state, () => 0.5,
+    (type, data) => events.push({ type, ...structuredClone(data) }), () => rise(state, () => 0.5));
+  turn();
+  assert.equal(state.level, 2);
+  assert.equal(state.pendingTotemSpawns, 2);
+  assert.equal(state.totemSpawnBlocked, true);
+  assert.equal(events.filter(e => e.type === 'totem-drop').length, 0);
+
+  // Slide one of the existing totems off the only supported columns.
+  state.blocks.find(b => b.id === 5).col = 2;
+  turn();
+  const drops = events.filter(e => e.type === 'totem-drop').length;
+  assert.ok(drops > 0);
+  assert.equal(drops + state.pendingTotemSpawns, 2, 'queued drops are neither lost nor duplicated');
+  assert.equal(state.totemSpawnBlocked, state.pendingTotemSpawns > 0);
+  valid(state);
+});
+
+test('a blocked opening Building totem is retried on a later turn', () => {
+  const initial = createState(0, 'easy', 'totem-building');
+  spawnOpeningTotem(initial, () => { assert.fail('blocked opening does not consume RNG'); });
+  assert.equal(initial.pendingTotemSpawns, 1);
+  assert.equal(initial.totemSpawnBlocked, true);
+  initial.blocks = [block(1, 9, 0, 2)];
+  initial.nextId = 2;
+  initial.nextRow = [{ col: 0, len: 2, color: 0 }];
+  const result = engineFor(initial).dispatch({ type: 'slide', id: 1, col: 1 });
+  assert.equal(result.events.filter(e => e.type === 'totem-drop').length, 1);
+  assert.equal(result.state.pendingTotemSpawns, 0);
+  assert.equal(result.state.totemSpawnBlocked, false);
+});
+
+test('nested Building board copies preserve live collection and clear rules without mutation', () => {
+  const scenarios = [
+    [pole(1, 9, 7, 1), block(2, 9, 0, 2)],
+    [pole(1, 8, 7, 1), block(2, 8, 0, 7), block(3, 9, 6, 2)]
+  ];
+  for (const blocks of scenarios) for (const shape of [null, SHAPES.find(s => s.id === 'funnel')]) {
+    const state = { ...createState(0, 'easy', 'totem-building'), nextId: 10, blocks,
+      ...(shape ? { shape: structuredClone(shape) } : {}) };
+    const saved = structuredClone(state);
+    const live = structuredClone(state), preview = copyBoard(copyBoard(state));
+    const liveEvents = [], previewEvents = [];
+    settleBoard(live, (type, data) => liveEvents.push({ type, ...structuredClone(data) }));
+    settleBoard(preview, (type, data) => previewEvents.push({ type, ...structuredClone(data) }));
+    assert.deepEqual(preview.blocks, live.blocks);
+    assert.deepEqual(previewEvents, liveEvents);
+    assert.deepEqual(state, saved);
+  }
+});
+
+test('Totem Building drops onto the highest supported blocks instead of empty or lower columns', () => {
+  for (const random of [() => 0, () => 0.49, () => 0.999]) {
+    const state = { ...fixture([
+      block(1, 7, 2, 2), block(2, 8, 2, 2), block(3, 9, 2, 2),
+      block(4, 9, 5, 2)
+    ]), playMode: 'totem-building' };
+    const { type, block: incoming } = spawnBuildingTotem(state, random);
+    assert.equal(type, 'drop');
+    assert.ok([2, 3].includes(incoming.col));
+    assert.equal(incoming.row, -1, 'the drop still animates from above the board');
+    totemGravity(state);
+    assert.equal(incoming.row, 6);
+    assert.equal(totemGrid(state)[7][incoming.col].kind, undefined);
+    assert.deepEqual(totemFullRows(state), []);
+    valid(state);
+  }
+});
+
+test('Totem Building defers without consuming an ID or RNG when no supported landing exists', () => {
+  for (const blocks of [[], [pole(1, 8, 3, 1), block(2, 9, 3)]]) {
+    const state = { ...fixture(blocks), playMode: 'totem-building' };
+    const before = structuredClone(state);
+    const result = spawnBuildingTotem(state, () => { assert.fail('blocked drops do not sample RNG'); });
+    assert.equal(result.type, 'blocked');
+    assert.deepEqual(state, before);
+  }
+});
+
+test('Totem Building respects shaped entry paths and still lands on a block', () => {
+  for (const shape of SHAPES) {
+    const state = { ...fixture([
+      block(1, 7, 3, 2), block(2, 8, 3, 2), block(3, 9, 3, 2)
+    ]), playMode: 'totem-building', shape: structuredClone(shape) };
+    const { type, block: incoming } = spawnBuildingTotem(state, () => 0);
+    assert.equal(type, 'drop', shape.id);
+    totemGravity(state);
+    assert.equal(incoming.row, 6, shape.id);
+    assert.ok(totemGrid(state)[incoming.row + 1][incoming.col]);
+    valid(state);
+  }
+});
+
+test('Totem Building keeps totems through a clear and smiles them', () => {
   const state = { ...fixture([
-    pole(1, 7, 7, 3),
-    ...[7, 8, 9].map(r => block(r, r, 0, 7))
+    { id: 1, row: 8, col: 7, len: 1, height: 1, kind: 'totem', color: 4, smile: 1 },
+    block(2, 8, 0, 7)
   ]), playMode: 'totem-building' };
   const geometry = clearTotemRows(state, [8]);
   const remaining = state.blocks.find(b => b.id === 1);
   assert.ok(remaining);
-  assert.equal(remaining.height, 2);
+  assert.equal(remaining.smile, 2);
   assert.equal(remaining.row, 8);
-  assert.equal(geometry.blocks.filter(b => b.kind === 'totem').length, 1);
+  assert.equal(geometry.blocks.filter(b => b.kind === 'totem').length, 0);
+});
+
+test('Totem Building incoming rows never include singleton tiles', () => {
+  const engine = createEngine({ modeId: 'classic', playMode: 'totem-building', random: seeded(9) });
+  for (let i = 0; i < 12; i++) {
+    const state = engine.snapshot();
+    assert.ok(state.nextRow.every(b => b.len >= 2));
+    assert.ok(state.blocks.filter(b => b.kind !== 'totem').every(b => b.len >= 2));
+    const move = state.blocks.find(b => {
+      const [min, max] = engine.moveRange(b.id) ?? [b.col, b.col];
+      return min !== max;
+    });
+    if (!move || state.phase !== 'play') break;
+    const [min, max] = engine.moveRange(move.id);
+    engine.dispatch({ type: 'slide', id: move.id, col: min === move.col ? max : min });
+  }
+});
+
+test('Totem Building collects individual totems that reach the floor', () => {
+  const board = { ...fixture([
+    { id: 1, row: 7, col: 7, len: 1, height: 1, kind: 'totem', color: 4, smile: 2 },
+    block(2, 8, 0, 2)
+  ]), playMode: 'totem-building', level: 1, score: 0 };
+  const events = [];
+  settleBoard(board, (type, data) => events.push({ type, ...data }));
+  assert.ok(events.some(e => e.type === 'totem-collect'));
+  assert.ok(!events.some(e => e.type === 'clear'));
+  assert.ok(!board.blocks.some(b => b.kind === 'totem'));
+  assert.equal(board.score, 0);
+});
+
+test('all-totem rows clear at max smile above the floor, including shaped spans', () => {
+  for (const shaped of [false, true]) {
+    const left = shaped ? 2 : 0, right = shaped ? 6 : 8;
+    const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
+      ...(shaped ? { shape: { rows: Array.from({ length: 10 }, () => ({ left, right })) } } : {}),
+      blocks: [
+        ...Array.from({ length: right - left }, (_, i) => ({ ...pole(i + 1, 7, left + i, 1), smile: i % 3 + 1 })),
+        ...[8, 9].map(row => block(row * 10, row, left, right - left))
+      ] };
+    assert.deepEqual(totemFullRows(state), [7, 8, 9]);
+    const before = structuredClone(state);
+    const live = structuredClone(state), preview = copyBoard(copyBoard(state));
+    const events = [];
+    settleBoard(live, (type, data) => events.push({ type, ...structuredClone(data) }));
+    settleBoard(preview);
+    const clear = events.find(e => e.type === 'clear');
+    assert.ok(clear);
+    assert.equal(clear.collected.length, right - left);
+    assert.ok(clear.collected.every(b => b.smile === 3));
+    assert.ok(clear.blocks.filter(b => b.kind === 'totem').every(b => b.smile === 3));
+    assert.ok(!live.blocks.some(b => b.kind === 'totem'));
+    assert.ok(!events.some(e => e.type === 'totem-collect'), 'cash-out is part of the row clear');
+    assert.deepEqual(preview.blocks, live.blocks);
+    assert.deepEqual(state, before);
+  }
+});
+
+test('collection awards carry only their own points and retain per-totem values', () => {
+  const state = { ...createState(0, 'easy', 'totem-building'), level: 2 };
+  const first = awardTotemCollect(state, [{ id: 1, smile: 1 }, { id: 2, smile: 3 }]);
+  const second = awardTotemCollect(state, [{ id: 3, smile: 2 }]);
+  assert.deepEqual(first.totems, [{ id: 1, pts: 100, mult: 1 }, { id: 2, pts: 300, mult: 1 }]);
+  assert.equal(first.pts, 400);
+  assert.equal(second.pts, 200);
+  assert.equal(state.score, 600);
+  assert.equal(state.best, 600);
+});
+
+test('live all-totem row cash-out scores every max-level totem exactly once', () => {
+  const initial = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
+    nextRow: [{ col: 0, len: 2, color: 0 }], blocks: [
+      ...Array.from({ length: 7 }, (_, col) => ({ ...pole(col + 1, 8, col, 1), smile: 1 })),
+      { ...pole(8, 7, 6, 1), smile: 1 }, block(20, 9, 0, 8)
+    ] };
+  const result = engineFor(initial).dispatch({ type: 'slide', id: 8, col: 7 });
+  const clear = result.events.find(e => e.collectionAward);
+  assert.ok(clear);
+  assert.equal(clear.collectionAward.pts, 1200);
+  assert.deepEqual(clear.collectionAward.totems.map(a => a.pts), Array(8).fill(150));
+  assert.equal(result.state.score, 1200);
+});
+
+test('Totem Building clears a completed bottom row before collecting the totem', () => {
+  const board = { ...fixture([
+    { id: 1, row: 7, col: 7, len: 1, height: 1, kind: 'totem', color: 4, smile: 1 },
+    block(2, 9, 0, 7)
+  ]), playMode: 'totem-building', level: 1 };
+  const events = [];
+  settleBoard(board, (type, data) => events.push({ type, ...data }));
+  const types = events.map(e => e.type);
+  assert.ok(types.includes('clear'));
+  assert.ok(types.includes('totem-collect'));
+  assert.ok(types.indexOf('clear') < types.indexOf('totem-collect'));
+  const collect = events.find(e => e.type === 'totem-collect');
+  assert.equal(collect.blocks[0].smile, 2);
+  assert.ok(!board.blocks.some(b => b.kind === 'totem'));
+  assert.ok(!board.blocks.some(b => b.id === 2));
+});
+
+test('Totem Building refills three rows from one leftover row and four from an empty board', () => {
+  const thin = { ...createState(0, 'easy', 'totem-building'), nextId: 10,
+    nextRow: [{ col: 0, len: 2, color: 1 }],
+    blocks: [block(1, 9, 0, 3)] };
+  const thinResult = engineFor(thin).dispatch({ type: 'slide', id: 1, col: 1 });
+  assert.equal(thinResult.events.filter(e => e.type === 'rise').length, 3);
+
+  const empty = { ...createState(0, 'easy', 'totem-building'), nextId: 10,
+    nextRow: [{ col: 0, len: 3, color: 1 }],
+    blocks: [block(1, 9, 0, 7), block(2, 8, 6)] };
+  const emptyResult = engineFor(empty).dispatch({ type: 'slide', id: 2, col: 7 });
+  assert.ok(emptyResult.events.some(e => e.type === 'clear'));
+  assert.equal(emptyResult.events.filter(e => e.type === 'rise').length, 4);
+});
+
+test('Building refills stop at the ceiling and allow a rescue slide on either map', () => {
+  for (const mode of [classic, shaped]) {
+    const engine = createEngine({ playMode: 'totem-building', random: () => 0.5,
+      modes: [{ ...mode, reset(state) {
+        if (mode.id === 'shaped') state.shape = structuredClone(SHAPES.find(s => s.id === 'funnel'));
+        state.blocks = [block(1, 9, 3, 2),
+          ...Array.from({ length: 8 }, (_, i) => ({ ...pole(i + 2, 8 - i, 3, 1), smile: 1 }))];
+        state.nextId = 10;
+        state.nextRow = [{ col: 3, len: 2, color: 1 }];
+      } }] });
+    const result = engine.dispatch({ type: 'slide', id: 1, col: 2 });
+    assert.equal(result.events.filter(e => e.type === 'rise' || e.type === 'shaped-rise').length, 1);
+    assert.equal(result.state.phase, 'play');
+    assert.equal(Math.min(...result.state.blocks.map(b => b.row)), 0);
+    for (const event of result.events) valid(event.state);
+    const rescued = engine.dispatch({ type: 'slide', id: 9, col: 4 });
+    assert.equal(rescued.accepted, true);
+    assert.notEqual(rescued.state.gameOverReason, 'top-out');
+    valid(rescued.state);
+  }
+});
+
+test('a cleared Diamond Building board refills with usable previews instead of ending empty', () => {
+  const engine = createEngine({ playMode: 'totem-building', random: () => 0.5,
+    modes: [{ ...shaped, reset(state, random) {
+      state.shape = structuredClone(SHAPES.find(s => s.id === 'diamond'));
+      state.blocks = [block(1, 9, 2, 2), block(2, 8, 3, 2)];
+      state.nextId = 3;
+      state.nextRow = generateShapedNextRow(state, random);
+    } }] });
+  const result = engine.dispatch({ type: 'slide', id: 2, col: 4 });
+  assert.ok(result.events.some(e => e.type === 'clear'));
+  assert.equal(result.events.filter(e => e.type === 'shaped-rise').length, 4);
+  assert.equal(result.state.phase, 'play');
+  assert.ok(result.state.blocks.length);
+  for (const event of result.events) {
+    assert.ok(event.state.nextRow.length);
+    valid(event.state);
+  }
 });

@@ -1,23 +1,51 @@
 // Shared turn lifecycle. Modes supply insertion/preview rules, options add drops.
 import { rowSpan, settleBoard, touchingTop, hasMoves, occupiedTileRows } from './board.js';
-import { createTurnScore, awardRows } from './sim.js';
-import { spawnTotem, spawnTotemLayer } from './totem-spawn.js';
-import { ENERGY_PER_LAYER, isBuilding, isTetris, usesTotems, tetrisDropInterval } from './play-mode.js';
+import { createTurnScore, awardRows, awardTotemCollect } from './sim.js';
+import { spawnTotem, spawnBuildingTotem } from './totem-spawn.js';
+import { isBuilding, isTetris, usesTotems, tetrisDropInterval,
+  buildingTotemsForLevelUp } from './play-mode.js';
 
 export function resolveTurn(state, random, emit, rise) {
   const turn = createTurnScore();
-  let cleared = 0;
+  const spawnPending = () => {
+    let spawned = false;
+    while (state.pendingTotemSpawns > 0) {
+      const result = spawnBuildingTotem(state, random);
+      if (result.type === 'blocked') {
+        state.totemSpawnBlocked = true;
+        break;
+      }
+      state.totemSpawnBlocked = false;
+      state.pendingTotemSpawns--;
+      spawned = true;
+      emit('totem-drop', { id: result.block.id });
+    }
+    if (spawned) {
+      settleBoard(state, step);
+      spawnPending();
+    }
+  };
   const step = (type, data) => {
     if (type === 'clear') {
-      cleared += data.rows.length;
+      const prevLevel = state.level;
       data.award = awardRows(state, data.rows, turn, row => {
         const { left, right } = rowSpan(state, row);
         return right - left;
       });
+      if (isBuilding(state)) {
+        state.pendingTotemSpawns += buildingTotemsForLevelUp(prevLevel, state.level);
+        if (data.collected?.length)
+          data.collectionAward = awardTotemCollect(state, data.collected);
+      }
+    } else if (type === 'totem-collect') {
+      data.award = awardTotemCollect(state, data.blocks);
     }
     emit(type, data);
   };
-  const settle = () => settleBoard(state, step);
+  const settle = () => {
+    settleBoard(state, step);
+    spawnPending();
+  };
   const endGame = reason => {
     state.phase = 'over';
     state.gameOverReason = reason;
@@ -31,11 +59,18 @@ export function resolveTurn(state, random, emit, rise) {
 
   const spawnRows = count => {
     for (let i = 0; i < count; i++) {
+      // A refill can reach the ceiling before all requested rows arrive.
+      // Leave that position intact for the next turn's rescue slide.
+      if (touchingTop(state)) break;
       rise();
       settle();
     }
   };
-  spawnRows(state.blocks.length ? 1 : 3);
+  const tileRows = occupiedTileRows(state);
+  const riseCount = isBuilding(state)
+    ? (tileRows <= 0 ? 4 : tileRows === 1 ? 3 : 1)
+    : (state.blocks.length ? 1 : 3);
+  spawnRows(riseCount);
   if (isTetris(state)) {
     const live = state.blocks.some(b => b.kind === 'totem');
     if (!live) {
@@ -49,25 +84,8 @@ export function resolveTurn(state, random, emit, rise) {
         } else state.tetrisDropIn = 1;
       } else state.tetrisDropIn = wait - 1;
     }
-  } else if (isBuilding(state)) {
-    state.spiritualEnergy += cleared;
-    let spawned = false;
-    const cap = state.spiritualEnergyMax || ENERGY_PER_LAYER;
-    while (state.spiritualEnergy >= cap) {
-      const result = spawnTotemLayer(state, random);
-      if (result.type === 'blocked') {
-        state.totemSpawnBlocked = true;
-        break;
-      }
-      state.spiritualEnergy -= cap;
-      state.totemSpawnBlocked = false;
-      spawned = true;
-      if (result.type === 'drop') emit('totem-drop', { id: result.block.id });
-      else emit('totem-stack', { ids: result.ids });
-    }
-    if (spawned) settle();
   }
-  if (!occupiedTileRows(state))
+  if (!isBuilding(state) && !occupiedTileRows(state))
     spawnRows(state.blocks.length ? 1 : (state.shape ? 1 : 3));
   if ((state.shape || usesTotems(state)) && !hasMoves(state)) endGame('no-moves');
 }
