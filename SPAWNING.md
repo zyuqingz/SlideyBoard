@@ -66,20 +66,20 @@ rows and floor collection immediately with normal scoring, then refill only if
 needed to restore a legal first slide. Opening playback uses engine events
 for the fall, clears, collection and refill. A collected opening tile waits until
 the first player turn for replacement. Each turn allows at most
-one replacement when no totems remain, plus **four level-up drops total**. A new
-level grants `min(newLevel, 4)` extras, but bonuses from multiple levels share that
-four-drop budget. The maximum is **five drops per turn including replacement**;
-existing live totems do not count toward this spawn cap. Every drop spends its
+one replacement when no totems remain, plus **three level-up drops total**. A new
+level grants `min(newLevel, 3)` extras, but bonuses from multiple levels share that
+three-drop budget. The maximum is **four drops per turn including replacement**;
+existing live totems do not count toward this spawn cap. Replacement is chosen
+on its own and is not a recent column for later extras. Every drop spends its
 allowance even if it immediately clears or collects, and further level-ups during
 drop cascades cannot reset the cap. If all drops collect, replacement becomes
 eligible again next turn. Drops wait until refill rows have risen and settled.
-Among reachable below-ceiling columns, rank the landings from highest to lowest,
-breaking height ties by greater distance from existing totems and earlier drops
-in the same turn. Collected drops still count for spacing until the turn ends.
-Pick randomly between the top two columns, or use the sole safe column. Resolve
-each tile before ranking the next drop. This favors tall stacks and can repeatedly
-choose the same column; lower stacks and empty floor cells are excluded when two
-higher safe landings exist. Floor drops collect
+Among reachable below-ceiling columns, rank ordinary-tile landing height from
+highest to lowest, including columns one row lower than the tallest tile stack.
+Live totems do not add height, but a drop may still land on them. Break remaining
+ties by greater distance from earlier level-up drops this turn. Pick randomly
+among the matching columns, or between the two farthest when extras already
+dropped. Resolve each tile before ranking the next drop. Floor drops collect
 normally. Drops may complete
 rows. No Building drop is deferred or left waiting for space. A landed tile or
 row rise reaching row zero ends the game immediately, before clears; temporary
@@ -87,8 +87,8 @@ above-board drop positions do not count. Below-ceiling boards without slides
 advance another row rather than ending with `no-moves`.
 
 Building refills use one settled-board rule: rise at least once per turn, then
-continue until four distinct rows contain ordinary tiles and a slide is available.
-With no intervening clears, 0/1/2/3+ occupied tile rows get 4/3/2/1 incoming rows.
+continue until three distinct rows contain ordinary tiles and a slide is available.
+With no intervening clears, 0/1/2+ occupied tile rows get 3/2/1 incoming rows.
 Totems do not count; smiling shards count only the rows their cells actually occupy.
 Recheck after every rise and after drop-induced clears/collections, so gravity,
 shaped trimming and cascades cannot leave a stale refill count. Ceiling contact

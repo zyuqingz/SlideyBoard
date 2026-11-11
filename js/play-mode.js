@@ -2,8 +2,9 @@ export const PLAY_MODES = Object.freeze(['standard', 'tetris', 'totem-building']
 export const BUILDING_LINES_PER_LEVEL = 5;
 export const TOTEM_SMILE_MAX = 3;
 export const TOTEM_COLLECT_SCORE = 50;
-export const BUILDING_SPAWN_CAP = 4;
-export const BUILDING_REFILL_ROWS = 4;
+export const BUILDING_SPAWN_CAP = 3;
+// Ordinary-tile refill target shared by all play modes.
+export const REFILL_ROWS = 3;
 // Turns between tetromino drops. Later levels speed up, but stay sparse.
 export function tetrisDropInterval(level) {
   return (level || 1) <= 1 ? 5 : 4;

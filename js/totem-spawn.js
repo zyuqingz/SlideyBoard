@@ -11,24 +11,31 @@ const SHAPES = [
     cell === '#' ? [{ row: r, col: c }] : [])) }));
 
 export function spawnBuildingTotem(state, random, recentColumns = []) {
-  const grid = buildGrid(state), candidates = [];
+  const grid = buildGrid(state);
+  const tileGrid = buildGrid({ ...state, blocks: state.blocks.filter(b => b.kind !== 'totem') });
+  const candidates = [];
   const { left, right } = rowSpan(state, 0);
   for (let col = left; col < right; col++) {
     const block = { id: state.nextId, kind: 'totem', col, row: -1, len: 1, height: 1,
       color: 4, smile: 1 };
-    let row = block.row;
+    let row = block.row, rankRow = block.row;
     while (fitsBlock(state, block, row + 1, col, grid)) row++;
-    candidates.push({ block, landingRow: row });
+    // Rank ordinary-tile height only. Live totems do not make a column taller,
+    // but the drop can still land on them.
+    while (fitsBlock(state, block, rankRow + 1, col, tileGrid)) rankRow++;
+    candidates.push({ block, landingRow: row, rankRow });
   }
-  // Smaller landing rows mean taller columns. Prefer the two highest safe
-  // landings, using distance from existing/recent totems to break height ties.
   const safe = candidates.filter(candidate => candidate.landingRow > 0);
   const pool = safe.length ? safe : candidates;
-  const totemCols = [...recentColumns, ...state.blocks.filter(b => b.kind === 'totem').map(b => b.col)];
-  const spacing = candidate => totemCols.length
-    ? Math.min(...totemCols.map(col => Math.abs(candidate.block.col - col))) : 0;
-  const highest = pool.sort((a, b) => a.landingRow - b.landingRow || spacing(b) - spacing(a)).slice(0, 2);
-  const block = highest[Math.floor(random() * highest.length)].block;
+  const minRank = Math.min(...pool.map(candidate => candidate.rankRow));
+  // Include columns one row lower than the tallest tile stack.
+  const band = pool.filter(candidate => candidate.rankRow <= minRank + 1);
+  const spacing = candidate => recentColumns.length
+    ? Math.min(...recentColumns.map(col => Math.abs(candidate.block.col - col))) : 0;
+  const ranked = band.slice().sort((a, b) =>
+    a.rankRow - b.rankRow || spacing(b) - spacing(a));
+  const picks = recentColumns.length ? ranked.slice(0, Math.min(2, ranked.length)) : ranked;
+  const block = picks[Math.floor(random() * picks.length)].block;
   state.nextId++;
   state.blocks.push(block);
   return block;

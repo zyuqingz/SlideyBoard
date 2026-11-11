@@ -90,7 +90,7 @@ test('release snaps from the preview, seats on the grid, then unlocks input', as
     assert.equal(v.slot, 0);
     assert.ok(v.sq > 0, 'contact visibly compresses the block');
     assert.equal(presenter.busy, true, 'contact settles before another gesture');
-    assert.equal(cues.length, 0);
+    assert.deepEqual(cues, ['fall']);
     await drain(presenter, 16);
     assert.equal(await done, true);
     assert.equal(v.sq, 0);
@@ -122,7 +122,7 @@ test('snap-back pauses and reset cancels its contact cue and stale writes', asyn
   assert.equal(presenter.viewOf(b).sq, 0);
 });
 
-test('slide and clear playback completes without sfx cues', async () => {
+test('slide and clear playback fires seating and clear foley', async () => {
   const cues = [];
   const initial = { ...createState(), nextId: 20, nextRow: [{ col: 0, len: 1, color: 0 }],
     blocks: [{ id: 1, row: 9, col: 0, len: 7, color: 0 }, { id: 2, row: 8, col: 6, len: 1, color: 1 }] };
@@ -134,7 +134,8 @@ test('slide and clear playback completes without sfx cues', async () => {
   const done = presenter.play(result);
   await drain(presenter);
   assert.equal(await done, true);
-  assert.equal(cues.length, 0);
+  assert.ok(cues.includes('fall'));
+  assert.ok(cues.includes('clear'));
 });
 
 test('input unlocks once the board has settled, while the score text is still playing', async () => {
@@ -345,10 +346,10 @@ test('restart between tween completion and its microtask cannot revive old work'
   }
 });
 
-function trimmingSetup() {
+function trimmingSetup({ sfx = () => {}, narrow = true } = {}) {
   const initial = { ...createState(), mode: 'shaped', nextId: 4,
     shape: { id: 'fixture', label: 'FIXTURE', rows: Array.from({ length: 10 }, (_, row) =>
-      row === 8 ? { left: 2, right: 7 } : { left: 0, right: 8 }) },
+      narrow && row === 8 ? { left: 2, right: 7 } : { left: 0, right: 8 }) },
     blocks: [{ id: 1, row: 9, col: 0, len: 1, color: 0 },
       { id: 2, row: 9, col: 1, len: 3, color: 1 },
       { id: 3, row: 9, col: 5, len: 3, color: 2 }],
@@ -359,20 +360,23 @@ function trimmingSetup() {
     { type: 'shaped-rise', ...motion, state: structuredClone(final) },
     { type: 'turn-complete', state: structuredClone(final) }
   ] };
-  const presenter = createPresenter();
+  const presenter = createPresenter({ sfx });
   presenter.reset(initial);
   return { initial, final, result, presenter };
 }
 
 test('shaped rise animates original spans, removes chips, and snaps survivor columns without mutating events', async () => {
   for (const step of [16, 250]) {
-    const { presenter, result, final } = trimmingSetup();
+    const cues = [];
+    const { presenter, result, final } = trimmingSetup({ sfx: name => cues.push(name) });
     const saved = structuredClone(result);
     const done = presenter.play(result);
+    assert.deepEqual(cues, []);
     assert.equal(presenter.state.blocks.find(b => b.id === 2).col, 1);
     assert.ok(presenter.state.blocks.some(b => b.id === 1));
     await drain(presenter, step);
     assert.equal(await done, true);
+    assert.deepEqual(cues, ['trim'], 'multiple discarded spans share one cut cue');
     assert.deepEqual(presenter.state, final);
     assert.ok(!presenter.state.blocks.some(b => b.id === 1));
     for (const b of presenter.state.blocks) {
@@ -415,9 +419,29 @@ test('a staggered clear keeps every departing block visible until the shared shr
   assert.equal(await done, true);
 });
 
+test('board trim sound waits for the cut, pauses, and stays silent on untrimmed rises', async () => {
+  for (const narrow of [true, false]) {
+    const cues = [];
+    const { presenter, result } = trimmingSetup({ narrow, sfx: name => cues.push(name) });
+    const done = presenter.play(result);
+    await advance(presenter, 120);
+    assert.deepEqual(cues, []);
+    presenter.present.menu = 'pause';
+    await advance(presenter, 1000);
+    assert.deepEqual(cues, []);
+    presenter.present.menu = null;
+    await advance(presenter, 120);
+    assert.deepEqual(cues, narrow ? ['trim'] : []);
+    await drain(presenter);
+    assert.equal(await done, true);
+    assert.deepEqual(cues, narrow ? ['trim'] : []);
+  }
+});
+
 test('shaped trimming freezes on pause and cannot resume stale work after reset', async () => {
   for (const elapsed of [0, 120, 240]) {
-    const { presenter, result, initial } = trimmingSetup();
+    const cues = [];
+    const { presenter, result, initial } = trimmingSetup({ sfx: name => cues.push(name) });
     const done = presenter.play(result);
     presenter.present.menu = 'pause';
     const time = presenter.effects.now();
@@ -428,6 +452,7 @@ test('shaped trimming freezes on pause and cannot resume stale work after reset'
     presenter.reset(initial);
     await advance(presenter, 1000);
     assert.equal(await done, false);
+    assert.deepEqual(cues, [], 'reset cancels the pending trim sound');
     assert.deepEqual(presenter.state, initial);
     assert.equal(presenter.busy, false);
     let chips = 0;
@@ -817,6 +842,200 @@ function collectSetup() {
   return { presenter, initial, result, totem };
 }
 
+function stackedCollectSetup({ sfx = () => {} } = {}) {
+  const initial = { ...createState(0, 'easy', 'totem-building'), blocks: [
+    ...[9, 8, 7].map((row, i) => ({ id: i + 1, row, col: 4, len: 1,
+      height: 1, kind: 'totem', color: 4, smile: i + 1 })),
+    { id: 4, row: 6, col: 4, len: 2, color: 0 }
+  ] };
+  const state = structuredClone(initial), events = [];
+  for (let id = 1; id <= 3; id++) {
+    const blocks = state.blocks.filter(b => b.id === id);
+    state.blocks = state.blocks.filter(b => b.id !== id);
+    const award = awardTotemCollect(state, blocks);
+    events.push({ type: 'totem-collect', blocks, award, state: structuredClone(state) });
+    const moves = totemGravity(state);
+    events.push({ type: 'gravity', moves, state: structuredClone(state) });
+  }
+  events.push({ type: 'turn-complete', state: structuredClone(state) });
+  const result = { accepted: true, events, state };
+  const presenter = createPresenter({ sfx });
+  presenter.reset(initial);
+  return { presenter, initial, result };
+}
+
+test('collection-chain followers play contact feedback once and cancel pending landings', async () => {
+  for (const step of [16, 250, 1000]) {
+    const cues = [];
+    const { presenter, initial, result } = stackedCollectSetup({ sfx: name => cues.push(name) });
+    const done = presenter.play(result);
+    await advance(presenter, 1000);
+    assert.deepEqual(cues, ['totem-suction'], 'contact waits until a follower lands');
+    presenter.present.menu = 'pause';
+    await advance(presenter, 1000);
+    assert.deepEqual(cues, ['totem-suction']);
+    presenter.present.menu = null;
+    await advance(presenter, 11);
+    assert.deepEqual(cues, ['totem-suction', 'fall']);
+    assert.equal(presenter.present.landingDust.length, 1);
+    assert.equal(presenter.viewOf(initial.blocks[1]).land, 1);
+    await drain(presenter, step);
+    assert.equal(await done, true);
+    assert.equal(cues.filter(name => name === 'fall').length, 6,
+      'each totem and each ordinary-tile gravity batch gets one contact cue');
+    assert.equal(cues.filter(name => name === 'totem-submit').length, 0);
+    assert.equal(cues.filter(name => name === 'totem-suction').length, 3);
+  }
+
+  const cues = [];
+  const { presenter, initial, result } = stackedCollectSetup({ sfx: name => cues.push(name) });
+  const done = presenter.play(result);
+  await advance(presenter, 1000);
+  presenter.reset(initial);
+  await advance(presenter, 2000);
+  assert.equal(await done, false);
+  assert.deepEqual(cues, ['totem-suction'], 'reset cancels pending contact cues');
+  assert.deepEqual(presenter.present.landingDust, []);
+});
+
+test('suction layer waits for the pull and pending cues pause and cancel with playback', async () => {
+  for (const cancel of [false, true]) {
+    const cues = [];
+    const { presenter, initial, result } = stackedCollectSetup({ sfx: name => cues.push(name) });
+    const done = presenter.play(result);
+    await advance(presenter, 339);
+    assert.deepEqual(cues, [], 'compression has no pre-suction ding');
+    presenter.present.menu = 'pause';
+    await advance(presenter, 1000);
+    assert.deepEqual(cues, []);
+    if (cancel) {
+      presenter.reset(initial);
+      await advance(presenter, 2000);
+      assert.equal(await done, false);
+      assert.deepEqual(cues, []);
+    } else {
+      presenter.present.menu = null;
+      await advance(presenter, 2);
+      assert.deepEqual(cues, ['totem-suction']);
+      await drain(presenter);
+      assert.equal(await done, true);
+      assert.equal(cues.filter(name => name === 'totem-suction').length, 3);
+    }
+  }
+});
+
+test('every stacked totem repeats arrival feedback then the same nonlinear suction', async () => {
+  const { presenter, initial, result } = stackedCollectSetup();
+  const saved = structuredClone(result);
+  const done = presenter.play(result);
+  const views = initial.blocks.map(b => presenter.viewOf(b));
+  const cycles = [];
+  for (let index = 0; index < 3; index++) {
+    const v = views[index];
+    assert.equal(v.vy, 9, 'next totem reaches the floor before its feedback');
+    await advance(presenter, 80);
+    assert.equal(v.vy, 9);
+    assert.ok(v.sq > 0.2, 'every totem compresses on arrival');
+    const compression = v.sq;
+    if (index > 0) assert.equal(presenter.present.displayScore, index === 1 ? 50 : 150,
+      'previous points bank during the next arrival cue');
+    await advance(presenter, 180);
+    assert.equal(v.vy, 9);
+    assert.ok(v.sq < 0, 'every totem rebounds before suction');
+    const rebound = v.sq;
+    await advance(presenter, 80);
+    assert.equal(v.sq, 0);
+    await advance(presenter, 155);
+    const early = v.vy - 9;
+    await advance(presenter, 155);
+    const middle = v.vy - 9;
+    assert.ok(middle - early > early * 2, 'suction accelerates nonlinearly');
+    assert.ok(middle < 0.2, 'most travel is reserved for the accelerating pull');
+    for (let i = index + 1; i < views.length; i++) {
+      assert.equal(views[i].vy, initial.blocks[i].row + index,
+        'upper tiles hang briefly while suction opens a gap');
+    }
+    cycles.push({ compression, rebound, early, middle });
+    await advance(presenter, 310);
+    assert.equal(v.vy, 10, 'totem disappears beneath the floor');
+    if (index < 2) {
+      assert.ok(views[index + 1].vy < 9, 'the next totem is still falling as suction finishes');
+      await advance(presenter, 134 - index * 42);
+    }
+  }
+  for (const cycle of cycles.slice(1)) for (const key of Object.keys(cycle)) {
+    assert.ok(Math.abs(cycle[key] - cycles[0][key]) < 1e-9,
+      `each totem repeats the same ${key} feedback`);
+  }
+  await drain(presenter, 16);
+  assert.equal(await done, true);
+  assert.equal(presenter.present.displayScore, 300);
+  assert.deepEqual(presenter.state, result.state);
+  assert.deepEqual(result, saved, 'playback leaves detached facts intact');
+});
+
+test('released stacks accelerate bottom-up without overlap at different frame rates', async () => {
+  const poses = [];
+  for (const step of [16, 250, 1000]) {
+    const { presenter, initial, result } = stackedCollectSetup();
+    const done = presenter.play(result);
+    const views = initial.blocks.map(b => presenter.viewOf(b));
+    for (let elapsed = 0; elapsed < 900;) {
+      const dt = Math.min(step, 900 - elapsed);
+      await advance(presenter, dt);
+      elapsed += dt;
+      for (let i = 1; i < views.length; i++) {
+        assert.ok(views[i - 1].vy - views[i].vy >= 1 - 1e-9,
+          'falling tiles never pass through their support');
+      }
+    }
+    poses.push(views.map(v => v.vy));
+    const drops = views.slice(1).map((v, i) => v.vy - initial.blocks[i + 1].row);
+    assert.ok(drops[0] > drops[1] && drops[1] > drops[2] && drops[2] > 0,
+      'each higher tile trails the tile underneath instead of moving as a rigid stack');
+    const before = views.slice(1).map(v => v.vy);
+    await advance(presenter, 20);
+    const during = views.slice(1).map(v => v.vy);
+    await advance(presenter, 20);
+    for (let i = 0; i < before.length; i++) {
+      assert.ok(views[i + 1].vy - during[i] > during[i] - before[i],
+        'released tiles gain downward speed');
+    }
+    await drain(presenter, step);
+    assert.equal(await done, true);
+    assert.deepEqual(presenter.state, result.state);
+    assert.equal(presenter.present.displayScore, 300);
+  }
+  for (const pose of poses.slice(1)) assert.deepEqual(pose, poses[0],
+    'the same visual time produces the same stack positions');
+});
+
+test('stacked collection pauses and cancels during sinking, free fall, and score impact', async () => {
+  for (const elapsed of [650, 970, 1050, 1600]) {
+    const { presenter, initial, result } = stackedCollectSetup();
+    const done = presenter.play(result);
+    await advance(presenter, elapsed);
+    presenter.present.menu = 'pause';
+    const poses = initial.blocks.map(b => ({ ...presenter.viewOf(b) }));
+    const scores = structuredClone(presenter.present.totemScoreFx);
+    await advance(presenter, 1000);
+    assert.deepEqual(initial.blocks.map(b => presenter.viewOf(b)), poses);
+    assert.deepEqual(presenter.present.totemScoreFx, scores);
+    presenter.present.menu = null;
+    await advance(presenter, 16);
+    assert.ok(initial.blocks.some((b, i) => presenter.viewOf(b).vy !== poses[i].vy
+      || presenter.viewOf(b).sq !== poses[i].sq));
+    presenter.reset(initial);
+    await advance(presenter, 2000);
+    assert.equal(await done, false);
+    assert.deepEqual(presenter.state, initial);
+    assert.equal(presenter.present.displayScore, 0);
+    assert.equal(presenter.present.scoreScale, 1);
+    assert.deepEqual(presenter.present.totemScoreFx, []);
+    assert.equal(presenter.effects.hasTweens(), false);
+  }
+});
+
 test('successive Building collections bank every point once at any playback speed', async () => {
   for (const step of [16, 250, 1000]) {
     const initial = { ...createState(0, 'easy', 'totem-building'), nextId: 10,
@@ -885,12 +1104,14 @@ test('collected totems signal arrival, slide down at full size, then yield to ri
   assert.equal(presenter.present.scoreScale, 1.28);
   assert.equal(presenter.busy, true, 'the rest of the turn is still playing');
   travel.push(v.vy - previous);
-  for (let chunk = 0; chunk < 4; chunk++) {
-    const motion = travel.slice(chunk * 10, (chunk + 1) * 10);
-    assert.ok(motion[4] > motion[0] * 3 && motion[5] > motion[9] * 3,
-      'each chunk eases in and out instead of snapping or holding');
-  }
-  assert.ok(Math.max(...travel) < 0.06, 'no frame jumps a large part of a cell');
+  assert.ok(travel.every((step, i) => i === 0 || step > travel[i - 1]),
+    'suction keeps accelerating all the way beneath the floor');
+  assert.ok(travel.every((step, i) => i < 2
+    || step - travel[i - 1] > travel[i - 1] - travel[i - 2]),
+    'the downward acceleration itself builds toward disappearance');
+  assert.ok(travel.at(-1) > travel[19] * 3,
+    'the final pull is visibly faster than the middle of the descent');
+  assert.ok(Math.max(...travel) < 0.1, 'no frame jumps a large part of a cell');
   await drain(presenter);
   assert.equal(await done, true);
   assert.ok(!presenter.state.blocks.some(b => b.kind === 'totem'));
@@ -898,7 +1119,7 @@ test('collected totems signal arrival, slide down at full size, then yield to ri
   assert.deepEqual(result, saved);
 });
 
-test('simultaneous collections show individual values and bank before the next chain collection', async () => {
+test('simultaneous collections bank individual values while the next collection continues', async () => {
   const first = { id: 1, row: 9, col: 2, len: 1, height: 1, kind: 'totem', color: 4, smile: 1 };
   const second = { ...first, id: 2, col: 5, smile: 3 };
   const next = { ...first, id: 3, row: 8, smile: 2 };
@@ -928,19 +1149,18 @@ test('simultaneous collections show individual values and bank before the next c
   assert.ok(popups.every(fx => fx.flight > 0.9 && fx.flight < 1));
   await advance(presenter, 1);
   assert.ok(popups.every(fx => fx.flight === 1), 'every popup reaches the target before removal');
-  assert.equal(presenter.present.totemScoreFx.length, 0, 'arriving labels disappear on contact');
+  assert.deepEqual(presenter.present.totemScoreFx, [],
+    'arriving labels disappear while the next totem is still falling');
   assert.equal(presenter.present.displayScore, 0);
   await advance(presenter, 35);
   assert.ok(presenter.present.scoreScale > 1, 'simultaneous arrivals trigger a shared bounce');
   assert.equal(presenter.present.displayScore, 0);
   await advance(presenter, 35);
   assert.equal(presenter.present.displayScore, 200);
-  assert.equal(presenter.present.totemScoreFx.length, 0);
+  assert.deepEqual(presenter.present.totemScoreFx.map(fx => fx.pts), [100]);
   assert.equal(presenter.busy, true);
   await advance(presenter, 150);
   assert.equal(presenter.present.scoreScale, 1);
-  await advance(presenter, 205);
-  await advance(presenter, 120);
   assert.deepEqual(presenter.present.totemScoreFx.map(fx => fx.pts), [100]);
   assert.equal(presenter.present.displayScore, 200);
   await drain(presenter);
@@ -1207,4 +1427,72 @@ test('totem playback pauses and reset cancels activation, clear, and incoming-dr
     assert.equal(presenter.busy, false);
     assert.equal(presenter.present.scoreFx, null);
   }
+});
+
+test('foley cues fire for falls, clears, totems, god clear, submit, and failure', async () => {
+  const cues = [];
+  const sfx = name => cues.push(name);
+  const tile = { id: 1, row: 9, col: 0, len: 7, color: 0 };
+  const totem = { id: 2, row: 8, col: 7, len: 1, height: 1, kind: 'totem', color: 4, smile: 1 };
+  const presenter = createPresenter({ sfx });
+
+  const dropped = { ...createState(0, 'easy', 'totem-building'), blocks: [{ ...totem, row: 8 }] };
+  presenter.reset({ ...dropped, blocks: [{ ...totem, row: 3 }] });
+  let done = presenter.play({ accepted: true, events: [
+    { type: 'totem-drop', state: dropped },
+    { type: 'gravity', moves: [{ id: 2, from: 3, to: 8 }], state: dropped },
+    { type: 'turn-complete', state: dropped }
+  ] });
+  await drain(presenter);
+  assert.equal(await done, true);
+  assert.ok(cues.includes('totem-spawn'));
+  assert.ok(cues.includes('fall'));
+
+  cues.length = 0;
+  const smiling = { ...totem, row: 9, smile: 2 };
+  const beforeClear = { ...createState(0, 'easy', 'totem-building'), blocks: [tile, { ...totem, row: 9 }] };
+  const afterClear = { ...createState(0, 'easy', 'totem-building'), blocks: [smiling] };
+  presenter.reset(beforeClear);
+  done = presenter.play({ accepted: true, events: [
+    { type: 'clear', rows: [9], blocks: [tile], state: afterClear },
+    { type: 'turn-complete', state: afterClear }
+  ] });
+  await drain(presenter);
+  assert.equal(await done, true);
+  assert.ok(cues.includes('clear'));
+  assert.ok(cues.includes('totem-clear'));
+
+  cues.length = 0;
+  const god = godClearSetup();
+  const godCues = [];
+  const watching = createPresenter({ sfx: name => godCues.push(name) });
+  watching.reset(structuredClone(god.initial));
+  done = watching.play(structuredClone(god.result));
+  await drain(watching);
+  assert.equal(await done, true);
+  assert.ok(godCues.includes('god-clear'));
+  assert.ok(!godCues.includes('clear'));
+
+  cues.length = 0;
+  const collected = collectSetup();
+  const collectCues = [];
+  const collectWatch = createPresenter({ sfx: name => collectCues.push(name) });
+  collectWatch.reset(structuredClone(collected.initial));
+  done = collectWatch.play(structuredClone(collected.result));
+  await drain(collectWatch);
+  assert.equal(await done, true);
+  assert.ok(collectCues.includes('totem-suction'));
+  assert.ok(!collectCues.includes('totem-submit'));
+
+  cues.length = 0;
+  const live = { ...createState(), blocks: [tile] };
+  const over = { ...structuredClone(live), phase: 'over' };
+  presenter.reset(live);
+  done = presenter.play({ accepted: true, events: [
+    { type: 'game-over', blockIds: [1], state: over },
+    { type: 'turn-complete', state: over }
+  ] });
+  await drain(presenter);
+  assert.equal(await done, true);
+  assert.ok(cues.includes('fail'));
 });

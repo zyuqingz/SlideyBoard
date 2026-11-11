@@ -4,7 +4,7 @@ import { ROWS, rowSpan, computeGravity, settleBoard, touchingTop, hasMoves,
 import { createTurnScore, awardRows, awardTotemCollect } from './sim.js';
 import { spawnTotem, spawnBuildingTotem } from './totem-spawn.js';
 import { isBuilding, isTetris, usesTotems, tetrisDropInterval,
-  buildingTotemsForLevelUp, BUILDING_REFILL_ROWS } from './play-mode.js';
+  buildingTotemsForLevelUp, REFILL_ROWS } from './play-mode.js';
 
 function scoreSteps(state, emit) {
   const turn = createTurnScore();
@@ -72,7 +72,7 @@ export function resolveTurn(state, random, emit, rise) {
     // after every rise: gravity, trimming and clears can change the deficit.
     const refill = (required = false) => {
       while (state.phase === 'play'
-        && (required || occupiedTileRows(state) < BUILDING_REFILL_ROWS || !hasMoves(state))) {
+        && (required || occupiedTileRows(state) < REFILL_ROWS || !hasMoves(state))) {
         spawnRows(1);
         required = false;
       }
@@ -86,8 +86,8 @@ export function resolveTurn(state, random, emit, rise) {
       // later level-ups can only increase this turn's budget up to the cap.
       if (replacement) replacementUsed = true;
       else levelDrops++;
-      const block = spawnBuildingTotem(state, random, dropColumns);
-      dropColumns.push(block.col);
+      const block = spawnBuildingTotem(state, random, replacement ? [] : dropColumns);
+      if (!replacement) dropColumns.push(block.col);
       emit('totem-drop', { id: block.id });
       // Land each tile before choosing the next column, so batches can stack
       // without overlapping above the board or mistaking entry for a top-out.
@@ -120,7 +120,7 @@ export function resolveTurn(state, random, emit, rise) {
     }
   };
   if (building) return finishBuilding();
-  spawnRows(state.blocks.length ? 1 : 3);
+  spawnRows(Math.max(1, REFILL_ROWS - occupiedTileRows(state)));
   if (isTetris(state)) {
     const live = state.blocks.some(b => b.kind === 'totem');
     if (!live) {
@@ -135,7 +135,6 @@ export function resolveTurn(state, random, emit, rise) {
       } else state.tetrisDropIn = wait - 1;
     }
   }
-  if (!occupiedTileRows(state))
-    spawnRows(state.blocks.length ? 1 : (state.shape ? 1 : 3));
+  if (!occupiedTileRows(state)) spawnRows(REFILL_ROWS);
   if ((state.shape || usesTotems(state)) && !hasMoves(state)) endGame(state, emit, 'no-moves');
 }

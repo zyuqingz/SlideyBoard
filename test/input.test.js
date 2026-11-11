@@ -197,3 +197,33 @@ test('password input normalizes non-digits and allows retry after an incorrect c
   enter(pin.value + '7');
   assert.equal(isModeUnlocked(), true);
 });
+
+test('buttons play click foley and dragging plays scrape foley', async t => {
+  const { canvas } = setupBrowser(t);
+  const cues = [];
+  const presenter = createPresenter({ sfx: () => {} });
+  const initial = { ...createState(), blocks: [{ id: 1, row: 8, col: 3, len: 2, color: 0 }] };
+  presenter.reset(initial);
+  bindInput(canvas, { presenter, modes: [], moveRange: () => [0, 6],
+    slide: () => false, sfx: name => cues.push(name) });
+  canvas.emit('pointerdown', {
+    button: 0, isPrimary: true, pointerId: 1,
+    clientX: layout.PAUSE_BTN.x + layout.PAUSE_BTN.w / 2,
+    clientY: layout.PAUSE_BTN.y + layout.PAUSE_BTN.h / 2
+  });
+  assert.equal(presenter.present.menu, 'pause');
+  assert.deepEqual(cues, ['click']);
+
+  cues.length = 0;
+  presenter.present.menu = null;
+  canvas.emit('pointerdown', {
+    button: 0, isPrimary: true, pointerId: 1, pointerType: 'touch',
+    clientX: BX + 3.5 * CELL, clientY: layout.BY + 8.5 * CELL
+  });
+  canvas.emit('pointermove', {
+    button: 0, isPrimary: true, pointerId: 1, pointerType: 'touch',
+    clientX: BX + 4.4 * CELL, clientY: layout.BY + 8.5 * CELL
+  });
+  assert.ok(presenter.present.drag?.active);
+  assert.ok(cues.includes('drag'));
+});

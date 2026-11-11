@@ -147,6 +147,23 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     }, Ease.lin);
   }
 
+  function landed(b, d, { sound = true, squash = true } = {}) {
+    const v = viewOf(b);
+    if (sound) sfx('fall', b.kind === 'totem'
+      ? { volume: 0.72, rate: 0.88 + Math.random() * 0.16 }
+      : { volume: 0.84, rate: 0.92 + Math.random() * 0.1 });
+    const amp = Math.min(0.24, 0.12 + 0.035 * d) / Math.sqrt(b.height ?? 1);
+    const stamp = motion;
+    if (squash) v.sq = amp;
+    landingDust(b);
+    v.land = 1;
+    tween(300, p => {
+      if (stamp !== motion) return;
+      if (squash) v.sq = amp * Ease.damped(p);
+      v.land = 1 - p;
+    }, Ease.lin);
+  }
+
   async function fall(moves, current) {
     const items = moves.map(move => {
       const b = state.blocks.find(block => block.id === move.id);
@@ -155,7 +172,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
       v.vy = move.from;
       return { move, b, v, d: move.to - move.from };
     });
-    let totemWave = 0;
+    let totemWave = 0, tileLanded = false;
     const results = await Promise.all(items.map(async ({ move, b, v, d }) => {
       const delay = b?.kind === 'totem' ? totemWave++ * TOTEM_STAGGER_MS : 0;
       if (delay && (!await wait(delay) || !current())) return false;
@@ -164,19 +181,96 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
       if (d <= 0) return true;
       // Show contact immediately, then let the compression rebound before the
       // next event can interrupt it. The soft tail can outlive the turn.
-      const amp = Math.min(0.24, 0.12 + 0.035 * d) / Math.sqrt(b.height ?? 1);
-      const stamp = motion;
-      v.sq = amp;
-      landingDust(b);
-      v.land = 1;
-      tween(300, p => {
-        if (stamp !== motion) return;
-        v.sq = amp * Ease.damped(p);
-        v.land = 1 - p;
-      }, Ease.lin);
+      landed(b, d, { sound: b.kind === 'totem' || !tileLanded });
+      if (b.kind !== 'totem') tileLanded = true;
       return await wait(120) && current();
     }));
     return results.every(Boolean);
+  }
+
+  async function collectChain(events, current) {
+    interruptSquash();
+    // Coalesce only adjacent collection/gravity facts. Keep their shown geometry
+    // on one clock, with independent gravity drops above each sinking tile.
+    // Rules and awards still come from each event.
+    const batches = [];
+    const contactMs = 340;
+    let start = 0;
+    for (let i = 0; i < events.length; i += 2) {
+      const event = events[i];
+      const distance = Math.max(1, ...event.blocks.map(b => ROWS - b.row));
+      const duration = 620 + (distance - 1) * 215;
+      const followers = (events[i + 1]?.moves ?? []).map(move => ({
+        ...move, v: viewOf(state.blocks.find(b => b.id === move.id)),
+        // Release from the bottom upward once suction has opened a gap.
+        // Higher tiles hang briefly, then accelerate under their own gravity.
+        release: contactMs + duration * 0.75 + Math.max(0, ROWS - 2 - move.from) * TOTEM_STAGGER_MS,
+        duration: fallMs(move.to - move.from)
+      }));
+      batches.push({ event, start, duration, scores: null, finished: false, tileLanded: false, followers });
+      start += Math.max(contactMs + duration, ...followers.map(f => f.release + f.duration));
+    }
+    const impacts = [];
+    function begin(batch) {
+      batch.scores = collectionScores(batch.event.blocks, batch.event.award);
+      for (const b of batch.event.blocks) {
+        const v = viewOf(b);
+        v.clearing = true;
+        v.collecting = true;
+      }
+    }
+    begin(batches[0]);
+    if (!await tween(start, p => {
+      const elapsed = p * start;
+      for (const batch of batches) {
+        if (elapsed < batch.start) break;
+        if (!batch.scores) begin(batch);
+        const age = elapsed - batch.start;
+        // Play the arcade completion cue over the final pull, after compression.
+        // Keep it on the visual clock so pause/reset cannot queue a cue.
+        if (!batch.suctionPlayed && age >= contactMs + batch.duration - 620) {
+          batch.suctionPlayed = true;
+          sfx('totem-suction', { volume: 0.92 });
+        }
+        const contact = clamp(age / contactMs, 0, 1);
+        const squash = contact < 0.28 ? 0.24 * Ease.out(contact / 0.28)
+          : contact < 0.65 ? 0.24 - 0.33 * Ease.out((contact - 0.28) / 0.37)
+            : -0.09 * (1 - Ease.out((contact - 0.65) / 0.35));
+        const t = clamp((age - contactMs) / batch.duration, 0, 1);
+        // Every arrival gets the same compression/rebound, then the same
+        // accelerating pull: speed builds increasingly sharply into the floor,
+        // reaching its maximum as the tile disappears, with no braking phase.
+        const slide = t ** 4;
+        for (const b of batch.event.blocks) {
+          const v = viewOf(b);
+          v.sq = contact === 1 ? 0 : squash / Math.sqrt(b.height ?? 1);
+          v.vy = b.row + (ROWS - b.row) * slide;
+        }
+        for (const move of batch.followers) {
+          const drop = clamp((age - move.release) / move.duration, 0, 1);
+          move.v.vy = move.from + (move.to - move.from) * drop ** 2;
+          if (drop === 1 && !move.landed) {
+            move.landed = true;
+            const b = { ...state.blocks.find(b => b.id === move.id), row: move.to };
+            // The chain owns compression/rebound; share contact sound and dust
+            // without a separate squash tween overwriting its next arrival.
+            landed(b, move.to - move.from, {
+              sound: b.kind === 'totem' || !batch.tileLanded, squash: false
+            });
+            if (b.kind !== 'totem') batch.tileLanded = true;
+          }
+        }
+        for (const fx of batch.scores) {
+          fx.flight = clamp((age - contactMs - batch.duration + 560) / 560, 0, 1) ** 4;
+        }
+        if (t === 1 && !batch.finished) {
+          batch.finished = true;
+          impacts.push(finishTotemScores(present, batch.scores, effects, current));
+        }
+      }
+    }, Ease.lin) || !current()) return false;
+    adopt(events.at(-1).state);
+    return (await Promise.all(impacts)).every(Boolean) && current();
   }
 
   async function animate(event, run) {
@@ -250,6 +344,9 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
             : Math.abs(b.col + b.len / 2 - COLS / 2) / (COLS / 2) * 70
              + Math.min(3, rowOrder.indexOf(b.row)) * 24 }));
         for (const { v } of clears) v.clearing = true;
+        const totemish = b => b.kind === 'totem' || b.face === 'smile';
+        if (clears.some(c => !c.god && !totemish(c.b))) sfx('clear');
+        if (clears.some(c => !c.god && totemish(c.b)) || reactions.length) sfx('totem-clear');
         const shrink = 150;
         const normalFlashEnd = 320 + Math.max(0, ...clears.filter(c => !c.god).map(c => c.delay)) - shrink;
         for (const clear of clears) clear.flashEnd = clear.god ? clear.delay + 170 : normalFlashEnd;
@@ -283,6 +380,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
                 burstBlock(b);
                 if (clear.god && !celebrated) {
                   celebrated = true;
+                  sfx('god-clear');
                   celebrateGodClear();
                 }
               }
@@ -294,51 +392,9 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
         if (event.award?.pts) stackScore(present, event.award, effects);
         return true;
       }
-      case 'totem-collect': {
-        interruptSquash();
-        const collected = event.blocks;
-        // Hold contact for a readable arrival cue, then slide full-sized tiles
-        // beneath the floor mask before allowing any subsequent board motion.
-        adopt({ ...event.state, blocks: [...event.state.blocks, ...collected] });
-        for (const b of collected) {
-          const v = viewOf(b);
-          v.vy = b.row;
-          v.s = 1;
-          v.clearing = true;
-          v.collecting = true;
-        }
-        const scores = collectionScores(collected, event.award);
-        if (!await tween(340, p => {
-          // Compress against the floor, stretch on rebound, then settle.
-          const squash = p < 0.28 ? 0.24 * Ease.out(p / 0.28)
-            : p < 0.65 ? 0.24 - 0.33 * Ease.out((p - 0.28) / 0.37)
-              : -0.09 * (1 - Ease.out((p - 0.65) / 0.35));
-          for (const b of collected) {
-            viewOf(b).sq = p === 1 ? 0 : squash / Math.sqrt(b.height ?? 1);
-          }
-        }, Ease.lin) || !current()) return false;
-        const distance = Math.max(1, ...collected.map(b => ROWS - b.row));
-        const duration = 620 + (distance - 1) * 215;
-        const steps = Math.ceil(duration / 155);
-        if (!await tween(duration, p => {
-          for (const fx of scores) fx.flight = clamp((p * duration - (duration - 560)) / 560, 0, 1) ** 4;
-          // Smooth each chunk from rest to rest, giving the descent a rhythmic
-          // pull without frozen frames or position jumps between beats.
-          const phase = p * steps;
-          const chunk = Math.floor(phase), local = phase - chunk;
-          const blend = local * local * (3 - 2 * local);
-          const beat = (chunk + blend) / steps;
-          const slide = 0.5 * beat + 0.5 * Ease.in(beat);
-          for (const b of collected) {
-            const v = viewOf(b);
-            v.vy = b.row + (ROWS - b.row) * slide;
-          }
-        }, Ease.lin) || !current()) return false;
-        adopt(event.state);
-        return finishTotemScores(present, scores, effects, current);
-      }
       case 'totem-drop':
         interruptSquash();
+        sfx('totem-spawn');
         adopt(event.state);
         return true;
       case 'rise':
@@ -356,6 +412,8 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
         if (!await tween(shaped ? 240 : 210, p => {
           for (const { v, row } of moving) v.vy = row + 1 - p;
         }, Ease.out) || !current()) return false;
+        // One cut per batch, synchronized with the chips and guarded by playback cancellation.
+        if (event.trimmed?.length) sfx('trim');
         for (const fragment of event.trimmed ?? []) burstBlock(fragment);
         adopt(event.state);
         return true;
@@ -363,6 +421,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
       case 'game-over': {
         interruptSquash();
         if (!await bankScore(present, effects, current) || !current()) return false;
+        sfx('fail');
         const top = state.blocks.filter(b => event.blockIds.includes(b.id));
         tween(450, p => { present.shake = (1 - p) * 14 * Math.sin(p * 45); }, Ease.lin);
         if (!await tween(350, p => top.forEach(b => { viewOf(b).danger = p; }), Ease.out) || !current()) return false;
@@ -385,7 +444,8 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     const mine = ++lock;
     busy = true;
     try {
-      for (const event of result.events) {
+      for (let i = 0; i < result.events.length; i++) {
+        const event = result.events[i];
         if (run !== generation) return false;
         if (event.type === 'turn-complete') {
           // Commit geometry before accepting another gesture. Score feedback can
@@ -395,7 +455,18 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
           return await bankScore(present, effects, () => run === generation)
             && run === generation;
         }
-        if (!await animate(event, run)) return false;
+        if (event.type === 'totem-collect') {
+          const chain = [event];
+          while (chain.at(-1).blocks.every(b => b.row === ROWS - 1 && (b.height ?? 1) === 1)) {
+            const gravity = result.events[i + 1], next = result.events[i + 2];
+            if (gravity?.type !== 'gravity' || next?.type !== 'totem-collect'
+              || !gravity.moves.every(move => move.to - move.from === 1)
+              || !next.blocks.every(b => b.row === ROWS - 1 && (b.height ?? 1) === 1)) break;
+            chain.push(gravity, next);
+            i += 2;
+          }
+          if (!await collectChain(chain, () => run === generation)) return false;
+        } else if (!await animate(event, run)) return false;
       }
       return run === generation;
     } finally {
@@ -421,6 +492,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
       v.vx = travel === 1 ? col : from + (col - from) * Ease.out(travel);
       v.slot = lift * (1 - Ease.inCubic(travel));
       if (travel === 1) {
+        if (!contacted && feedback) sfx('fall', { volume: 0.4, rate: 1.06 });
         contacted = true;
         const settle = clamp((elapsed - travelMs) / settleMs, 0, 1);
         v.sq = feedback ? 0.07 * (1 - Ease.out(settle)) : 0;

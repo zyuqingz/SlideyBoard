@@ -62,12 +62,12 @@ function firstMove(engine) {
   return null;
 }
 
-test('a live tetromino with no ordinary tiles rises one row, not three', () => {
+test('a live tetromino with no ordinary tiles rises three rows', () => {
   const initial = fixture([piece(1, 7, 0, ['##', '##'])]);
   const [min, max] = totemSlideRange(initial, initial.blocks[0]);
   assert.ok(min !== max);
   const result = engineFor(initial).dispatch({ type: 'slide', id: 1, col: min === 0 ? max : min });
-  assert.equal(result.events.filter(e => e.type === 'rise').length, 1);
+  assert.equal(result.events.filter(e => e.type === 'rise').length, 3);
 });
 
 test('Tetris waits five turns between drops at level 1', () => {
@@ -444,16 +444,16 @@ test('optional Totems are deterministic on classic for both difficulties', () =>
   assert.ok(drops > 0);
 });
 
-test('building level-up bonuses use the new level, capped at 4 across the turn', () => {
+test('building level-up bonuses use the new level, capped at 3 across the turn', () => {
   assert.equal(buildingTotemsForLevelUp(1, 1), 0);
   assert.equal(buildingTotemsForLevelUp(1, 2), 2);
   assert.equal(buildingTotemsForLevelUp(2, 3), 3);
-  assert.equal(buildingTotemsForLevelUp(3, 4), 4);
-  assert.equal(buildingTotemsForLevelUp(4, 5), 4);
-  assert.equal(buildingTotemsForLevelUp(5, 6), 4);
-  assert.equal(buildingTotemsForLevelUp(1, 3), 4);
-  assert.equal(buildingTotemsForLevelUp(4, 6), 4);
-  assert.equal(buildingTotemsForLevelUp(100, 1000), 4);
+  assert.equal(buildingTotemsForLevelUp(3, 4), 3);
+  assert.equal(buildingTotemsForLevelUp(4, 5), 3);
+  assert.equal(buildingTotemsForLevelUp(5, 6), 3);
+  assert.equal(buildingTotemsForLevelUp(1, 3), 3);
+  assert.equal(buildingTotemsForLevelUp(4, 6), 3);
+  assert.equal(buildingTotemsForLevelUp(100, 1000), 3);
 });
 
 test('Totem Building opening totem is already on the board', () => {
@@ -563,7 +563,7 @@ test('Building replaces a collected last totem without needing a level-up on eit
   }
 });
 
-test('Building gives four level-up extras in addition to an empty-board replacement', () => {
+test('Building gives three level-up extras in addition to an empty-board replacement', () => {
   const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
     lines: 19, level: 4, blocks: [block(1, 9, 0, 8)] };
   const events = [];
@@ -571,25 +571,25 @@ test('Building gives four level-up extras in addition to an empty-board replacem
     () => insertRow(state, [{ col: 0, len: 2, color: 0 }]));
   assert.equal(state.level, 5);
   assert.equal(state.phase, 'play');
-  assert.equal(events.filter(type => type === 'totem-drop').length, 5);
+  assert.equal(events.filter(type => type === 'totem-drop').length, 4);
   assert.equal(state.blocks.filter(b => b.kind === 'totem').length
-    + events.filter(type => type === 'totem-collect').length, 5);
+    + events.filter(type => type === 'totem-collect').length, 4);
   valid(state);
 });
 
-test('Building caps a multi-level clear at four extras plus one replacement', () => {
+test('Building caps a multi-level clear at three extras plus one replacement', () => {
   const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
     lines: 4, level: 1, blocks: Array.from({ length: 9 }, (_, i) => block(i + 1, i + 1, 0, 8)) };
   const events = [];
   resolveTurn(state, () => 0, type => events.push(type),
     () => insertRow(state, [{ col: 0, len: 2, color: 0 }]));
   assert.equal(state.level, 3);
-  assert.equal(events.filter(type => type === 'totem-drop').length, 5);
+  assert.equal(events.filter(type => type === 'totem-drop').length, 4);
   assert.equal(state.phase, 'play');
   valid(state);
 });
 
-test('Building stops at four drops when an existing totem needs no replacement', () => {
+test('Building stops at three extras when an existing totem needs no replacement', () => {
   const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
     lines: 19, level: 4, blocks: [block(1, 9, 0, 8),
       ...[6, 7, 8].map((row, i) => block(i + 2, row, 0, 2)), pole(10, 5, 0, 1)] };
@@ -597,9 +597,9 @@ test('Building stops at four drops when an existing totem needs no replacement',
   resolveTurn(state, () => 0, type => events.push(type),
     () => insertRow(state, [{ col: 0, len: 2, color: 0 }]));
   assert.equal(state.level, 5);
-  assert.equal(events.filter(type => type === 'totem-drop').length, 4);
+  assert.equal(events.filter(type => type === 'totem-drop').length, 3);
   assert.equal(state.blocks.filter(b => b.kind === 'totem').length
-    + events.filter(type => type === 'totem-collect').length, 5);
+    + events.filter(type => type === 'totem-collect').length, 4);
   assert.equal(state.phase, 'play');
   valid(state);
 });
@@ -612,12 +612,12 @@ test('Building drop-induced levels and collections cannot renew the turn budget'
   const events = [];
   resolveTurn(state, () => 0.999, type => events.push(type),
     () => insertRow(state, [{ col: 0, len: 7, color: 0 }]));
-  assert.equal(state.level, 9, 'drop cascades cross further levels during the same turn');
-  assert.equal(events.filter(type => type === 'totem-drop').length, 5);
-  assert.equal(events.filter(type => type === 'totem-collect').length, 5);
+  assert.equal(state.level, 7, 'drop cascades cross further levels during the same turn');
+  assert.equal(events.filter(type => type === 'totem-drop').length, 4);
+  assert.equal(events.filter(type => type === 'totem-collect').length, 4);
   assert.equal(state.blocks.filter(b => b.kind === 'totem').length, 0);
   assert.equal(state.phase, 'play');
-  assert.equal(occupiedTileRows(state), 4);
+  assert.equal(occupiedTileRows(state), 3);
   valid(state);
 });
 
@@ -632,7 +632,7 @@ test('Building spends its single replacement even when it immediately collects',
     rises++;
     insertRow(state, [{ col: 3, len: 2, color: 0 }]);
   });
-  assert.equal(rises, 2);
+  assert.equal(rises, 1);
   assert.equal(events.filter(e => e.type === 'totem-drop').length, 1);
   assert.equal(events.filter(e => e.type === 'totem-collect').length, 1);
   assert.equal(state.blocks.filter(b => b.kind === 'totem').length, 0);
@@ -658,56 +658,55 @@ test('Totem Building can stack when every column already contains a totem', () =
   valid(state);
 });
 
-test('Building recalculates the highest columns after each landed drop', () => {
-  const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
-    blocks: [block(1, 9, 0, 8)] };
-  const cols = [], rows = [];
-  for (let i = 0; i < 4; i++) {
-    const incoming = spawnBuildingTotem(state, () => 0);
-    cols.push(incoming.col);
+test('Building does not treat landed totems as extra stack height', () => {
+  for (const [roll, col, row] of [[0, 0, 7], [0.5, 4, 8], [0.999, 7, 8]]) {
+    const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
+      blocks: [block(1, 9, 0, 8), pole(2, 8, 0, 1)] };
+    const incoming = spawnBuildingTotem(state, () => roll);
+    assert.equal(incoming.col, col, 'all eight equal tile columns remain eligible');
     totemGravity(state);
-    rows.push(incoming.row);
+    assert.equal(incoming.row, row, 'live totems still support the actual landing');
     valid(state);
   }
-  assert.deepEqual(cols, [0, 0, 0, 0]);
-  assert.deepEqual(rows, [8, 7, 6, 5]);
 });
 
-test('Building randomly chooses the highest columns and avoids ceiling landings', () => {
+test('Building randomly chooses the highest tile columns and avoids ceiling landings', () => {
   const choices = new Set();
   for (const roll of [0, 0.999]) {
     const state = { ...fixture([block(1, 9, 0, 8), pole(2, 8, 0, 1), pole(3, 8, 7, 1)]),
       playMode: 'totem-building' };
     choices.add(spawnBuildingTotem(state, () => roll).col);
   }
-  assert.deepEqual([...choices].sort(), [0, 7]);
+  assert.equal(choices.size > 1, true);
   const crowded = { ...fixture([pole(1, 8, 0, 1), block(2, 9, 0, 8),
     ...Array.from({ length: 8 }, (_, i) => block(i + 3, i + 1, 7))]), playMode: 'totem-building' };
   const incoming = spawnBuildingTotem(crowded, () => 0);
-  assert.equal(incoming.col, 0, 'choose the highest safe stack rather than column 7 at the ceiling');
+  assert.notEqual(incoming.col, 7, 'skip the ceiling column even when it is a totem stack');
   totemGravity(crowded);
   valid(crowded);
 });
 
-test('Building breaks equal-height ties using existing and recent totem spacing', () => {
+test('Building extras space from earlier extras, not from replacement', () => {
   for (const roll of [0, 0.999]) {
     const state = { ...fixture([block(1, 9, 0, 8)]), playMode: 'totem-building' };
     assert.equal(spawnBuildingTotem(state, () => roll, [0, 7]).col, roll === 0 ? 3 : 4);
   }
 });
 
-test('Building level-up drops prefer stacks over immediate floor collections', () => {
-  const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
-    lines: 19, level: 4, blocks: [block(1, 9, 0, 8)] };
-  const cols = [], collected = [];
-  resolveTurn(state, () => 0, (type, data) => {
-    if (type === 'totem-drop') cols.push(state.blocks.find(b => b.id === data.id).col);
-    if (type === 'totem-collect') collected.push(...data.blocks);
-  }, () => insertRow(state, [{ col: 0, len: 2, color: 0 }]));
-  assert.equal(cols.length, 5);
-  assert.deepEqual(cols, [0, 0, 0, 0, 0]);
-  assert.equal(collected.length, 0);
-  valid(state);
+test('Building level-up extras ignore replacement columns when ranking', () => {
+  for (const [roll, expected] of [[0, [0, 0, 3, 1]], [0.999, [3, 3, 1, 2]]]) {
+    const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
+      lines: 19, level: 4, blocks: [block(1, 9, 0, 8)] };
+    const cols = [], collected = [];
+    resolveTurn(state, () => roll, (type, data) => {
+      if (type === 'totem-drop') cols.push(state.blocks.find(b => b.id === data.id).col);
+      if (type === 'totem-collect') collected.push(...data.blocks);
+    }, () => insertRow(state, [{ col: 0, len: 4, color: 0 }]));
+    assert.deepEqual(cols, expected,
+      'the first extra ignores replacement; subsequent extras space from earlier extras');
+    assert.equal(collected.length, 0);
+    valid(state);
+  }
 });
 
 test('Building level-up drops stack sequentially when only one column is reachable', () => {
@@ -782,10 +781,10 @@ test('Building advances a cleared refill with no moves instead of losing below t
   const events = [];
   resolveTurn(state, () => 0, type => events.push(type), () => {
     rises++;
-    insertRow(state, [{ col: 0, len: rises <= 4 ? 8 : 2, color: 0 }]);
+    insertRow(state, [{ col: 0, len: rises <= 3 ? 8 : 2, color: 0 }]);
   });
-  assert.equal(rises, 8, 'cleared incoming rows do not count toward the four-row target');
-  assert.equal(occupiedTileRows(state), 4);
+  assert.equal(rises, 6, 'cleared incoming rows do not count toward the three-row target');
+  assert.equal(occupiedTileRows(state), 3);
   assert.equal(state.phase, 'play');
   assert.equal(state.gameOverReason, undefined);
   assert.ok(!events.includes('game-over'));
@@ -811,7 +810,7 @@ test('nested Building board copies preserve live collection and clear rules with
   }
 });
 
-test('Totem Building randomly chooses only the two highest columns', () => {
+test('Totem Building randomly chooses the tallest tile columns and one row lower', () => {
   const landings = new Set(), cols = new Set();
   for (const random of [() => 0, () => 0.49, () => 0.999]) {
     const state = { ...fixture([
@@ -829,8 +828,8 @@ test('Totem Building randomly chooses only the two highest columns', () => {
     assert.deepEqual(totemFullRows(state), []);
     valid(state);
   }
-  assert.deepEqual([...cols].sort(), [2, 3], 'both highest columns can be chosen despite unequal heights');
-  assert.deepEqual([...landings].sort(), [6, 7], 'lower stacks and empty floor columns are excluded');
+  assert.deepEqual([...cols].sort(), [2, 3], 'tallest tile column and one row lower');
+  assert.deepEqual([...landings].sort(), [6, 7], 'stacks two or more rows lower stay excluded');
 });
 
 test('Totem Building always drops with floor or totem support', () => {
@@ -912,7 +911,7 @@ test('Building seeded games remain playable until a visible ceiling loss on both
         assert.ok(command, 'every live Building board offers a slide');
         const result = a.dispatch(command);
         assert.deepEqual(result, b.dispatch(command));
-        assert.ok(result.events.filter(e => e.type === 'totem-drop').length <= 5);
+        assert.ok(result.events.filter(e => e.type === 'totem-drop').length <= 4);
         for (const event of result.events) valid(event.state);
       }
     }
@@ -1001,19 +1000,19 @@ test('Totem Building clears a completed bottom row before collecting the totem',
   assert.ok(!board.blocks.some(b => b.id === 2));
 });
 
-test('Totem Building refills three rows from one leftover row and four from an empty board', () => {
+test('Totem Building refills two rows from one leftover row and three from an empty board', () => {
   const thin = { ...createState(0, 'easy', 'totem-building'), nextId: 10,
     nextRow: [{ col: 0, len: 2, color: 1 }],
     blocks: [block(1, 9, 0, 3)] };
   const thinResult = engineFor(thin).dispatch({ type: 'slide', id: 1, col: 1 });
-  assert.equal(thinResult.events.filter(e => e.type === 'rise').length, 3);
+  assert.equal(thinResult.events.filter(e => e.type === 'rise').length, 2);
 
   const empty = { ...createState(0, 'easy', 'totem-building'), nextId: 10,
     nextRow: [{ col: 0, len: 3, color: 1 }],
     blocks: [block(1, 9, 0, 7), block(2, 8, 6)] };
   const emptyResult = engineFor(empty).dispatch({ type: 'slide', id: 2, col: 7 });
   assert.ok(emptyResult.events.some(e => e.type === 'clear'));
-  assert.equal(emptyResult.events.filter(e => e.type === 'rise').length, 4);
+  assert.equal(emptyResult.events.filter(e => e.type === 'rise').length, 3);
 });
 
 test('Building refills every row-count boundary on both maps, ignoring totem rows', () => {
@@ -1027,8 +1026,8 @@ test('Building refills every row-count boundary on both maps, ignoring totem row
       rises++;
       (shaped ? insertShapedRow : insertRow)(state, [{ col: 2, len: 2, color: 0 }]);
     });
-    assert.equal(rises, Math.max(1, 4 - rows), `${shaped ? 'shaped' : 'classic'}: ${rows} tile rows`);
-    assert.equal(occupiedTileRows(state), Math.max(4, rows + 1));
+    assert.equal(rises, Math.max(1, 3 - rows), `${shaped ? 'shaped' : 'classic'}: ${rows} tile rows`);
+    assert.equal(occupiedTileRows(state), Math.max(3, rows + 1));
     assert.equal(state.phase, 'play');
     valid(state);
   }
@@ -1072,7 +1071,7 @@ test('a cleared Diamond Building board refills with usable previews instead of e
     } }] });
   const result = engine.dispatch({ type: 'slide', id: 2, col: 4 });
   assert.ok(result.events.some(e => e.type === 'clear'));
-  assert.equal(result.events.filter(e => e.type === 'shaped-rise').length, 4);
+  assert.equal(result.events.filter(e => e.type === 'shaped-rise').length, 3);
   assert.equal(result.state.phase, 'play');
   assert.ok(result.state.blocks.length);
   for (const event of result.events) {

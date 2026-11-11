@@ -262,8 +262,7 @@ overhangs whose supports fall later in the traversal.
   spawn. Only the selected rows score. Gravity then resolves falls.
 - A totem that reaches row zero does not clear extra rows. Ordinary top-out keeps
   the rescue-turn timing: settle the slide and check the ceiling before the next
-  rise. Empty boards refill with three rows (one on Shaped). A live tetromino
-  with no ordinary tiles still gets a single rise, not the empty-board dump.
+  rise. Empty boards and live-tetromino-only boards refill with three rows.
   Immovable boards end with
   `no-moves`. The bottom-row preview is committed exactly.
 - Both maps retain their board-aware previews, which use shared occupied-cell
@@ -292,17 +291,18 @@ to the base mode; the retired Totem mode's score key is no longer read or writte
 - When no totems remain, allow one replacement per turn after refilling/settling.
   This is separate from level-up extras. Clearing or collecting a drop spends its
   allowance; an exhausted replacement allowance becomes available again next turn.
-- Every five cleared rows advances a level. New levels grant `min(level, 4)` extras,
-  capped at four level-up drops across the entire turn (five with replacement).
+- Every five cleared rows advances a level. New levels grant `min(level, 3)` extras,
+  capped at three level-up drops across the entire turn (four with replacement).
   The budget is calculated from the turn's starting level to its current level,
-  with already-spawned extras deducted. Refill and drop cascades cannot renew it.
+  with already-spawned extras deducted. Replacement is not a recent column for
+  extras. Refill and drop cascades cannot renew it.
   Each drop lands and resolves before the next is chosen. There is no persistent
   spawn queue or waiting-for-space state; the cap limits drops, not live totems.
-- Drops randomly choose between the two highest reachable, below-ceiling landings
-  (or the sole safe landing). Height ties favor greater distance from existing
-  totem columns and earlier drops this turn, including already-collected drops.
-  Recalculate after each drop settles; repeated stacking is allowed and lower
-  stacks or direct floor landings are excluded when two higher safe landings exist.
+- Drops rank reachable below-ceiling columns by ordinary-tile landing height,
+  including columns one row lower than the tallest tile stack. Live totems do
+  not add height; a drop may still land on them. Randomly choose among that
+  band, using distance from earlier extras this turn when more than one extra
+  has already dropped. Recalculate after each drop settles.
   Floor drops collect normally. Row-completing
   drops resolve normal clears and smile upgrades. If only ceiling landings remain,
   the tile lands and ends the game instead of deferring.
@@ -314,8 +314,8 @@ to the base mode; the retired Totem mode's score key is no longer read or writte
   `50 × smile × level` points each. Collection can release another totem or cascade;
   each totem has its own score popup and banks its points as its collection
   animation finishes, before the rest of the chain completes.
-- Incoming candidates use lengths 2–4. Rise at least once, then refill to four
-  distinct occupied ordinary-tile rows: 0/1/2/3+ rows normally get 4/3/2/1 rises.
+- Incoming candidates use lengths 2–4. Rise at least once, then refill to three
+  distinct occupied ordinary-tile rows: 0/1/2+ rows normally get 3/2/1 rises.
   Totems are excluded; shards count their actual occupied cell rows. Recount after
   every settled rise and drop-induced clear/collection, including shaped trimming.
   Fragmented candidates with no usable run fall back to a contiguous-gap row.
@@ -328,7 +328,14 @@ to the base mode; the retired Totem mode's score key is no longer read or writte
   Classic candidates use the Building five-line progression curve. Both searches
   reject Building rises that touch the ceiling before simulating a response slide.
 - Sand, jade, and gold faces blend through ordinary smile upgrades. Floor
-  collections compress and rebound, then sink beneath the board mask. All-totem
+  collections compress and rebound, then sink beneath the board mask. Adjacent
+  floor collections separated by one-cell gravity share a visual clock. Released
+  tiles briefly hang, then fall with quadratic acceleration, staggered from the
+  bottom upward so gaps open instead of the stack following suction rigidly.
+  Each totem repeats the same floor compression/rebound cue and nonlinear suction
+  curve after the released tiles land. Individual score impacts overlap the
+  falling stack and the next arrival's feedback rather than delaying them.
+  Clears, rises, drops, and longer falls remain playback boundaries. All-totem
   row clears show gold faces immediately and pop away in a left-to-right wave,
   with side confetti and a centered, scale-only “GOD CLEAR!” celebration. The
   celebration shares the pause/reset clock and can outlive board motion. Individual score

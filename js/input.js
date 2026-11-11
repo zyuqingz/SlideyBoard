@@ -10,11 +10,22 @@ import { MODE_PASSWORD, isModeUnlocked, modePasswordDigits,
   setModePasswordDigits, resetModePassword } from './mode-lock.js';
 import { settingsPopup } from './settings-popup.js';
 import { setLang } from './i18n.js';
-import { unlockAudio, isMuted, setMuted } from './audio.js';
+import { unlockAudio, isMuted, setMuted, playSfx } from './audio.js';
 
 export function bindInput(canvas, { presenter, modes, moveRange, slide, restart, shapeSelection,
-  toggleDifficulty, cyclePlayMode, cycleMap, cycleShape }) {
+  toggleDifficulty, cyclePlayMode, cycleMap, cycleShape, sfx = playSfx }) {
   const { present, viewOf } = presenter;
+  const click = () => sfx('click');
+  function scrape(drag, vx, start = false) {
+    const now = Date.now();
+    if (!start) {
+      if (now - (drag.sfxAt ?? 0) < 90) return;
+      if (Math.abs(vx - (drag.sfxX ?? vx)) < 0.28) return;
+    }
+    sfx('drag', { volume: start ? 1 : 0.8, rate: 0.86 + Math.random() * 0.2 });
+    drag.sfxAt = now;
+    drag.sfxX = vx;
+  }
   const on = (target, type, fn, options) => target.addEventListener(type, e => {
     fn(e);
     invalidateCanvas();
@@ -149,6 +160,9 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     drag.lastY = p.y;
     if (!wasActive && drag.active) {
       presenter.pickup(b);
+      scrape(drag, v.vx, true);
+    } else if (drag.active) {
+      scrape(drag, v.vx);
     }
   }
 
@@ -159,56 +173,71 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     const p = toLogical(e), op = toOverlay(p);
     if (present.menu === 'pause') {
       const pop = settingsPopup();
-      if (hit(pop.resume, op)) closeMenu();
-      else if (hit(pop.restart, op)) restart();
-      else if (hit(pop.en, op)) setLang('en');
-      else if (hit(pop.zh, op)) setLang('zh');
-      else if (hit(pop.sound, op)) setMuted(!isMuted());
+      if (hit(pop.resume, op)) { click(); closeMenu(); }
+      else if (hit(pop.restart, op)) { click(); restart(); }
+      else if (hit(pop.en, op)) { click(); setLang('en'); }
+      else if (hit(pop.zh, op)) { click(); setLang('zh'); }
+      else if (hit(pop.sound, op)) {
+        if (isMuted()) { setMuted(false); click(); }
+        else { click(); setMuted(true); }
+      }
       return;
     }
     if (present.menu === 'mode') {
       if (!isModeUnlocked()) {
         if (hit(passwordBackControl(modes), op)) {
+          click();
           closeMenu();
           return;
         }
         if (hit(passwordBoxControl(modes), op)) {
+          click();
           syncPinField();
         }
         return;
       }
       if (hit(playModeControl(modes), op)) {
+        click();
         cyclePlayMode();
         return;
       }
       if (hit(difficultyControl(modes), op)) {
+        click();
         toggleDifficulty();
         return;
       }
       if (presenter.state.playMode !== 'tetris' && hit(mapControl(modes), op)) {
+        click();
         cycleMap();
         return;
       }
       const control = shapeControl(modes);
       if (control && shapeSelection && presenter.state.mode === 'shaped' && hit(control, op)) {
+        click();
         const direction = op.x < control.x + 60 ? -1 : 1;
         cycleShape(direction);
         return;
       }
-      if (hit(modeResume(modes), op)) closeMenu();
+      if (hit(modeResume(modes), op)) { click(); closeMenu(); }
       return;
     }
     if (presenter.state.phase === 'over') {
-      if (present.overlayA > 0.5 && hit(GO_RESTART, op)) restart();
+      if (present.overlayA > 0.5 && hit(GO_RESTART, op)) { click(); restart(); }
       return;
     }
     if (hit(layout.MODE_BTN, p)) {
+      click();
       present.menu = 'mode';
       cancelDrag();
       syncPinField();
       return;
     }
-    if (hit(layout.PAUSE_BTN, p)) { present.menu = 'pause'; cancelDrag(); return; }
+    if (hit(layout.PAUSE_BTN, p)) {
+      click();
+      present.menu = 'pause';
+      cancelDrag();
+      return;
+    }
     if (presenter.busy) return;
     const b = blockAt(p);
     if (!b) return;
@@ -236,6 +265,8 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
   on(canvas, 'pointerleave', () => { if (!present.drag) setHover(null); });
 
   on(canvas, 'pointerup', e => {
+    // Touch browsers may grant audio activation only on release.
+    unlockAudio();
     const drag = present.drag;
     if (!drag || e.pointerId !== drag.id) return;
     moveDrag(e);
@@ -265,15 +296,18 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
   on(document, 'touchmove', e => e.preventDefault(), { passive: false });
   on(document, 'gesturestart', e => e.preventDefault());
   on(window, 'keydown', e => {
+    unlockAudio();
     if (e.key === 'Escape' || e.key.toLowerCase() === 'p') {
       e.preventDefault();
-      if (present.menu) closeMenu();
-      else if (presenter.state.phase !== 'over') present.menu = 'pause';
+      if (present.menu) { click(); closeMenu(); }
+      else if (presenter.state.phase !== 'over') { click(); present.menu = 'pause'; }
       cancelDrag();
       return;
     }
-    if (e.key.toLowerCase() === 'r' && (presenter.state.phase === 'over' || present.menu === 'pause'))
+    if (e.key.toLowerCase() === 'r' && (presenter.state.phase === 'over' || present.menu === 'pause')) {
+      click();
       restart();
+    }
   });
 
   return { cancelDrag };

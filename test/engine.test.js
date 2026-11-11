@@ -113,7 +113,7 @@ test('a top block can be rescued by clearing; rise reaching the top allows the n
   assert.ok(saved.events.some(e => e.type === 'clear'));
 });
 
-test('one remaining tile row spawns one row, with or without a totem', () => {
+test('one remaining tile row spawns two rows, with or without a totem', () => {
   const oneRow = createEngine({ random: () => 0.2, modes: [{ ...classic,
     reset(target) { Object.assign(target, structuredClone(fixture([
       block(1, 9, 0, 3)
@@ -122,7 +122,7 @@ test('one remaining tile row spawns one row, with or without a totem', () => {
   const thinned = oneRow.dispatch({ type: 'slide', id: 1, col: 1 });
   assert.equal(thinned.accepted, true);
   assert.equal(thinned.state.phase, 'play');
-  assert.equal(thinned.events.filter(e => e.type === 'rise').length, 1);
+  assert.equal(thinned.events.filter(e => e.type === 'rise').length, 2);
 
   const withTotem = createEngine({ random: () => 0.2, playMode: 'tetris', modes: [{ ...classic,
     reset(target) { Object.assign(target, structuredClone(fixture([
@@ -133,7 +133,7 @@ test('one remaining tile row spawns one row, with or without a totem', () => {
   }] });
   const ignored = withTotem.dispatch({ type: 'slide', id: 2, col: 5 });
   assert.equal(ignored.accepted, true);
-  assert.equal(ignored.events.filter(e => e.type === 'rise').length, 1);
+  assert.equal(ignored.events.filter(e => e.type === 'rise').length, 2);
 });
 
 test('clearing the board spawns three rows so play can continue', () => {
@@ -198,8 +198,8 @@ test('a new mode owns its turn policy and is discoverable without renderer chang
   assert.equal(engine.snapshot().mode, 'practice');
 });
 
-// Independent copy of the pre-refactor logical sequence, without its awaits.
-function legacyTurn(state, command, random) {
+// Independent Classic reference sequence with the shared three-row refill rule.
+function referenceTurn(state, command, random) {
   state.blocks.find(b => b.id === command.id).col = command.col;
   state.hasMoved = true;
   const turn = createTurnScore();
@@ -217,16 +217,15 @@ function legacyTurn(state, command, random) {
     state.newBest = state.score > state.bestAtStart && state.score > 0;
     state.phase = 'over';
   } else {
-    const incoming = state.blocks.length ? 1 : 3;
+    const incoming = Math.max(1, 3 - new Set(state.blocks.map(b => b.row)).size);
     for (let i = 0; i < incoming; i++) { rise(state, random); settle(); }
-    if (state.phase === 'play' && !state.blocks.some(b => b.kind !== 'totem')) {
-      const extra = state.blocks.length ? 1 : 3;
-      for (let i = 0; i < extra; i++) { rise(state, random); settle(); }
+    if (state.phase === 'play' && !state.blocks.length) {
+      for (let i = 0; i < 3; i++) { rise(state, random); settle(); }
     }
   }
 }
 
-test('seeded multi-turn games match the previous Classic rules exactly', () => {
+test('seeded multi-turn games match the independent Classic reference model', () => {
   for (const seed of [3, 17, 42]) {
     const random = seeded(seed);
     const engine = createEngine({ modeId: 'classic', random: seeded(seed), best: 500 });
@@ -242,7 +241,7 @@ test('seeded multi-turn games match the previous Classic rules exactly', () => {
       }
       if (!choices.length) break;
       const command = choices[(turn * 7) % choices.length];
-      legacyTurn(expected, command, random);
+      referenceTurn(expected, command, random);
       const result = engine.dispatch(command);
       const { gameOverReason, ...actual } = result.state;
       if (expected.phase === 'over') assert.equal(gameOverReason, 'top-out');
