@@ -62,7 +62,7 @@ if none fit, spawning defers. Keep one live Totem, replacing it after it is
 cleared.
 
 Totem Building drops an independent 1×1 tile at opening. Resolve any completed
-rows and floor collection immediately with normal scoring, then refill only if
+rows and collection immediately with the selected ruleset's scoring, then refill only if
 needed to restore a legal first slide. Opening playback uses engine events
 for the fall, clears, collection and refill. A collected opening tile waits until
 the first player turn for replacement. Each turn allows at most
@@ -79,8 +79,11 @@ highest to lowest, including columns one row lower than the tallest tile stack.
 Live totems do not add height, but a drop may still land on them. Break remaining
 ties by greater distance from earlier level-up drops this turn. Pick randomly
 among the matching columns, or between the two farthest when extras already
-dropped. Resolve each tile before ranking the next drop. Floor drops collect
-normally. Drops may complete
+dropped. Resolve each tile before ranking the next drop. Mode 1 collects floor
+drops; Mode 2 keeps them until stage 3, then collects before gravity or cascades.
+Mode 2 levels use total score (including ordinary tiles and totem bonuses), with
+`400 × current level` points needed for each level; Mode 1 uses five cleared rows.
+Both rulesets share the same capped bonus-drop budget. Drops may complete
 rows. No Building drop is deferred or left waiting for space. A landed tile or
 row rise reaching row zero ends the game immediately, before clears; temporary
 above-board drop positions do not count. Below-ceiling boards without slides

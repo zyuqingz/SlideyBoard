@@ -53,6 +53,24 @@ test('mode resets isolate best scores and options and reject invalid setup witho
   assert.deepEqual(engine.snapshot(), shaped);
 });
 
+test('failed resets preserve play mode and Building rules for later restarts', () => {
+  const engine = createEngine({ playMode: 'standard', buildingMode: 1, random: seeded(42) });
+  for (const [id, modeOptions, error] of [
+    ['missing', {}, /Unknown game mode/],
+    ['shaped', { shapeId: 'missing' }, /Unknown shape/]
+  ]) {
+    const before = engine.snapshot(), opening = engine.opening();
+    assert.throws(() => engine.reset(id, {
+      playMode: 'totem-building', buildingMode: 2, modeOptions
+    }), error);
+    assert.deepEqual(engine.snapshot(), before);
+    assert.deepEqual(engine.opening(), opening);
+    const restarted = engine.reset();
+    assert.equal(restarted.playMode, 'standard');
+    assert.equal(restarted.buildingMode, 1);
+  }
+});
+
 test('engine validates commands without changing state or consuming randomness', () => {
   let calls = 0;
   const engine = createEngine({ random: () => { calls++; return 0.5; } });
@@ -167,9 +185,9 @@ test('snapshots and events cannot mutate engine state or each other', () => {
   assert.doesNotThrow(() => JSON.stringify(result.events));
 });
 
-test('the default mode is Shaped and Classic is last in the menu', () => {
+test('the default map is Classic and both maps remain in the menu', () => {
   const engine = createEngine({ random: () => 0.5 });
-  assert.equal(engine.snapshot().mode, 'shaped');
+  assert.equal(engine.snapshot().mode, 'classic');
   assert.deepEqual(engine.modes.map(m => m.id), ['shaped', 'classic']);
 });
 

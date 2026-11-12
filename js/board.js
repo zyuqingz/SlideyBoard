@@ -1,6 +1,6 @@
 // Grid-space rules only. Pixel geometry and palettes belong to theme.js.
 import { cellsOf } from './block-geometry.js';
-import { isBuilding, TOTEM_SMILE_MAX } from './play-mode.js';
+import { isBuilding, isBuildingMode2, TOTEM_SMILE_MAX } from './play-mode.js';
 export const COLS = 8, ROWS = 10;
 // Abstract color-group IDs in block data; no dependency on a visual palette.
 export const COLOR_GROUPS = 5;
@@ -13,6 +13,7 @@ export function copyBoard(state) {
   return { blocks: state.blocks.map(b => ({ ...b,
     ...(b.cells ? { cells: b.cells.map(cell => ({ ...cell })) } : {}) })), nextId: state.nextId,
     playMode: state.playMode,
+    buildingMode: state.buildingMode,
     ...(state.shape ? { shape: structuredClone(state.shape) } : {}) };
 }
 
@@ -240,7 +241,9 @@ function collectBuildingTotems(board) {
   if (!isBuilding(board)) return [];
   const kept = [], collected = [];
   for (const b of board.blocks) {
-    if (b.kind === 'totem' && b.row + heightOf(b) - 1 >= ROWS - 1) collected.push(b);
+    if (b.kind === 'totem' && (isBuildingMode2(board)
+      ? (b.smile ?? 1) >= TOTEM_SMILE_MAX
+      : b.row + heightOf(b) - 1 >= ROWS - 1)) collected.push(b);
     else kept.push(b);
   }
   if (!collected.length) return [];
@@ -266,6 +269,15 @@ export function settleBoard(board, onStep = () => {}, alreadyPowered = false) {
   let cleared = 0;
   let powered = alreadyPowered;
   for (;;) {
+    // Mode 2 cashes out at the upgrade position, before gravity or another
+    // cascade can reuse the stage-3 tile to complete a row.
+    if (isBuildingMode2(board)) {
+      const collected = collectBuildingTotems(board);
+      if (collected.length) {
+        onStep('totem-collect', { blocks: collected });
+        continue;
+      }
+    }
     const moves = computeGravity(board);
     if (moves.length) onStep('gravity', { moves });
     // After a board wipe only totems remain. Let complete totem rows fall and
@@ -278,10 +290,12 @@ export function settleBoard(board, onStep = () => {}, alreadyPowered = false) {
       onStep('clear', clear);
       continue;
     }
-    const collected = collectBuildingTotems(board);
-    if (collected.length) {
-      onStep('totem-collect', { blocks: collected });
-      continue;
+    if (isBuilding(board) && !isBuildingMode2(board)) {
+      const collected = collectBuildingTotems(board);
+      if (collected.length) {
+        onStep('totem-collect', { blocks: collected });
+        continue;
+      }
     }
     return cleared;
   }

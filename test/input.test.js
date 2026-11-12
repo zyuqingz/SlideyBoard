@@ -5,8 +5,8 @@ import { bindCanvas, layout } from '../js/canvas-layout.js';
 import { createPresenter } from '../js/presenter.js';
 import { createState } from '../js/sim.js';
 import { BX, CELL, W, H } from '../js/theme.js';
-import { passwordBoxControl, passwordBackControl } from '../js/mode-popup.js';
-import { MODE_PASSWORD, isModeUnlocked, modePasswordDigits, lockModeUi } from '../js/mode-lock.js';
+import { passwordBoxControl, passwordBackControl, buildingModeControl } from '../js/mode-popup.js';
+import { MODE_PASSWORD, isModeUnlocked, modePasswordDigits, lockModeUi, setModePasswordDigits } from '../js/mode-lock.js';
 
 class Target {
   listeners = new Map();
@@ -45,6 +45,30 @@ function setupBrowser(t) {
   bindCanvas(canvas);
   return { window, document, canvas, elements };
 }
+
+test('Building rules toggle is clickable only in Totem Building after unlocking', t => {
+  const { canvas } = setupBrowser(t);
+  const presenter = createPresenter({ sfx: () => {} });
+  let toggles = 0;
+  bindInput(canvas, { presenter, modes: [], toggleBuildingMode: () => toggles++, sfx: () => {} });
+  const control = buildingModeControl([]);
+  const click = () => canvas.emit('pointerdown', { button: 0, isPrimary: true,
+    clientX: control.x + control.w / 2, clientY: layout.OY + control.y + control.h / 2 });
+  lockModeUi();
+  t.after(lockModeUi);
+  presenter.reset(createState(0, 'easy', 'totem-building'));
+  presenter.present.menu = 'mode';
+  click();
+  assert.equal(toggles, 0);
+  setModePasswordDigits(MODE_PASSWORD);
+  presenter.present.menu = 'mode';
+  click();
+  assert.equal(toggles, 1);
+  presenter.reset(createState());
+  presenter.present.menu = 'mode';
+  click();
+  assert.equal(toggles, 1);
+});
 
 test('browser pointer lifecycle only commits intentional releases', async t => {
   const { window, document, canvas } = setupBrowser(t);

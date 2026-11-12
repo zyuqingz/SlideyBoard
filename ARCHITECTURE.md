@@ -74,8 +74,8 @@ const opening = game.opening(); // { accepted, events }, detached playback for t
 const shaped = game.reset('shaped', { best: 700, modeOptions: { shapeId: 'diamond' } });
 ```
 
-Shaped is the default mode; the menu order is Shaped, Classic. With a custom
-registry that excludes Shaped, the first registered mode is the default.
+Classic is the default mode; the menu order is Shaped, Classic. With a custom
+registry that excludes Classic, the first registered mode is the default.
 `best` and `modeOptions` supplied at creation belong only to the initial mode.
 `reset()` restarts the current mode with its latest best score and saved options.
 `reset(id, { best, modeOptions })` can seed another mode from browser persistence;
@@ -286,6 +286,30 @@ to the base mode; the retired Totem mode's score key is no longer read or writte
 
 ### Totem Building
 
+The mode menu has a persistent **Mode 1 / Mode 2** rules toggle (`buildingMode`).
+Mode 1 is the default and retains the floor-collection behavior described below.
+Classic is the default map. Both maps support either Building ruleset.
+
+Mode 2 overrides collection, scoring, and expression placement:
+
+- Stage-1 and stage-2 totems remain on the board, including at the floor. A row
+  clear upgrades each touched totem once. At stage 3 it collects immediately at
+  its current position, before gravity or another row clear can reuse it.
+- Power mode (button or all-totem row) upgrades every totem to stage 3 and wipes
+  ordinary tiles. Every totem then flies away once from its upgrade position.
+- Ordinary cleared cells score `10 × level × combo`; each affected tile row adds
+  one combo step, including partial rows in a power wipe. Totems additionally
+  award `50 × smile × level`, independently of the row-score popup.
+- The level bar uses total score, including totem bonuses. Level L starts at
+  `200 × L × (L - 1)` points and requires `400 × L` points to advance. Collection
+  level-ups use the same held-full-bar and capped bonus-drop flow as row clears.
+- Stage 1 faces sit in the bottom half, stage 2 in the middle, and stage 3 keeps
+  its original position. Upgrades interpolate smoothly between these positions.
+- Detached preview boards preserve `buildingMode`; Mode 2 candidate difficulty
+  uses the current score-derived level. Spawn/refill budgets are shared.
+
+### Totem Building Mode 1 and shared lifecycle
+
 - Reset drops one independent 1×1 totem with `smile: 1`. Opening drops resolve
   clears, smile upgrades and floor collections with normal scoring before input.
   Refill only if needed to restore a legal first slide; an immediately
@@ -332,13 +356,16 @@ to the base mode; the retired Totem mode's score key is no longer read or writte
   reject Building rises that touch the ceiling before simulating a response slide.
 - Sand, jade, and gold faces blend through ordinary smile upgrades. Floor
   collections compress and rebound, then launch intact on a sideways, upward arc,
-  rotating and fading as gravity pulls them down. Adjacent
-  floor collections separated by one-cell gravity share a visual clock. Released
-  tiles briefly hang, then fall with quadratic acceleration, staggered from the
-  bottom upward so each tile falls independently into the opened space.
+  rotating and fading as gravity pulls them down. In both Building rulesets,
+  the board queue resumes immediately at takeoff after the 340ms rebound.
+  Detached `flyingTotems` poses animate and bank scores independently of live
+  block views. Released tiles fall with quadratic acceleration, staggered from
+  the bottom upward so each tile falls independently into the opened space.
   Each totem repeats the same floor compression/rebound and particle-like flight
   after the released tiles land. Individual score impacts overlap the
   falling stack and the next arrival's feedback rather than delaying them.
+  Input unlocks at the end of the board queue even while flights remain. Flights
+  share the pause/reset clock, and their completion never adopts board snapshots.
   Clears, rises, drops, and longer falls remain playback boundaries. All-totem
   row clears upgrade every totem to gold, then wipe ordinary blocks in a
   top-to-bottom wave before totems fall and collect. Side confetti accompanies

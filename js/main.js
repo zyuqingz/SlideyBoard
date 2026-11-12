@@ -7,7 +7,7 @@ import { bindInput } from './input.js';
 import { layout, bindCanvas } from './canvas-layout.js';
 import { draw } from './render.js';
 import { loadBest, saveBest, loadDifficulty, saveDifficulty, loadPlayMode, savePlayMode,
-  loadPowerButton, savePowerButton } from './storage.js';
+  loadPowerButton, savePowerButton, loadBuildingMode, saveBuildingMode } from './storage.js';
 import { nextPlayMode } from './play-mode.js';
 import { loadLang } from './i18n.js';
 import { SHAPES } from './shapes.js';
@@ -21,9 +21,8 @@ let activeShapeSelection = 'funnel';
 const canvas = document.getElementById('game');
 bindCanvas(canvas);
 loadLang();
-const engine = createEngine({ modeId: 'shaped', best: loadBest('shaped'),
-  difficulty: loadDifficulty(), playMode: loadPlayMode(),
-  modeOptions: { shapeId: activeShapeSelection } });
+const engine = createEngine({ modeId: 'classic', best: loadBest('classic'),
+  difficulty: loadDifficulty(), playMode: loadPlayMode(), buildingMode: loadBuildingMode() });
 const presenter = createPresenter({ boardY: () => layout.BY });
 presenter.present.powerButton = loadPowerButton();
 
@@ -54,6 +53,12 @@ function cyclePlayMode() {
   const playMode = nextPlayMode(engine.snapshot().playMode);
   resetOptions({ playMode });
   savePlayMode(playMode);
+}
+
+function toggleBuildingMode() {
+  const buildingMode = engine.snapshot().buildingMode === 2 ? 1 : 2;
+  resetOptions({ buildingMode });
+  saveBuildingMode(buildingMode);
 }
 
 function cycleMap() {
@@ -115,7 +120,7 @@ function slide(id, col) {
 const input = bindInput(canvas, {
   presenter, modes: engine.modes, moveRange: id => engine.moveRange(id),
   slide, restart, shapeSelection, toggleDifficulty, cyclePlayMode, cycleMap, cycleShape,
-  togglePowerButton, triggerPowerMode
+  togglePowerButton, triggerPowerMode, toggleBuildingMode
 });
 
 let last = performance.now();
@@ -145,7 +150,7 @@ window.__slidey = {
       combo: present.comboFx?.mult || 0, level: state.level, lines: state.lines,
       busy: presenter.busy, over: state.phase === 'over', paused: present.menu === 'pause',
       modeOpen: present.menu === 'mode', mode: state.mode, best: state.best,
-      difficulty: state.difficulty, playMode: state.playMode
+      difficulty: state.difficulty, playMode: state.playMode, buildingMode: state.buildingMode
     };
   },
   get layout() {

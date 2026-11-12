@@ -136,6 +136,11 @@ export function drawOverlays(now, state, present, modes, shapeSelection) {
       const modeChrome = MODE_CHROME[playId] ?? MODE_CHROME.standard;
       drawSelector(pop.playMode, t(playId), hoverOf(present, 'btn:play-mode'),
         modeChrome.fill, modeChrome.ink, modeChrome.border);
+      const building = playId === 'totem-building';
+      text(t('buildingRules'), pop.buildingMode.x, pop.buildingMode.y - 14, 16, C.muted, 'left');
+      drawSelector(pop.buildingMode, t(state.buildingMode === 2 ? 'buildingMode2' : 'buildingMode1'),
+        building ? hoverOf(present, 'btn:building-mode') : 0,
+        building ? C.panel : '#100d14', building ? '#c5adc9' : '#3a3144');
       const normal = state.difficulty === 'normal';
       text(t('difficulty'), pop.difficulty.x, pop.difficulty.y - 14, 16, C.muted, 'left');
       drawSelector(pop.difficulty, t(normal ? 'normal' : 'easy'), hoverOf(present, 'btn:difficulty'));

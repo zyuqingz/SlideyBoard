@@ -16,7 +16,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
   const present = {
     ...createScorePresentation(), shake: 0, overlayA: 0, drag: null, menu: null,
     hoverKey: null, hoverAmt: {}, landingDust: [], godClearFx: null, levelUpFx: null, spawnFx: [],
-    displayProgress: 0, displayLevel: 1, levelScale: 1, powerButton: false
+    displayProgress: 0, displayLevel: 1, levelScale: 1, powerButton: false, flyingTotems: []
   };
   const { tween, wait } = effects;
   let state, busy = false, generation = 0, lock = 0, motion = 0;
@@ -32,7 +32,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
   function viewOf(block) {
     if (!views.has(block.id)) views.set(block.id, {
       vx: block.col, vy: block.row, dragVelocity: 0, flash: 0, s: 1, sq: 0, land: 0, slot: 0,
-      danger: 0, clearing: false, collecting: false, flight: null, expression: block.smile ?? 1, evolve: 0
+      danger: 0, clearing: false, collecting: false, expression: block.smile ?? 1, evolve: 0
     });
     return views.get(block.id);
   }
@@ -44,7 +44,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     // it; cached views must never retain a removed block's scale or old position.
     for (const b of state.blocks) Object.assign(viewOf(b), {
       vx: b.col, vy: b.row, dragVelocity: 0, s: 1, flash: 0, slot: 0, clearing: false, collecting: false,
-      expression: b.smile ?? 1, evolve: 0, flight: null
+      expression: b.smile ?? 1, evolve: 0
     });
     for (const id of views.keys()) if (!keep.has(id)) views.delete(id);
   }
@@ -62,7 +62,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     Object.assign(present, createScorePresentation(), {
       displayScore: state.score, shake: 0, overlayA: state.phase === 'over' ? 1 : 0,
       drag: null, menu: null, hoverKey: null, hoverAmt: {}, landingDust: [], godClearFx: null,
-      levelUpFx: null, spawnFx: [],
+      levelUpFx: null, spawnFx: [], flyingTotems: [],
       displayProgress: state.levelProgress ?? 0,
       displayLevel: state.level ?? 1,
       levelScale: 1, powerButton
@@ -103,7 +103,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     }, Ease.lin);
   }
 
-  function advanceLevel(snapshot, holdForSpawn) {
+  function advanceLevel(snapshot, holdForSpawn, durationLimit = Infinity) {
     const from = present.displayProgress, level = present.displayLevel;
     const target = snapshot.levelProgress ?? 0, nextLevel = snapshot.level ?? level;
     const levelUp = nextLevel > level;
@@ -115,10 +115,12 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     let celebrated = false;
     // Finish each progress update alongside its clear, so cascades cannot leave
     // competing HUD tweens or let an incoming totem precede the full-bar beat.
-    const duration = levelUp ? 400 : 240;
+    const baseDuration = levelUp ? 400 : 240;
+    const duration = Math.min(baseDuration, durationLimit);
     return tween(duration, p => {
       if (stamp !== progressMotion) return;
-      const elapsed = p * duration;
+      // Scale every phase together when collection shortens the animation.
+      const elapsed = p * baseDuration;
       const fill = Ease.out(clamp(elapsed / 220, 0, 1));
       present.displayProgress = from + ((levelUp || held ? 1 : target) - from) * fill;
       present.levelScale = 1 + 0.12 * Math.sin(Math.PI * p);
@@ -219,24 +221,24 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     }, Ease.lin);
   }
 
-  function landed(b, d, { sound = true, squash = true } = {}) {
+  function landed(b, d, { sound = true } = {}) {
     const v = viewOf(b);
     if (sound) sfx('fall', b.kind === 'totem'
       ? { volume: 0.72, rate: 0.88 + Math.random() * 0.16 }
       : { volume: 0.84, rate: 0.92 + Math.random() * 0.1 });
     const amp = Math.min(0.24, 0.12 + 0.035 * d) / Math.sqrt(b.height ?? 1);
     const stamp = motion;
-    if (squash) v.sq = amp;
+    v.sq = amp;
     landingDust(b);
     v.land = 1;
     tween(225, p => {
       if (stamp !== motion) return;
-      if (squash) v.sq = amp * Ease.damped(p);
+      v.sq = amp * Ease.damped(p);
       v.land = 1 - p;
     }, Ease.lin);
   }
 
-  async function fall(moves, current) {
+  async function fall(moves, current, released = false) {
     const items = moves.map(move => {
       const b = state.blocks.find(block => block.id === move.id);
       const v = viewOf(b);
@@ -245,10 +247,16 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
       return { move, b, v, d: move.to - move.from };
     });
     let totemWave = 0, tileLanded = false;
+    const bottom = Math.max(...moves.map(move => move.from));
     const results = await Promise.all(items.map(async ({ move, b, v, d }) => {
-      const delay = b?.kind === 'totem' ? totemWave++ * TOTEM_STAGGER_MS : 0;
-      if (delay && (!await wait(delay) || !current())) return false;
-      if (!await tween(fallMs(d), t => { v.vy = move.from + d * t; }, Ease.in) || !current())
+      const delay = released ? (bottom - move.from) * TOTEM_STAGGER_MS
+        : b?.kind === 'totem' ? totemWave++ * TOTEM_STAGGER_MS : 0;
+      if (!released && delay && (!await wait(delay) || !current())) return false;
+      const duration = fallMs(d), total = duration + (released ? delay : 0);
+      if (!await tween(total, t => {
+        const p = released ? clamp((t * total - delay) / duration, 0, 1) : t;
+        v.vy = move.from + d * Ease.in(p);
+      }, Ease.lin) || !current())
         return false;
       if (d <= 0) return true;
       // Show contact immediately, then let the compression rebound before the
@@ -260,99 +268,60 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     return results.every(Boolean);
   }
 
-  async function collectChain(events, current) {
+  async function collect(event, current, holdForSpawn, flights) {
     interruptSquash();
-    // Coalesce only adjacent collection/gravity facts. Keep their shown geometry
-    // on one clock, with independent gravity drops above each departing tile.
-    // Rules and awards still come from each event.
-    const batches = [];
     const contactMs = 340;
-    let start = 0;
-    for (let i = 0; i < events.length; i += 2) {
-      const event = events[i];
-      const distance = Math.max(1, ...event.blocks.map(b => ROWS - b.row));
-      const duration = 620 + (distance - 1) * 215;
-      const followers = (events[i + 1]?.moves ?? []).map(move => ({
-        ...move, v: viewOf(state.blocks.find(b => b.id === move.id)),
-        // Release from the bottom upward after the collected tile lifts away.
-        // Higher tiles hang briefly, then accelerate under their own gravity.
-        release: contactMs + duration * 0.85 + Math.max(0, ROWS - 2 - move.from) * TOTEM_STAGGER_MS,
-        duration: fallMs(move.to - move.from)
-      }));
-      // Sample once per tile, centered on the existing arc. Cosmetic randomness
-      // stays separate from gameplay and does not change with frame rate.
-      const flightHeights = new Map(event.blocks.map(b => [b.id, 0.65 + Math.random() * 0.7]));
-      batches.push({ event, start, duration, scores: null, finished: false, tileLanded: false, followers,
-        flightHeights });
-      start += Math.max(contactMs + duration, ...followers.map(f => f.release + f.duration));
-    }
-    const impacts = [];
-    function begin(batch) {
-      batch.scores = collectionScores(batch.event.blocks, batch.event.award);
-      for (const b of batch.event.blocks) {
-        const v = viewOf(b);
-        v.clearing = true;
-        v.collecting = true;
-      }
-    }
-    begin(batches[0]);
-    if (!await tween(start, p => {
-      const elapsed = p * start;
-      for (const batch of batches) {
-        if (elapsed < batch.start) break;
-        if (!batch.scores) begin(batch);
-        const age = elapsed - batch.start;
-        // Launch the intact tile like one particle after its contact rebound.
-        if (!batch.launched && age >= contactMs) {
-          batch.launched = true;
-          sfx('totem-clear', { volume: 0.92 });
-        }
-        const contact = clamp(age / contactMs, 0, 1);
-        const squash = contact < 0.28 ? 0.24 * Ease.out(contact / 0.28)
-          : contact < 0.65 ? 0.24 - 0.33 * Ease.out((contact - 0.28) / 0.37)
-            : -0.09 * (1 - Ease.out((contact - 0.65) / 0.35));
-        const t = clamp((age - contactMs) / batch.duration, 0, 1);
-        for (const b of batch.event.blocks) {
-          const v = viewOf(b);
-          v.sq = contact === 1 ? 0 : squash / Math.sqrt(b.height ?? 1);
-          v.vy = b.row;
-          const side = b.col + b.len / 2 < COLS / 2 ? -1 : 1;
-          v.flight = batch.launched ? {
-            x: side * CELL * 2.2 * Ease.out(t),
-            y: CELL * (-4.5 * t + 5.2 * t * t) * batch.flightHeights.get(b.id),
-            rotation: side * Math.PI * 2.5 * t,
-            alpha: 1 - Ease.in(clamp((t - 0.8) / 0.2, 0, 1))
-          } : null;
-          v.s = t === 1 ? 0 : 1 + 0.14 * Math.sin(Math.PI * clamp(t / 0.3, 0, 1));
-        }
-        for (const move of batch.followers) {
-          const drop = clamp((age - move.release) / move.duration, 0, 1);
-          move.v.vy = move.from + (move.to - move.from) * drop ** 2;
-          if (drop === 1 && !move.landed) {
-            move.landed = true;
-            const b = { ...state.blocks.find(b => b.id === move.id), row: move.to };
-            // The chain owns compression/rebound; share contact sound and dust
-            // without a separate squash tween overwriting its next arrival.
-            landed(b, move.to - move.from, {
-              sound: b.kind === 'totem' || !batch.tileLanded, squash: false
-            });
-            if (b.kind !== 'totem') batch.tileLanded = true;
-          }
-        }
-        for (const fx of batch.scores) {
-          fx.flight = clamp((age - contactMs - batch.duration + 560) / 560, 0, 1) ** 4;
-        }
-        if (t === 1 && !batch.finished) {
-          batch.finished = true;
-          impacts.push(finishTotemScores(present, batch.scores, effects, current));
-        }
-      }
+    const mode2 = state.buildingMode === 2;
+    const progress = mode2 ? advanceLevel(event.state, holdForSpawn, contactMs) : Promise.resolve(true);
+    const scores = collectionScores(event.blocks, event.award);
+    const items = event.blocks.map(block => {
+      const v = viewOf(block);
+      v.clearing = true;
+      v.collecting = true;
+      return { block: structuredClone(block), view: v,
+        height: 0.65 + Math.random() * 0.7, mode2 };
+    });
+    if (!await tween(contactMs, p => {
+      const squash = p < 0.28 ? 0.24 * Ease.out(p / 0.28)
+        : p < 0.65 ? 0.24 - 0.33 * Ease.out((p - 0.28) / 0.37)
+          : -0.09 * (1 - Ease.out((p - 0.65) / 0.35));
+      for (const { block, view } of items)
+        view.sq = p === 1 ? 0 : squash / Math.sqrt(block.height ?? 1);
     }, Ease.lin) || !current()) return false;
-    adopt(events.at(-1).state);
-    return (await Promise.all(impacts)).every(Boolean) && current();
+    if (!await progress || !current()) return false;
+
+    // Flight poses are detached from live views. Subsequent gravity, rises,
+    // clears and turns may adopt snapshots without touching these particles.
+    for (const item of items) {
+      item.view = { ...item.view, sq: 0, flight: { x: 0, y: 0, rotation: 0, alpha: 1 } };
+      present.flyingTotems.push(item);
+    }
+    sfx('totem-clear', { volume: 0.92 });
+    const distance = mode2 ? 1 : Math.max(1, ...event.blocks.map(b => ROWS - b.row));
+    flights.push(flyTotems(items, scores, 620 + (distance - 1) * 215, current));
+    adopt(event.state);
+    return true;
   }
 
-  async function animate(event, run, holdForSpawn) {
+  async function flyTotems(items, scores, duration, current) {
+    if (!await tween(duration, t => {
+      for (const { block: b, view: v, height } of items) {
+        const side = b.col + b.len / 2 < COLS / 2 ? -1 : 1;
+        v.flight = {
+          x: side * CELL * 2.2 * Ease.out(t),
+          y: CELL * (-4.5 * t + 5.2 * t * t) * height,
+          rotation: side * Math.PI * 2.5 * t,
+          alpha: 1 - Ease.in(clamp((t - 0.8) / 0.2, 0, 1))
+        };
+        v.s = t === 1 ? 0 : 1 + 0.14 * Math.sin(Math.PI * clamp(t / 0.3, 0, 1));
+      }
+      for (const fx of scores) fx.flight = clamp((t * duration - duration + 560) / 560, 0, 1) ** 4;
+    }, Ease.lin) || !current()) return false;
+    present.flyingTotems = present.flyingTotems.filter(item => !items.includes(item));
+    return finishTotemScores(present, scores, effects, current);
+  }
+
+  async function animate(event, run, holdForSpawn, released = false) {
     const current = () => run === generation;
     switch (event.type) {
       case 'slide': {
@@ -370,7 +339,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
       case 'gravity': {
         interruptSquash();
         adopt(event.state);
-        return fall(event.moves, current);
+        return fall(event.moves, current, released);
       }
       case 'clear': {
         // Keep the pre-clear snapshot visible until the departing blocks vanish.
@@ -511,6 +480,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     if (busy || !result.accepted) return false;
     const run = generation;
     const mine = ++lock;
+    const flights = [];
     busy = true;
     try {
       for (let i = 0; i < result.events.length; i++) {
@@ -521,23 +491,16 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
           // outlive this turn, but must never adopt a snapshot after input unlocks.
           adopt(event.state);
           if (lock === mine) busy = false;
-          return await bankScore(present, effects, () => run === generation)
-            && run === generation;
+          const finished = await Promise.all([bankScore(present, effects, () => run === generation), ...flights]);
+          return finished.every(Boolean) && run === generation;
         }
         if (event.type === 'totem-collect') {
-          const chain = [event];
-          while (chain.at(-1).blocks.every(b => b.row === ROWS - 1 && (b.height ?? 1) === 1)) {
-            const gravity = result.events[i + 1], next = result.events[i + 2];
-            if (gravity?.type !== 'gravity' || next?.type !== 'totem-collect'
-              || !gravity.moves.every(move => move.to - move.from === 1)
-              || !next.blocks.every(b => b.row === ROWS - 1 && (b.height ?? 1) === 1)) break;
-            chain.push(gravity, next);
-            i += 2;
-          }
-          if (!await collectChain(chain, () => run === generation)) return false;
+          if (!await collect(event, () => run === generation,
+            result.events.slice(i + 1).some(next => next.type === 'totem-drop'), flights)) return false;
         } else if (!await animate(event, run, event.type === 'clear'
           && event.state.playMode === 'totem-building'
-          && result.events.slice(i + 1).some(next => next.type === 'totem-drop'))) return false;
+          && result.events.slice(i + 1).some(next => next.type === 'totem-drop'),
+          result.events[i - 1]?.type === 'totem-collect')) return false;
       }
       return run === generation;
     } finally {

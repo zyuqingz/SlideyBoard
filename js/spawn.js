@@ -4,7 +4,7 @@ import {
   settleBoard, slideRange, touchingTop
 } from './board.js';
 import { generateNormalRow } from './difficulty.js';
-import { isBuilding, levelForBuildingLines } from './play-mode.js';
+import { isBuilding, isBuildingMode2, levelForBuildingLines } from './play-mode.js';
 
 // Search budget and difficulty tuning live together; no hidden per-player state.
 const SEARCH = Object.freeze({
@@ -206,7 +206,8 @@ export function generateNextRow(state, random = Math.random) {
   const lines = state.lines + settleBoard(board);
   const building = isBuilding(state);
   const minLen = building ? 2 : 1;
-  const level = building ? levelForBuildingLines(lines) : levelForLines(lines);
+  const level = isBuildingMode2(state) ? state.level
+    : building ? levelForBuildingLines(lines) : levelForLines(lines);
   const context = {
     relief: boardQuality(board).height >= DIFFICULTY.reliefHeight,
     opening: lines < DIFFICULTY.openingLines,

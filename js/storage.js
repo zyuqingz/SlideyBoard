@@ -43,6 +43,15 @@ export function savePlayMode(value) {
   try { localStorage.setItem('slidey_play_mode', value); } catch {}
 }
 
+export function loadBuildingMode() {
+  try { return localStorage.getItem('slidey_building_mode') === '2' ? 2 : 1; }
+  catch { return 1; }
+}
+
+export function saveBuildingMode(value) {
+  try { localStorage.setItem('slidey_building_mode', value === 2 ? '2' : '1'); } catch {}
+}
+
 const POWER_BUTTON_KEY = 'slidey_power_button';
 
 export function loadPowerButton() {

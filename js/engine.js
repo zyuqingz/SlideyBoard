@@ -1,7 +1,7 @@
 // Public headless API. Owns authoritative state; callers only receive copies.
 import { createState } from './sim.js';
 import { GAME_MODES } from './modes.js';
-import { resolvePlayMode } from './play-mode.js';
+import { resolvePlayMode, normalizeBuildingMode } from './play-mode.js';
 
 /**
  * A mode supplies { id, label, reset(state, random, options, emit), moveRange(state, block),
@@ -10,10 +10,11 @@ import { resolvePlayMode } from './play-mode.js';
  * from the browser. Supplying the same RNG stream and commands reproduces a game.
  */
 export function createEngine({ best = 0, random = Math.random, modes = GAME_MODES,
-  modeId, modeOptions = {}, difficulty = 'easy', playMode, totemsEnabled } = {}) {
+  modeId, modeOptions = {}, difficulty = 'easy', playMode, totemsEnabled, buildingMode = 1 } = {}) {
   let currentPlayMode = resolvePlayMode({ playMode, totemsEnabled }, 'standard');
+  let currentBuildingMode = normalizeBuildingMode(buildingMode);
   const registry = new Map(modes.map(mode => [mode.id, mode]));
-  modeId = modeId ?? (registry.has('shaped') ? 'shaped' : modes[0]?.id);
+  modeId = modeId ?? (registry.has('classic') ? 'classic' : modes[0]?.id);
   const bests = new Map([[modeId, best]]);
   const options = new Map([[modeId, structuredClone(modeOptions)]]);
   let mode;
@@ -22,8 +23,9 @@ export function createEngine({ best = 0, random = Math.random, modes = GAME_MODE
   const snapshot = () => structuredClone(state);
 
   function reset(id = mode?.id ?? modeId, config = {}) {
-    currentPlayMode = resolvePlayMode(config, currentPlayMode);
-    if (currentPlayMode === 'tetris' && registry.has('classic')) id = 'classic';
+    const nextPlayMode = resolvePlayMode(config, currentPlayMode);
+    const nextBuildingMode = normalizeBuildingMode(config.buildingMode ?? currentBuildingMode);
+    if (nextPlayMode === 'tetris' && registry.has('classic')) id = 'classic';
     const nextMode = registry.get(id);
     if (!nextMode) throw new Error(`Unknown game mode: ${id}`);
     const nextBest = config.best ?? (id === mode?.id ? state.best : bests.get(id) ?? 0);
@@ -31,12 +33,14 @@ export function createEngine({ best = 0, random = Math.random, modes = GAME_MODE
     // The engine initializes base state; modes only construct their opening.
     // Publish after setup succeeds so an invalid option cannot erase a live run.
     const fresh = createState(nextBest, config.difficulty ?? state?.difficulty ?? difficulty,
-      currentPlayMode);
+      nextPlayMode, nextBuildingMode);
     fresh.mode = id;
     const events = [];
     const emit = (type, data = {}) => events.push(structuredClone({ type, ...data, state: fresh }));
     nextMode.reset(fresh, random, structuredClone(nextOptions), emit);
     if (events.length) emit('turn-complete');
+    currentPlayMode = nextPlayMode;
+    currentBuildingMode = nextBuildingMode;
     if (mode) bests.set(mode.id, state.best);
     options.set(id, nextOptions);
     bests.set(id, fresh.best);

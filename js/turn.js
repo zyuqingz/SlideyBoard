@@ -4,16 +4,25 @@ import { ROWS, rowSpan, computeGravity, settleBoard, touchingTop, hasMoves,
 import { createTurnScore, awardRows, awardTotemCollect } from './sim.js';
 import { spawnTotem, spawnBuildingTotem } from './totem-spawn.js';
 import { isBuilding, isTetris, usesTotems, tetrisDropInterval,
-  buildingTotemsForLevelUp, REFILL_ROWS } from './play-mode.js';
+  isBuildingMode2, buildingTotemsForLevelUp, REFILL_ROWS } from './play-mode.js';
+import { cellsOf } from './block-geometry.js';
 
 function scoreSteps(state, emit) {
   const turn = createTurnScore();
   return (type, data) => {
     if (type === 'clear') {
-      data.award = awardRows(state, data.rows, turn, row => {
+      const widths = new Map();
+      if (isBuildingMode2(state)) for (const b of data.blocks) for (const cell of cellsOf(b)) {
+        const row = b.row + cell.row;
+        widths.set(row, (widths.get(row) ?? 0) + 1);
+      }
+      // Power wipes also award the ordinary tiles outside completed rows.
+      const scoredRows = isBuildingMode2(state) ? [...widths.keys()].sort((a, b) => a - b) : data.rows;
+      data.award = awardRows(state, scoredRows, turn, row => {
+        if (isBuildingMode2(state)) return widths.get(row);
         const { left, right } = rowSpan(state, row);
         return right - left;
-      });
+      }, data.rows.length);
     } else if (type === 'totem-collect') {
       data.award = awardTotemCollect(state, data.blocks);
     }

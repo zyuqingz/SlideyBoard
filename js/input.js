@@ -5,7 +5,7 @@ import { CELL, BX } from './theme.js';
 import { createDrag, followDrag } from './drag.js';
 import { layout, toLogical, toOverlay, hit, GO_RESTART, invalidateCanvas } from './canvas-layout.js';
 import { mapControl, modeResume, shapeControl, difficultyControl, playModeControl,
-  powerButtonControl, passwordBoxControl, passwordBackControl } from './mode-popup.js';
+  powerButtonControl, buildingModeControl, passwordBoxControl, passwordBackControl } from './mode-popup.js';
 import { MODE_PASSWORD, isModeUnlocked, modePasswordDigits,
   setModePasswordDigits, resetModePassword } from './mode-lock.js';
 import { settingsPopup } from './settings-popup.js';
@@ -13,7 +13,7 @@ import { setLang } from './i18n.js';
 import { unlockAudio, isMuted, setMuted, playSfx } from './audio.js';
 
 export function bindInput(canvas, { presenter, modes, moveRange, slide, restart, shapeSelection,
-  toggleDifficulty, cyclePlayMode, cycleMap, cycleShape, togglePowerButton, triggerPowerMode,
+  toggleDifficulty, cyclePlayMode, cycleMap, cycleShape, togglePowerButton, triggerPowerMode, toggleBuildingMode,
   sfx = playSfx }) {
   const { present, viewOf } = presenter;
   const click = () => sfx('click');
@@ -92,6 +92,8 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
       if (hit(difficultyControl(modes), op)) return 'btn:difficulty';
       if (hit(powerButtonControl(modes), op)) return 'btn:power-toggle';
       if (hit(playModeControl(modes), op)) return 'btn:play-mode';
+      if (presenter.state.playMode === 'totem-building' && hit(buildingModeControl(modes), op))
+        return 'btn:building-mode';
       if (presenter.state.playMode !== 'tetris' && hit(mapControl(modes), op)) return 'btn:map';
       const control = shapeControl(modes);
       const shaped = presenter.state.mode === 'shaped';
@@ -207,6 +209,11 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
       if (hit(difficultyControl(modes), op)) {
         click();
         toggleDifficulty();
+        return;
+      }
+      if (presenter.state.playMode === 'totem-building' && hit(buildingModeControl(modes), op)) {
+        click();
+        toggleBuildingMode?.();
         return;
       }
       if (hit(powerButtonControl(modes), op)) {

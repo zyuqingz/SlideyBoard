@@ -138,13 +138,15 @@ function drawTile(x, y, w, h, paint, radius = BLOCK_R) {
   rr(x + inset, y + inset, w - 2 * inset, h - depth - 2 * inset, radius - inset); ctx.stroke();
 }
 
-function drawBuildingFace(x, y, w, h, stage, pulse, panic, shocked) {
+function drawBuildingFace(x, y, w, h, stage, pulse, panic, shocked, mode2) {
   const paint = totemPaint(stage);
   drawTile(x, y, w, h, paint);
   const happy = clamp(stage - 2, 0, 1);
   const smile = clamp(stage - 1, 0, 1);
   ctx.strokeStyle = paint.ink;
   ctx.lineCap = 'round';
+  const tileY = y;
+  if (mode2) y += (3 - clamp(stage, 1, 3)) * 13;
   if (panic) drawPanicFace(x, y + 2, w);
   else {
     ctx.lineWidth = 5;
@@ -169,11 +171,11 @@ function drawBuildingFace(x, y, w, h, stage, pulse, panic, shocked) {
   if (pulse > 0) {
     ctx.strokeStyle = `rgba(255,250,220,${0.85 * pulse})`;
     ctx.lineWidth = 2 + 2 * pulse;
-    rr(x + 2, y + 2, w - 4, h - 4, BLOCK_R - 1); ctx.stroke();
+    rr(x + 2, tileY + 2, w - 4, h - 4, BLOCK_R - 1); ctx.stroke();
   }
 }
 
-function drawBlock(b, v, hover = 0, shape = null, now = 0, building = false, held = false) {
+function drawBlock(b, v, hover = 0, shape = null, now = 0, building = false, held = false, mode2 = false) {
   if (v.s <= 0) return;
   const x = BX + v.vx * CELL + PAD, y = layout.BY + v.vy * CELL + PAD;
   const w = b.len * CELL - 2 * PAD, h = (b.height ?? 1) * CELL - 2 * PAD;
@@ -229,7 +231,7 @@ function drawBlock(b, v, hover = 0, shape = null, now = 0, building = false, hel
     const sx = x + face.col * CELL, sy = y + face.row * CELL;
     const w = face.len * CELL - 2 * PAD;
     if (building && b.kind === 'totem') {
-      drawBuildingFace(sx, sy, w, cellH, v.expression ?? b.smile ?? 1, v.evolve ?? 0, panic, shocked);
+      drawBuildingFace(sx, sy, w, cellH, v.expression ?? b.smile ?? 1, v.evolve ?? 0, panic, shocked, mode2);
     } else {
       drawTile(sx, sy, w, cellH, isCarved(b) ? CARVED_PAINT : BLOCK_PALETTE[b.color]);
     }
@@ -482,7 +484,7 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
     ctx.restore();
   }
   if (playId !== 'standard')
-    text(`${modeLabel(playId, playId)} ${t('mode')}`,
+    text(`${modeLabel(playId, playId)} ${t('mode')}${playId === 'totem-building' ? ` ${state.buildingMode ?? 1}` : ''}`,
       W / 2, layout.MODE_Y, 22, C.muted, 'center', 700);
   const scoreTarget = drawScore(present, slots.scoreY);
   const guideY = BY - LEVEL_BAR_H - 26;
@@ -490,7 +492,7 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   if (state.phase === 'play') {
     if (!present.scoreFx && !state.hasMoved) {
       ctx.globalAlpha = 0.55 + 0.25 * Math.sin(now / 400);
-      const hint = playId === 'totem-building' ? t('hintTotemBuilding')
+      const hint = playId === 'totem-building' ? t(state.buildingMode === 2 ? 'hintTotemBuilding2' : 'hintTotemBuilding')
         : playId === 'tetris' ? t('hintTetris')
           : state.shape ? t('hintShaped') : t('hintClassic');
       text(hint, W / 2, guideY, 22, '#9c89a8', 'center', 700);
@@ -573,15 +575,18 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   else ctx.rect(BX - 10, BY - 40, BW + 20, BH + 40);
   ctx.clip();
   const warnShape = state.phase === 'play' ? state.shape : null;
-  const aboveBoard = b => !!viewOf(b).flight || !viewOf(b).collecting && (b.id === drag?.blockId
+  const aboveBoard = b => !viewOf(b).collecting && (b.id === drag?.blockId
     || viewOf(b).slot > 0 || hoverOf(present, 'block:' + b.id) > 0);
   for (const b of state.blocks) if (!aboveBoard(b))
-    drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape, now, playId === 'totem-building');
+    drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape, now, playId === 'totem-building', false, state.buildingMode === 2);
   ctx.restore();
   // Active and hovered tiles draw last so their feedback is not clipped.
   for (const b of state.blocks) if (aboveBoard(b))
     drawBlock(b, viewOf(b), hoverOf(present, 'block:' + b.id), warnShape, now,
-      playId === 'totem-building', b.id === drag?.blockId);
+      playId === 'totem-building', b.id === drag?.blockId, state.buildingMode === 2);
+
+  for (const { block, view, mode2 } of present.flyingTotems)
+    drawBlock(block, view, 0, null, now, true, false, mode2);
 
   ctx.save();
   ctx.fillStyle = '#ffefcb';

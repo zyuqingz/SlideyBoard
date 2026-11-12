@@ -44,4 +44,14 @@ export function nextPlayMode(id) {
 
 export const isTetris = state => state.playMode === 'tetris';
 export const isBuilding = state => state.playMode === 'totem-building';
+export const isBuildingMode2 = state => isBuilding(state) && state.buildingMode === 2;
+export const normalizeBuildingMode = mode => mode === 2 ? 2 : 1;
+
+// Score targets grow with the level, matching the level multiplier on awards.
+export function buildingScoreProgress(score) {
+  const points = Math.max(0, score);
+  const level = Math.floor((1 + Math.sqrt(1 + points / 50)) / 2);
+  const start = 200 * level * (level - 1);
+  return { level, levelProgress: (points - start) / (400 * level) };
+}
 export const usesTotems = state => isTetris(state) || isBuilding(state);

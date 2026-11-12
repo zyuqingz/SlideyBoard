@@ -21,7 +21,8 @@ export function modePopup(modes = []) {
   const dividerY = control.y + control.h + 28;
   const modeTitleY = dividerY + 36;
   const playMode = { ...POP_BTN, y: modeTitleY + 48, h: 60 };
-  const difficulty = { ...POP_BTN, y: playMode.y + playMode.h + 40, h: 60 };
+  const buildingMode = { ...POP_BTN, y: playMode.y + playMode.h + 40, h: 60 };
+  const difficulty = { ...POP_BTN, y: buildingMode.y + buildingMode.h + 40, h: 60 };
   const powerButton = { ...POP_BTN, y: difficulty.y + difficulty.h + 40, h: 60 };
   const resume = {
     ...MODE_RESUME_BTN,
@@ -45,6 +46,7 @@ export function modePopup(modes = []) {
     buttons: [placeY(map, y)],
     control: placeY(control, y),
     playMode: placeY(playMode, y),
+    buildingMode: placeY(buildingMode, y),
     difficulty: placeY(difficulty, y),
     powerButton: placeY(powerButton, y),
     resume: placeY(resume, y),
@@ -64,5 +66,6 @@ export const modeResume = modes => modePopup(modes).resume;
 export const difficultyControl = modes => modePopup(modes).difficulty;
 export const powerButtonControl = modes => modePopup(modes).powerButton;
 export const playModeControl = modes => modePopup(modes).playMode;
+export const buildingModeControl = modes => modePopup(modes).buildingMode;
 export const passwordBoxControl = modes => modePopup(modes).passwordBox;
 export const passwordBackControl = modes => modePopup(modes).passwordBack;
