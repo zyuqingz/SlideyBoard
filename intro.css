@@ -1,0 +1,81 @@
+/* The presentation uses theme.js's core W × H, never the extended canvas sides. */
+[hidden] { display: none !important; }
+#intro {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: var(--game-bg, #2a2030);
+  color: var(--game-white, #fff);
+  font-family: var(--game-font, "Avenir Next", "Trebuchet MS", system-ui, sans-serif);
+}
+.intro-deck {
+  box-sizing: border-box;
+  width: var(--intro-width, 750px);
+  height: var(--intro-height, 1334px);
+  transform: scale(var(--intro-scale, 0));
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  padding: 48px 56px 36px;
+  overflow: hidden;
+  background: var(--game-bg, #2a2030);
+}
+.intro-deck::before { content: ""; position: absolute; top: 14%; right: 14px; width: 9px; height: 9px; background: var(--game-deco); box-shadow: -710px 250px var(--game-deco), -14px 590px var(--game-deco), -650px 970px var(--game-deco); pointer-events: none; }
+.intro-toolbar { display: flex; justify-content: flex-end; margin-bottom: 25px; }
+.intro-slides { flex: 1; min-height: 0; position: relative; }
+.intro-slide { height: 100%; }
+.intro-eyebrow { margin: 0 0 17px; font-size: 19px; font-weight: 800; letter-spacing: 1px; color: #c5adc9; }
+.intro-slide h1 { font-size: 65px; line-height: 1.1; letter-spacing: -1px; margin: 0; font-weight: 800; white-space: pre-line; }
+.intro-slide h1:focus { outline: none; }
+.intro-lead { font-size: 32px; line-height: 1.35; color: #c5adc9; margin: 23px 0 35px; white-space: pre-line; }
+.intro-card { padding: 28px 30px; border-radius: 26px; margin-top: 23px; border: 4px solid #43374c; background: var(--game-panel); }
+.intro-card h2 { display: flex; align-items: center; gap: 14px; margin: 0 0 16px; font-size: 31px; letter-spacing: -.5px; }
+.intro-card p { font-size: 28px; line-height: 1.4; margin: 14px 0 0; color: #e0d5e5; }
+.intro-card strong { color: var(--game-white); font-weight: 800; }
+.intro-card .intro-emphasis { color: var(--game-white); font-weight: 700; }
+.section-dot { display: inline-block; width: 18px; height: 18px; border-radius: 5px; background: var(--game-color-0); box-shadow: inset 0 -3px 0 #ad6025; }
+.problem-card h2 { color: var(--game-color-0); }
+.solution-card .section-dot { background: var(--game-color-1); box-shadow: inset 0 -3px 0 #647d32; }
+.solution-card h2 { color: var(--game-color-1); }
+.intro-rule { height: 2px; background: #43374c; margin: 22px 0; }
+.setting-list { margin: 0; }
+.setting-list > div { padding: 23px 0; border-top: 2px solid #43374c; }
+.setting-list dt { font-size: 29px; font-weight: 700; }
+.setting-list .setting-number { display: inline-block; width: 46px; font-size: 19px; color: var(--game-color-4); vertical-align: 3px; }
+.setting-list dd { margin: 12px 0 0 46px; font-size: 28px; line-height: 1.4; color: #e0d5e5; }
+.roadmap-slide h1 { font-size: 61px; }
+.collection-art { margin: 36px 0 28px; text-align: center; }
+.collection-art img { display: block; width: 100%; height: auto; }
+.collection-caption { display: block; font-size: 17px; font-weight: 800; letter-spacing: 1px; color: #c5adc9; margin-top: 24px; }
+.collection-card { padding: 34px; }
+.collection-card .intro-eyebrow { margin: 0 0 20px; font-size: 19px; color: var(--game-color-4); }
+.collection-card h2 { font-size: 40px; }
+.collection-loop { display: flex; align-items: center; justify-content: space-between; margin-top: 34px; padding-top: 26px; border-top: 2px solid #43374c; font-size: 20px; font-weight: 800; letter-spacing: 1px; color: var(--game-color-4); }
+.collection-loop b { color: #c5adc9; font-size: 27px; }
+.play-slide { display: flex; flex-direction: column; }
+.play-content { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding-bottom: 45px; }
+.play-juniors { width: 100%; height: auto; margin-bottom: 48px; }
+.play-content h1 { font-size: 89px; }
+.play-content .intro-lead { margin-bottom: 65px; }
+.intro-disclaimer { width: 100%; }
+.intro-disclaimer > span { color: var(--game-color-4); letter-spacing: 1px; font-size: 18px; font-weight: 800; }
+.intro-disclaimer p { color: #e0d5e5; font-size: 27px; line-height: 1.45; margin: 14px 0 28px; white-space: pre-line; }
+#intro button { font: inherit; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+#intro button:focus-visible { outline: 4px solid var(--game-white); outline-offset: 6px; }
+#intro button:disabled { cursor: default; opacity: .3; }
+#intro .intro-language { min-width: 130px; height: 90px; padding: 0 24px; border: 0; border-radius: 20px; background: var(--game-color-3); color: var(--game-white); font-size: 28px; font-weight: 800; }
+#intro .start-game { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 28px 36px; border: 0; border-radius: 20px; background: var(--game-color-1); color: var(--game-white); font-size: 34px; font-weight: 800; }
+.start-game:hover { filter: brightness(1.06); }
+.start-game:active { transform: translateY(3px); }
+.intro-start-error { font-size: 22px; color: #ffc0c8; }
+.intro-nav { display: flex; align-items: center; gap: 23px; border-top: 2px solid #43374c; padding-top: 25px; margin-top: 20px; }
+#intro .intro-prev, #intro .intro-next { flex-shrink: 0; width: 104px; height: 104px; border: 2px solid #43374c; border-radius: 20px; background: var(--game-panel); color: var(--game-white); font-size: 36px; font-weight: 800; }
+#intro .intro-next { background: var(--game-color-0); border-color: var(--game-color-0); }
+.intro-dots { display: flex; gap: 2px; }
+.intro-dots button { position: relative; width: 56px; height: 104px; border: 0; background: transparent; }
+.intro-dots button::after { content: ""; position: absolute; left: 22px; top: 46px; width: 12px; height: 12px; border-radius: 4px; background: var(--game-muted); }
+.intro-dots button[aria-current]::after { background: var(--game-color-4); width: 28px; left: 14px; }
+.intro-count { margin-left: auto; font-size: 20px; color: #c5adc9; letter-spacing: 3px; font-weight: 800; font-variant-numeric: tabular-nums; }
+:lang(zh-CN) .intro-slide h1 { letter-spacing: 0; }

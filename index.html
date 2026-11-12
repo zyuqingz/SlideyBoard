@@ -8,6 +8,7 @@
 <meta name="theme-color" content="#2a2030">
 <title>Slidey</title>
 <meta name="description" content="Your mouth, your feast! Slide food into full rows to eat, build your fullness, and help junior creatures grow up. A row of creatures starts a Feeding Frenzy.">
+<link rel="stylesheet" href="intro.css">
 <style>
   html, body {
     margin: 0; padding: 0; height: 100%;
@@ -27,7 +28,76 @@
 </style>
 </head>
 <body>
-<canvas id="game" aria-label="Slidey: slide food into full rows inside your creature's mouth. Eat to build fullness and feed junior creatures until they grow up."></canvas>
-<script type="module" src="js/main.js"></script>
+<main id="intro" aria-label="Slidey presentation" data-copy-aria-label="presentation">
+  <div class="intro-deck">
+    <div class="intro-toolbar"><button class="intro-language" type="button" aria-label="Switch to Chinese">中文</button></div>
+    <div class="intro-slides">
+      <section class="intro-slide" aria-labelledby="pacing-title">
+        <p class="intro-eyebrow" data-copy="pacingSection">01 / GAMEPLAY</p>
+        <h1 id="pacing-title" tabindex="-1" data-copy="pacingTitle">Pacing</h1>
+        <p class="intro-lead" data-copy="pacingLead">Less waiting. More clearing.</p>
+        <div class="intro-card problem-card">
+          <h2><span class="section-dot"></span><span data-copy="problem">Problem</span></h2>
+          <p data-copy="problemBody">Waiting for the right tile clogs the board with unsolvable pieces.</p>
+          <p class="intro-emphasis" data-copy="problemEnd">Hard to chain. No way out.</p>
+        </div>
+        <div class="intro-card solution-card">
+          <h2><span class="section-dot"></span><span data-copy="solution">Solution</span></h2>
+          <p><span data-copy="solutionBody">Replace bottom-spawned 1×1 tiles with </span><strong data-copy="solutionDrop">special tiles dropped from above.</strong></p>
+          <div class="intro-rule"></div>
+          <p data-copy="solutionRules">Same clearing rules. More random effects.</p>
+          <p class="intro-emphasis" data-copy="solutionGoal">A small goal loop beyond emptying the board.</p>
+        </div>
+      </section>
+      <section class="intro-slide" aria-labelledby="setting-title" hidden>
+        <p class="intro-eyebrow" data-copy="settingSection">02 / WORLD &amp; PURPOSE</p>
+        <h1 id="setting-title" tabindex="-1" data-copy="settingTitle">Revised Setting</h1>
+        <p class="intro-lead" data-copy="settingLead">A little feast.<br>A family to grow.</p>
+        <dl class="setting-list">
+          <div><dt><span class="setting-number">01</span><span data-copy="boardQuestion">What is the board?</span></dt><dd data-copy="boardAnswer">Your creature’s mouth — ready for its next bite.</dd></div>
+          <div><dt><span class="setting-number">02</span><span data-copy="foodQuestion">What is being cleared?</span></dt><dd data-copy="foodAnswer">Food tiles. Slide them into full rows to eat.</dd></div>
+          <div><dt><span class="setting-number">03</span><span data-copy="meaningQuestion">What does clearing mean?</span></dt><dd data-copy="meaningAnswer">Eating builds fullness and feeds growth, giving every clear a purpose beyond making space.</dd></div>
+          <div><dt><span class="setting-number">04</span><span data-copy="juniorQuestion">Where do Juniors fit in?</span></dt><dd data-copy="juniorAnswer">Young creatures sharing the feast. Feed them through clears, help them grow, and collect them as helpful companions.</dd></div>
+        </dl>
+      </section>
+      <section class="intro-slide roadmap-slide" aria-labelledby="roadmap-title" hidden>
+        <p class="intro-eyebrow" data-copy="roadmapSection">03 / BEYOND THE BOARD</p>
+        <h1 id="roadmap-title" tabindex="-1" data-copy="roadmapTitle">Long Term<br>Content Roadmap</h1>
+        <p class="intro-lead" data-copy="roadmapLead">More Juniors.<br>More reasons to return.</p>
+        <div class="collection-art"><img src="assets/intro-juniors.svg" alt="Four Junior types with crown, sprout, horns, and bow accessories." data-copy-alt="collectionAlt"><span class="collection-caption" data-copy="collectionCaption">A GROWING CAST OF COMPANIONS</span></div>
+        <div class="intro-card collection-card">
+          <p class="intro-eyebrow" data-copy="outsideGrowth">OUTSIDE GROWTH</p>
+          <h2 data-copy="collectionTitle">Build your collection.</h2>
+          <p data-copy="collectionBody">Unlock different types of Juniors and grow your collection over time.</p>
+          <div class="collection-loop"><span data-copy="play">PLAY</span><b aria-hidden="true">→</b><span data-copy="unlock">UNLOCK</span><b aria-hidden="true">→</b><span data-copy="collect">COLLECT</span></div>
+        </div>
+      </section>
+      <section class="intro-slide play-slide" aria-labelledby="play-title" hidden>
+        <p class="intro-eyebrow" data-copy="playSection">04 / TRY THE PROTOTYPE</p>
+        <div class="play-content">
+          <img class="play-juniors" src="assets/intro-juniors.svg" alt="Your Junior companions are ready." data-copy-alt="playAlt">
+          <h1 id="play-title" tabindex="-1" data-copy="playTitle">Let’s feast.</h1>
+          <p class="intro-lead" data-copy="playLead">Slide. Clear. Grow.</p>
+          <div class="intro-disclaimer"><span data-copy="prototypeNote">PROTOTYPE NOTE</span><p data-copy="disclaimer">The game has not been balanced yet.<br>You might not be able to die.</p></div>
+          <button class="start-game" type="button"><span data-copy="start">Start Game</span><span aria-hidden="true">↗</span></button>
+          <p class="intro-start-error" role="alert" data-copy="startError" hidden>Couldn’t start the game. Please reload and try again.</p>
+        </div>
+      </section>
+    </div>
+    <nav class="intro-nav" aria-label="Presentation navigation" data-copy-aria-label="navigation">
+      <button class="intro-prev" type="button" aria-label="Previous slide" data-copy-aria-label="previous" disabled>←</button>
+      <div class="intro-dots">
+        <button type="button" aria-label="Slide 1: Pacing" data-copy-aria-label="slide1" aria-current="step"></button>
+        <button type="button" aria-label="Slide 2: Revised Setting" data-copy-aria-label="slide2"></button>
+        <button type="button" aria-label="Slide 3: Long Term Content Roadmap" data-copy-aria-label="slide3"></button>
+        <button type="button" aria-label="Slide 4: Start Game" data-copy-aria-label="slide4"></button>
+      </div>
+      <span class="intro-count" aria-live="polite">01 / 04</span>
+      <button class="intro-next" type="button" aria-label="Next slide" data-copy-aria-label="next">→</button>
+    </nav>
+  </div>
+</main>
+<canvas id="game" hidden tabindex="-1" aria-label="Slidey: slide food into full rows inside your creature's mouth. Eat to build fullness and feed junior creatures until they grow up."></canvas>
+<script type="module" src="js/intro.js"></script>
 </body>
 </html>

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="190" viewBox="0 0 640 190" fill="none">
+  <defs>
+    <g id="face" stroke="currentColor" stroke-width="6" stroke-linecap="round">
+      <path d="M45 91v8m40-8v8"/>
+      <path d="M53 115q12 13 24 0" stroke-width="5"/>
+    </g>
+  </defs>
+  <g transform="translate(6 16) rotate(-6 65 85)" color="#66451f">
+    <rect y="30" width="130" height="132" rx="32" fill="#ca9847"/>
+    <rect y="22" width="130" height="132" rx="32" fill="#ffdb79"/>
+    <path d="m39 54-4-25 18 10 12-19 12 19 18-10-4 25Z" fill="#fff0b8" stroke="#66451f" stroke-width="4" stroke-linejoin="round"/>
+    <use href="#face"/>
+  </g>
+  <g transform="translate(171 0) rotate(4 65 85)" color="#254f49">
+    <rect y="30" width="130" height="132" rx="32" fill="#4b9989"/>
+    <rect y="22" width="130" height="132" rx="32" fill="#91d6bd"/>
+    <path d="M65 56V30" stroke="#315c40" stroke-width="6" stroke-linecap="round"/>
+    <ellipse cx="50" cy="30" rx="20" ry="10" transform="rotate(25 50 30)" fill="#477e55"/>
+    <ellipse cx="81" cy="25" rx="20" ry="10" transform="rotate(-25 81 25)" fill="#477e55"/>
+    <use href="#face"/>
+  </g>
+  <g transform="translate(336 16) rotate(-4 65 85)" color="#4e365f">
+    <rect y="30" width="130" height="132" rx="32" fill="#8c65a7"/>
+    <rect y="22" width="130" height="132" rx="32" fill="#c5a0dc"/>
+    <path d="M29 53 28 18Q47 26 48 51Zm72 0 1-35Q83 26 82 51Z" fill="#fff0b8" stroke="#4e365f" stroke-width="4" stroke-linejoin="round"/>
+    <use href="#face"/>
+  </g>
+  <g transform="translate(501 1) rotate(6 65 85)" color="#683d4b">
+    <rect y="30" width="130" height="132" rx="32" fill="#b9677c"/>
+    <rect y="22" width="130" height="132" rx="32" fill="#ed9caa"/>
+    <path d="m65 38-30-17q-10 17 0 34Zm0 0 30-17q10 17 0 34Z" fill="#9b4566"/>
+    <rect x="57" y="29" width="16" height="19" rx="5" fill="#fff0b8"/>
+    <use href="#face"/>
+  </g>
+</svg>
