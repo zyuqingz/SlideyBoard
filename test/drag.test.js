@@ -110,17 +110,24 @@ test('ambiguous diagonal travel waits for horizontal intent, then locks the axis
   assert.equal(drag.target, 4);
 });
 
-test('preview follows the hand with a gentle pull toward the committed cell', () => {
-  const drag = createDrag(4, 0, 8);
-  followDrag(drag, 0.8);
-  const visual = visualDragCol(drag);
-  assert.equal(drag.target, 5);
-  assert.ok(Math.abs(visual - drag.vx) < Math.abs(visual - drag.target), 'pose stays closer to the hand');
-  assert.ok(visual > drag.vx && visual < drag.target, 'retains lean between slots');
-  assert.ok(Math.abs(visual - drag.target) < Math.abs(drag.vx - drag.target));
-  followDrag(drag, -0.8);
-  close(visualDragCol(drag), 4);
-});
+for (const direction of [-1, 1]) {
+  test(`held tile stays continuous when the snap outline changes slots: ${direction}`, () => {
+    const drag = createDrag(4, 0, 8);
+    close(visualDragCol(drag), 4);
+    followDrag(drag, direction * 0.77);
+    assert.equal(drag.target, 4);
+    const before = visualDragCol(drag);
+    followDrag(drag, direction * 0.01);
+    assert.equal(drag.target, 4 + direction);
+    const after = visualDragCol(drag);
+    assert.ok((after - before) * direction > 0);
+    assert.ok(Math.abs(after - before) <= 0.01, 'changing slots must not jump the tile');
+    close(after, drag.vx);
+    assert.notEqual(after, drag.target, 'only release snaps the tile to the outlined slot');
+    followDrag(drag, -direction * 0.78);
+    close(visualDragCol(drag), 4);
+  });
+}
 
 test('a blocked block stays in place', () => {
   const drag = createDrag(3, 3, 3);

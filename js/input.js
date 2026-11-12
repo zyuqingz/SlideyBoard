@@ -121,6 +121,11 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     }
   }
 
+  function lookAt(e) {
+    if (e.isPrimary === false || (present.drag && e.pointerId !== present.drag.id)) return;
+    present.monster.target = toLogical(e);
+  }
+
   function blockAt(p) {
     const col = Math.floor((p.x - BX) / CELL), row = Math.floor((p.y - layout.BY) / CELL);
     if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return null;
@@ -173,6 +178,7 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
 
   on(canvas, 'pointerdown', e => {
     if (e.button !== 0 || e.isPrimary === false || present.drag) return;
+    lookAt(e);
     e.preventDefault();
     unlockAudio();
     const p = toLogical(e), op = toOverlay(p);
@@ -275,6 +281,7 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
   });
 
   on(canvas, 'pointermove', e => {
+    lookAt(e);
     if (!present.drag) {
       setHover(e.pointerType === 'touch' ? null : e);
       return;
@@ -287,6 +294,7 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
   on(canvas, 'pointerleave', () => { if (!present.drag) setHover(null); });
 
   function endDrag(e) {
+    lookAt(e);
     // Touch browsers may grant audio activation only on release.
     unlockAudio();
     const drag = present.drag;
@@ -311,6 +319,7 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
   // Desktop drags can cross the canvas margins even without pointer capture.
   // Captured canvas events bubble here too; handle those only once.
   on(window, 'pointermove', e => {
+    if (e.target !== canvas && e.pointerType === 'mouse') lookAt(e);
     if (e.target === canvas || present.drag?.pointerType !== 'mouse'
       || e.pointerId !== present.drag.id) return;
     e.preventDefault();

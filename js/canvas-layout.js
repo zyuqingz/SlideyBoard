@@ -1,18 +1,19 @@
 // Browser viewport, safe-area layout and input coordinate conversion.
-import { W, H, BH, CELL, C } from './theme.js';
+import { W, H, BH, CELL, C, COLLECTION_SIZE, FACE_H, LEVEL_BAR_H } from './theme.js';
 
-const PANEL_H = 124, BOARD_GAP = 24, PREVIEW_TOP = 48;
+const BOARD_GAP = 24, PREVIEW_TOP = 48;
+const PREVIEW_H = CELL / 2, PANEL_H = PREVIEW_TOP + PREVIEW_H + 12;
 const ICON_EDGE = 18;
 const HUD_ICON_SIZE = 64, HUD_GAP = 12;
 // Previous 18px "BEST" was centered at ICON_EDGE+52; keep that label's left inset.
 const BEST_LEFT = ICON_EDGE + 28;
 export const GO_RESTART = { x: 215, y: 850, w: 320, h: 100 };
 export const layout = {
-  VH: H, VW: W, OY: 0, OX: 0, BY: 0, HY: 0, SCORE_Y: 0, COMBO_Y: 0,
-  MODE_Y: 0,
+  VH: H, VW: W, OY: 0, OX: 0, BY: 0, HY: 0, SCORE_Y: 0,
+  MODE_Y: 0, COLLECTION_Y: 0,
   BEST_X: BEST_LEFT, BEST_Y: 0, BEST_SCORE_Y: 0,
   PANEL: { x: 48, y: 0, w: 654, h: PANEL_H },
-  PREV_Y: 0, PREV_H: CELL / 2,
+  PREV_Y: 0, PREV_H: PREVIEW_H,
   MODE_BTN: { x: W - ICON_EDGE - 80, y: 0, w: 80, h: HUD_ICON_SIZE },
   PAUSE_BTN: { x: W - ICON_EDGE - 80, y: 0, w: 80, h: HUD_ICON_SIZE },
   POWER_BTN: { x: BEST_LEFT, y: 0, w: 132, h: 36 }
@@ -27,6 +28,7 @@ function place(safeTop, safeBot) {
   layout.HY = top + 40;
   layout.MODE_Y = layout.HY - 6;
   layout.SCORE_Y = layout.MODE_Y + 70;
+  layout.COLLECTION_Y = layout.SCORE_Y + 48;
   // BEST label shares the mode heading row; the best value stays under that label.
   layout.BEST_Y = layout.MODE_Y;
   layout.BEST_SCORE_Y = layout.BEST_Y + 32;
@@ -35,16 +37,16 @@ function place(safeTop, safeBot) {
   const hudTop = layout.MODE_Y - 11;
   layout.MODE_BTN.y = hudTop;
   layout.PAUSE_BTN.y = layout.MODE_BTN.y + layout.MODE_BTN.h + HUD_GAP;
-  // Board, preview panel, and combo lane stay on the original HUD floor.
+  // Place the board and compact preview lower in the space below the HUD.
   const hudBottom = layout.HY + 168;
-  const minBY = hudBottom + 64;
+  const minBY = Math.max(hudBottom + 64,
+    layout.COLLECTION_Y + COLLECTION_SIZE + 18 + FACE_H + LEVEL_BAR_H);
   const floorY = layout.VH - safeBot - 20 - PANEL_H;
   const maxBY = floorY - BOARD_GAP - BH;
-  layout.BY = Math.round(minBY + Math.max(0, maxBY - minBY) * 0.28);
+  layout.BY = Math.round(minBY + Math.max(0, maxBY - minBY) * 0.7);
   const hugged = layout.BY + BH + BOARD_GAP;
   layout.PANEL.y = Math.max(layout.BY + BH + 16, Math.min(floorY, hugged));
   layout.PREV_Y = layout.PANEL.y + PREVIEW_TOP;
-  layout.COMBO_Y = Math.round((hudBottom + layout.BY) / 2);
 }
 
 export function bindCanvas(el) {

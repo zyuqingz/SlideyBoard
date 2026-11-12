@@ -4,7 +4,7 @@ import { generateRowCandidate, generateNextRow } from './spawn.js';
 import { normalizeDifficulty } from './difficulty.js';
 import {
   resolvePlayMode, tetrisDropInterval, isBuilding, isBuildingMode2, normalizeBuildingMode, buildingScoreProgress,
-  levelForBuildingLines, buildingLevelProgress, classicProgressFromLines, TOTEM_COLLECT_SCORE
+  levelForBuildingLines, buildingLevelProgress, classicProgressFromLines
 } from './play-mode.js';
 
 const START_ROWS = 4;
@@ -60,16 +60,6 @@ export function awardRows(state, rows, st, widthOf = () => COLS, lineCount = row
   }
   if (state.score > state.best) state.best = state.score;
   return { pts: st.pts, mult: st.combo };
-}
-
-export function awardTotemCollect(state, blocks) {
-  const totems = blocks.map(b => ({ id: b.id,
-    pts: TOTEM_COLLECT_SCORE * (b.smile ?? 1) * state.level, mult: 1 }));
-  const pts = totems.reduce((sum, award) => sum + award.pts, 0);
-  state.score += pts;
-  if (isBuildingMode2(state)) Object.assign(state, buildingScoreProgress(state.score));
-  if (state.score > state.best) state.best = state.score;
-  return { pts, mult: 1, totems };
 }
 
 // Commit the displayed preview before choosing the following one.

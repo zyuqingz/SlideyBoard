@@ -46,6 +46,24 @@ function setupBrowser(t) {
   return { window, document, canvas, elements };
 }
 
+test('monster tracks mouse and primary touch input, retaining the last touch location', t => {
+  const { canvas } = setupBrowser(t);
+  const presenter = createPresenter({ sfx: () => {} });
+  presenter.reset({ ...createState(), blocks: [] });
+  bindInput(canvas, { presenter, modes: [], sfx: () => {} });
+  const event = { button: 0, isPrimary: true, pointerId: 1,
+    pointerType: 'mouse', clientX: 125, clientY: 500 };
+  canvas.emit('pointermove', event);
+  assert.deepEqual(presenter.present.monster.target, { x: 125, y: 500 });
+  canvas.emit('pointerdown', { ...event, pointerType: 'touch', clientX: 250 });
+  assert.deepEqual(presenter.present.monster.target, { x: 250, y: 500 });
+  canvas.emit('pointermove', { ...event, pointerType: 'touch', isPrimary: false, clientX: 700 });
+  assert.equal(presenter.present.monster.target.x, 250);
+  canvas.emit('pointerup', { ...event, pointerType: 'touch', clientX: 300 });
+  canvas.emit('pointerleave', { ...event, pointerType: 'touch' });
+  assert.deepEqual(presenter.present.monster.target, { x: 300, y: 500 });
+});
+
 test('Building rules toggle is clickable only in Totem Building after unlocking', t => {
   const { canvas } = setupBrowser(t);
   const presenter = createPresenter({ sfx: () => {} });

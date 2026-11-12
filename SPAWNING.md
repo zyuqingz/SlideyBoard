@@ -62,13 +62,13 @@ if none fit, spawning defers. Keep one live Totem, replacing it after it is
 cleared.
 
 Totem Building drops an independent 1×1 tile at opening. Resolve any completed
-rows and collection immediately with the selected ruleset's scoring, then refill only if
+rows and collection immediately, scoring only Mode 2 ordinary-tile clears, then refill only if
 needed to restore a legal first slide. Opening playback uses engine events
 for the fall, clears, collection and refill. A collected opening tile waits until
 the first player turn for replacement. Each turn allows at most
-one replacement when no totems remain, plus **three level-up drops total**. A new
-level grants `min(newLevel, 3)` extras, but bonuses from multiple levels share that
-three-drop budget. The maximum is **four drops per turn including replacement**;
+one replacement when no totems remain, plus **one level-up drop** when the Next
+Junior bar fills. Cascaded levels in the same turn still share that one-drop
+budget. The maximum is **two drops per turn including replacement**;
 existing live totems do not count toward this spawn cap. Replacement is chosen
 on its own and is not a recent column for later extras. Every drop spends its
 allowance even if it immediately clears or collects, and further level-ups during
@@ -81,8 +81,9 @@ ties by greater distance from earlier level-up drops this turn. Pick randomly
 among the matching columns, or between the two farthest when extras already
 dropped. Resolve each tile before ranking the next drop. Mode 1 collects floor
 drops; Mode 2 keeps them until stage 3, then collects before gravity or cascades.
-Mode 2 levels use total score (including ordinary tiles and totem bonuses), with
-`400 × current level` points needed for each level; Mode 1 uses five cleared rows.
+Mode 2 levels use ordinary-tile score, with `1000 × current level` points needed
+for each level; Mode 1 uses cleared-row progression. Creature collections award
+no bonus points and cannot generate level-up drops.
 Both rulesets share the same capped bonus-drop budget. Drops may complete
 rows. No Building drop is deferred or left waiting for space. A landed tile or
 row rise reaching row zero ends the game immediately, before clears; temporary

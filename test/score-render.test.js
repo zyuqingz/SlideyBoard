@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { bindCanvas, layout } from '../js/canvas-layout.js';
 import { createPresenter } from '../js/presenter.js';
 import { createState } from '../js/sim.js';
-import { W, H } from '../js/theme.js';
+import { W, H, BX, BW, CELL, PAD, COLLECTION_SIZE, LEVEL_BAR_H } from '../js/theme.js';
 
-test('totem score text stays visible to the HUD edge and disappears on contact', async t => {
+test('collection and row-score rendering', async t => {
   const globals = ['Image', 'getComputedStyle', 'window', 'document']
     .map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]);
   globalThis.Image = class {};
@@ -22,14 +22,18 @@ test('totem score text stays visible to the HUD edge and disappears on contact',
   });
 
   let pose = { x: 0, y: 0, sx: 1, sy: 1, globalAlpha: 1 };
-  const stack = [], labels = [], scores = [];
+  const stack = [], labels = [], scores = [], hudLabels = [], fills = [];
   const ctx = new Proxy({
     save() { stack.push({ ...pose }); },
     restore() { pose = stack.pop(); },
     translate(x, y) { pose.x += x * pose.sx; pose.y += y * pose.sy; },
     scale(x, y) { pose.sx *= x; pose.sy *= y; },
     measureText: () => ({ width: 40 }),
+    createRadialGradient: () => ({ addColorStop() {} }),
+    fillRect(x, y, w, h) { fills.push({ x, y, w, h }); },
     fillText(label, x, y) {
+      hudLabels.push({ label, x: pose.x + x * pose.sx, y: pose.y + y * pose.sy,
+        align: this.textAlign, color: this.fillStyle });
       if (label === '+100') labels.push({ ...pose, x: pose.x + x * pose.sx, y: pose.y + y * pose.sy });
       if (label.startsWith('+')) scores.push({ ...pose, font: this.font, color: this.fillStyle });
     }
@@ -45,52 +49,62 @@ test('totem score text stays visible to the HUD edge and disappears on contact',
   const { draw } = await import('../js/render.js');
   const presenter = createPresenter({ sfx: () => {} });
   presenter.reset({ ...createState(0, 'easy', 'totem-building'), blocks: [], nextRow: [] });
-  const fx = { id: 1, pts: 100, t0: 0, origin: null, flight: 0 };
-  presenter.present.totemScoreFx.push(fx);
-  for (const total of [0, 12345, 123456789012]) {
-    presenter.present.displayScore = total;
-    const digits = String(total).length;
-    const fit = Math.min(1, 420 / (digits * 40 * 1.28));
-    for (const x of [50, W / 2, W - 50]) {
-      const origin = fx.origin = { x, y: layout.BY + 600 };
-      const dx = origin.x - W / 2, dy = origin.y - layout.SCORE_Y;
-      const edge = Math.min(1, digits * 40 * fit / 2 / Math.abs(dx), 38 * fit / Math.abs(dy));
-      const target = { x: W / 2 + dx * edge, y: layout.SCORE_Y + dy * edge };
-      assert.ok(target.y > layout.SCORE_Y, 'contact is on the near edge, before the center');
-      for (const p of [0.5, 0.9, 0.99, 0.999999]) {
-        fx.flight = p;
-        draw(1000, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
-        const label = labels.at(-1);
-        assert.equal(label.globalAlpha, 1, 'the label must not fade before arrival');
-        assert.equal(label.sx, 1, 'the label must not shrink away before arrival');
-        assert.equal(label.sy, 1);
-        assert.equal(label.x, origin.x + (target.x - origin.x) * p);
-        assert.equal(label.y, origin.y + (target.y - origin.y) * p);
-      }
-      const count = labels.length;
-      fx.flight = 1;
-      draw(1000, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
-      assert.equal(labels.length, count, 'the label disappears on edge contact');
+  await t.test('fully grown creatures fly into the collection without any score label', async () => {
+    const block = { id: 1, kind: 'totem', row: 5, col: 3, len: 1, height: 1, smile: 3, color: 0 };
+    const initial = { ...createState(0, 'easy', 'totem-building', 2), blocks: [block], nextRow: [] };
+    const final = { ...structuredClone(initial), blocks: [] };
+    presenter.reset(initial);
+    const done = presenter.play({ accepted: true, events: [
+      { type: 'totem-collect', blocks: [block], state: final },
+      { type: 'turn-complete', state: final }
+    ] });
+    let flew = false;
+    for (let i = 0; i < 90; i++) {
+      presenter.update(16);
+      for (let j = 0; j < 12; j++) await Promise.resolve();
+      flew ||= presenter.present.flyingTotems.length > 0;
+      draw(presenter.effects.now(), presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
     }
-  }
-  for (const level of [1, 10]) {
-    const sizes = [];
-    for (const smile of [1, 2, 3]) {
-      fx.smile = smile;
-      fx.pts = 50 * smile * level;
-      fx.flight = 0;
+    assert.equal(await done, true);
+    assert.ok(flew, 'the creature flight remains visible');
+    assert.deepEqual(scores, [], 'no bonus labels appear during contact, flight, or arrival');
+    assert.equal(presenter.present.displayScore, 0);
+    assert.equal(presenter.present.juniorCollection.reduce((sum, count) => sum + count, 0), 1);
+  });
+  await t.test('junior HUD shows unknown slots, matching sprites, and duplicate badges', () => {
+    presenter.reset({ ...createState(0, 'easy', 'totem-building'), blocks: [], nextRow: [] });
+    hudLabels.length = 0;
+    fills.length = 0;
+    draw(1000, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
+    assert.equal(hudLabels.filter(item => item.label === '?').length, 4);
+    const bar = fills.find(item => item.h === LEVEL_BAR_H);
+    const label = hudLabels.find(item => item.align === 'left' && item.y === bar.y + bar.h / 2);
+    assert.ok(label.x + 40 < bar.x, 'progress label is entirely to the left of the bar');
+    assert.equal(label.x, BX);
+    assert.equal(bar.x + bar.w, BX + BW, 'label and bar fill the board width');
+    assert.equal(label.color, '#d6c7df');
+    assert.ok(bar.h < 28, 'progress bar remains thin');
+    assert.equal(COLLECTION_SIZE, CELL - 2 * PAD);
+    assert.ok(layout.COLLECTION_Y + COLLECTION_SIZE * 1.22 < bar.y, 'bouncing collection row clears the progress bar');
+
+    presenter.present.juniorCollection = [1, 0, 12, 2];
+    hudLabels.length = 0;
+    draw(1001, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
+    assert.equal(hudLabels.filter(item => item.label === '?').length, 1);
+    const badges = hudLabels.filter(item => item.y === layout.COLLECTION_Y + 2);
+    assert.deepEqual(badges.map(item => item.label), ['12', '2']);
+    assert.ok(badges[0].x < badges[1].x, 'badge counts stay with their matching sprite slots');
+  });
+  await t.test('row-clear scores stay on the board throughout their exit', () => {
+    const origin = { x: BX + BW / 2, y: layout.BY + CELL * 8.5 };
+    const fx = presenter.present.scoreFx = { pts: 100, t0: 0, origin, exit: 0 };
+    for (const exit of [0, 0.25, 0.75, 0.99]) {
+      fx.exit = exit;
       draw(1000, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
-      const rendered = scores.at(-1);
-      assert.equal(rendered.color, ['#ffffff', '#ffe6ac', '#ffd05a'][smile - 1]);
-      assert.equal(rendered.globalAlpha, 1);
-      const size = Number(rendered.font.match(/([\d.]+)px/)[1]);
-      sizes.push(size);
-      fx.flight = 0.9;
-      draw(1000, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
-      assert.equal(scores.at(-1).font, rendered.font, 'the stage size stays intact during flight');
-      assert.equal(scores.at(-1).color, rendered.color);
+      const label = labels.at(-1);
+      assert.equal(label.x, origin.x);
+      assert.equal(label.y, origin.y);
+      assert.equal(label.globalAlpha, 1);
     }
-    assert.ok(sizes[0] < sizes[1] && sizes[1] < sizes[2],
-      'each expression earns a larger popup, including at higher levels');
-  }
+  });
 });

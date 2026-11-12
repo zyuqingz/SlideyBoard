@@ -5,23 +5,31 @@ export const W = 750, H = 1334;
 export const CELL = 81, PAD = 3;
 export const BX = (W - COLS * CELL) / 2;
 export const BW = COLS * CELL, BH = ROWS * CELL;
-export const LEVEL_BAR_H = 40;
-export const COLORS = ['#f0912b', '#97b545', '#d24b2d', '#2f9b98', '#ffd570'];
+export const LEVEL_BAR_H = 14;
+export const FACE_H = 80;
+export const COLLECTION_SIZE = CELL - 2 * PAD;
+export function juniorSlot(variant, y) {
+  const gap = 18, size = COLLECTION_SIZE;
+  const start = (W - ADULT_LOOKS.length * size - (ADULT_LOOKS.length - 1) * gap) / 2;
+  return { x: start + variant * (size + gap), y, size };
+}
+export const COLORS = ['#f0912b', '#97b545', '#d24b2d', '#758fc5', '#ffd570'];
 export const BLOCK_PALETTE = COLORS.map((fill, i) => ({
-  fill, shade: ['#ad6025', '#647d32', '#933728', '#256c6b', '#bd9546'][i]
+  fill, shade: ['#ad6025', '#647d32', '#933728', '#4a6093', '#bd9546'][i]
 }));
 export const CARVED_PAINT = { fill: '#e9ba78', shade: '#c48a4a' };
 
-// Sand → jade → gold. Fractional stages blend during the clear reaction.
-const TOTEM_PALETTE = [
-  { fill: '#dcb991', shade: '#a47b58', ink: '#584033' },
-  { fill: '#91d6bd', shade: '#4b9989', ink: '#254f49' },
-  { fill: '#ffdb79', shade: '#ca9847', ink: '#66451f' }
+// Juniors keep their warm baby color. Only adulthood reveals a new look.
+const JUNIOR_PAINT = { fill: '#dcb991', shade: '#a47b58', ink: '#584033' };
+export const ADULT_LOOKS = [
+  { fill: '#ffdb79', shade: '#ca9847', ink: '#66451f', accessory: 'crown' },
+  { fill: '#91d6bd', shade: '#4b9989', ink: '#254f49', accessory: 'sprout' },
+  { fill: '#c5a0dc', shade: '#8c65a7', ink: '#4e365f', accessory: 'horns' },
+  { fill: '#ed9caa', shade: '#b9677c', ink: '#683d4b', accessory: 'bow' }
 ];
-export function totemPaint(stage = 1) {
-  const index = Math.max(0, Math.min(2, stage - 1));
-  const from = TOTEM_PALETTE[Math.floor(index)], to = TOTEM_PALETTE[Math.ceil(index)];
-  const p = index % 1;
+export function totemPaint(stage = 1, variant = 0) {
+  const from = JUNIOR_PAINT, to = ADULT_LOOKS[variant] ?? ADULT_LOOKS[0];
+  const p = Math.max(0, Math.min(1, stage - 2));
   const mix = key => {
     const a = parseInt(from[key].slice(1), 16), b = parseInt(to[key].slice(1), 16);
     const channels = [16, 8, 0].map(shift =>

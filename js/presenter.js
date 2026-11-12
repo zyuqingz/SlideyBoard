@@ -2,25 +2,30 @@
 import { COLS, ROWS } from './board.js';
 import { cellsOf, facesOf } from './block-geometry.js';
 import { visualDragCol } from './drag.js';
-import { W, CELL, PAD, BX, BW, BH, COLORS, totemPaint } from './theme.js';
+import { W, CELL, PAD, BX, BW, BH, COLORS, totemPaint, ADULT_LOOKS, juniorSlot } from './theme.js';
 import { Ease, createEffects } from './fx.js';
-import { createScorePresentation, stackScore, bankScore, showTotemScore, finishTotemScores } from './score-fx.js';
+import { createScorePresentation, stackScore, bankScore } from './score-fx.js';
 import { playSfx } from './audio.js';
+import { createMonster, celebrateMonster, updateMonster } from './monster.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 // Near-immediate follow: ~95% caught up in 12ms, within one 60Hz frame.
 const DRAG_RESPONSE = 400;
 
-export function createPresenter({ boardY = () => 0, effects = createEffects(), sfx = playSfx } = {}) {
+export function createPresenter({ boardY = () => 0, collectionY = () => 0, effects = createEffects(), sfx = playSfx,
+  appearanceRandom = Math.random } = {}) {
   const views = new Map();
   const present = {
     ...createScorePresentation(), shake: 0, overlayA: 0, drag: null, menu: null,
     hoverKey: null, hoverAmt: {}, landingDust: [], godClearFx: null, levelUpFx: null, spawnFx: [],
-    displayProgress: 0, displayLevel: 1, levelScale: 1, powerButton: false, flyingTotems: []
+    displayProgress: 0, displayLevel: 1, levelScale: 1, powerButton: false, flyingTotems: [],
+    juniorCollection: ADULT_LOOKS.map(() => 0), juniorScales: ADULT_LOOKS.map(() => 1),
+    monster: createMonster()
   };
   const { tween, wait } = effects;
   let state, busy = false, generation = 0, lock = 0, motion = 0;
   let pendingProgress = null, progressMotion = 0;
+  const collectionMotion = ADULT_LOOKS.map(() => 0);
 
   // Landing feedback keeps writing after its fall returns. A later slide, drop,
   // clear, or rise must invalidate that write or blocks flatten mid-motion.
@@ -32,7 +37,9 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
   function viewOf(block) {
     if (!views.has(block.id)) views.set(block.id, {
       vx: block.col, vy: block.row, dragVelocity: 0, flash: 0, s: 1, sq: 0, land: 0, slot: 0,
-      danger: 0, clearing: false, collecting: false, expression: block.smile ?? 1, evolve: 0
+      danger: 0, clearing: false, collecting: false, expression: block.smile ?? 1, evolve: 0,
+      // Retained across snapshots and flight; cosmetic randomness is separate from game rules.
+      adultVariant: block.kind === 'totem' ? Math.floor(appearanceRandom() * ADULT_LOOKS.length) : 0
     });
     return views.get(block.id);
   }
@@ -62,10 +69,11 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     Object.assign(present, createScorePresentation(), {
       displayScore: state.score, shake: 0, overlayA: state.phase === 'over' ? 1 : 0,
       drag: null, menu: null, hoverKey: null, hoverAmt: {}, landingDust: [], godClearFx: null,
-      levelUpFx: null, spawnFx: [], flyingTotems: [],
+      levelUpFx: null, spawnFx: [], flyingTotems: [], juniorCollection: ADULT_LOOKS.map(() => 0),
+      juniorScales: ADULT_LOOKS.map(() => 1),
       displayProgress: state.levelProgress ?? 0,
       displayLevel: state.level ?? 1,
-      levelScale: 1, powerButton
+      levelScale: 1, powerButton, monster: createMonster(state.phase === 'over')
     });
     busy = false;
   }
@@ -82,7 +90,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
           : (-240 - Math.random() * 400) * Math.sqrt(power),
         size: (8 + Math.random() * 12) * Math.sqrt(power),
         color: b.kind === 'totem' && state.playMode === 'totem-building'
-          ? totemPaint(b.smile).fill
+          ? totemPaint(b.smile, viewOf(b).adultVariant).fill
           : power > 1 && b.kind === 'totem' ? (k % 3 === 0 ? '#ffe3a8' : '#e9ba78') : COLORS[b.color],
         life: 0.55 + Math.random() * 0.35 + (power - 1) * 0.12, rot: Math.random() * 6
       });
@@ -103,7 +111,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     }, Ease.lin);
   }
 
-  function advanceLevel(snapshot, holdForSpawn, durationLimit = Infinity) {
+  function advanceLevel(snapshot, holdForSpawn) {
     const from = present.displayProgress, level = present.displayLevel;
     const target = snapshot.levelProgress ?? 0, nextLevel = snapshot.level ?? level;
     const levelUp = nextLevel > level;
@@ -115,12 +123,10 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     let celebrated = false;
     // Finish each progress update alongside its clear, so cascades cannot leave
     // competing HUD tweens or let an incoming totem precede the full-bar beat.
-    const baseDuration = levelUp ? 400 : 240;
-    const duration = Math.min(baseDuration, durationLimit);
+    const duration = levelUp ? 400 : 240;
     return tween(duration, p => {
       if (stamp !== progressMotion) return;
-      // Scale every phase together when collection shortens the animation.
-      const elapsed = p * baseDuration;
+      const elapsed = p * duration;
       const fill = Ease.out(clamp(elapsed / 220, 0, 1));
       present.displayProgress = from + ((levelUp || held ? 1 : target) - from) * fill;
       present.levelScale = 1 + 0.12 * Math.sin(Math.PI * p);
@@ -169,9 +175,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
       v: viewOf(b), from: b.smile ?? 1,
       to: event.state.blocks.find(next => next.id === b.id)?.smile ?? 3
     }));
-    sfx('god-clear');
-    celebrateGodClear();
-    // Transform together, then hold the highest-stage faces before the wipe.
+    // Food has vanished. Grow together, then let the adult looks read before departure.
     return await tween(1050, p => {
       const t = clamp(p * 1050 / 650, 0, 1);
       const blend = t * t * (3 - 2 * t);
@@ -181,16 +185,6 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
         v.s = 1 + 0.16 * Math.sin(Math.PI * t);
       }
     }, Ease.lin) && current();
-  }
-
-  function collectionScores(blocks, award) {
-    return (award?.totems ?? []).map(points => {
-      const b = blocks.find(block => block.id === points.id);
-      return showTotemScore(present, { ...points, smile: b.smile ?? 1 }, effects, {
-        x: BX + (b.col + b.len / 2) * CELL,
-        y: boardY() + (b.row - 0.4) * CELL
-      });
-    });
   }
 
   function landingDust(b) {
@@ -268,18 +262,16 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
     return results.every(Boolean);
   }
 
-  async function collect(event, current, holdForSpawn, flights) {
+  async function collect(event, current, flights) {
     interruptSquash();
+    celebrateMonster(present.monster, effects.now());
     const contactMs = 340;
     const mode2 = state.buildingMode === 2;
-    const progress = mode2 ? advanceLevel(event.state, holdForSpawn, contactMs) : Promise.resolve(true);
-    const scores = collectionScores(event.blocks, event.award);
     const items = event.blocks.map(block => {
       const v = viewOf(block);
       v.clearing = true;
       v.collecting = true;
-      return { block: structuredClone(block), view: v,
-        height: 0.65 + Math.random() * 0.7, mode2 };
+      return { block: structuredClone(block), view: v };
     });
     if (!await tween(contactMs, p => {
       const squash = p < 0.28 ? 0.24 * Ease.out(p / 0.28)
@@ -288,39 +280,65 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
       for (const { block, view } of items)
         view.sq = p === 1 ? 0 : squash / Math.sqrt(block.height ?? 1);
     }, Ease.lin) || !current()) return false;
-    if (!await progress || !current()) return false;
 
     // Flight poses are detached from live views. Subsequent gravity, rises,
     // clears and turns may adopt snapshots without touching these particles.
     for (const item of items) {
-      item.view = { ...item.view, sq: 0, flight: { x: 0, y: 0, rotation: 0, alpha: 1 } };
+      item.view = { ...item.view, sq: 0, slot: 0, flight: { x: 0, y: 0, rotation: 0, alpha: 1 } };
       present.flyingTotems.push(item);
     }
     sfx('totem-clear', { volume: 0.92 });
     const distance = mode2 ? 1 : Math.max(1, ...event.blocks.map(b => ROWS - b.row));
-    flights.push(flyTotems(items, scores, 620 + (distance - 1) * 215, current));
+    flights.push(flyTotems(items, 620 + (distance - 1) * 215, current));
     adopt(event.state);
     return true;
   }
 
-  async function flyTotems(items, scores, duration, current) {
+  async function flyTotems(items, duration, current) {
     if (!await tween(duration, t => {
-      for (const { block: b, view: v, height } of items) {
+      const p = t * t * (3 - 2 * t);
+      const growth = clamp(t / 0.75, 0, 1);
+      const mature = growth * growth * (3 - 2 * growth);
+      for (const { block: b, view: v } of items) {
+        // Mode 1 can collect babies. Reveal the adult before slot contact;
+        // only the detached pose grows, preserving the collected stage.
+        const stage = b.smile ?? 1;
+        v.expression = stage + (3 - stage) * mature;
+        const slot = juniorSlot(v.adultVariant, collectionY());
+        const dx = slot.x + slot.size / 2 - (BX + (v.vx + b.len / 2) * CELL);
+        const dy = slot.y + slot.size / 2 - (boardY() + (v.vy + (b.height ?? 1) / 2) * CELL);
+        const distance = Math.max(1, Math.hypot(dx, dy));
         const side = b.col + b.len / 2 < COLS / 2 ? -1 : 1;
+        const arc = side * Math.min(150, distance * 0.2) * 2 * p * (1 - p);
         v.flight = {
-          x: side * CELL * 2.2 * Ease.out(t),
-          y: CELL * (-4.5 * t + 5.2 * t * t) * height,
-          rotation: side * Math.PI * 2.5 * t,
-          alpha: 1 - Ease.in(clamp((t - 0.8) / 0.2, 0, 1))
+          x: dx * p - dy / distance * arc,
+          y: dy * p + dx / distance * arc,
+          rotation: side * 0.12 * Math.sin(Math.PI * p),
+          alpha: 1
         };
-        v.s = t === 1 ? 0 : 1 + 0.14 * Math.sin(Math.PI * clamp(t / 0.3, 0, 1));
+        // Lift to a held travel size, then settle to the full-size slot after halfway.
+        v.s = p <= 0.5 ? 1 + 0.16 * Ease.out(clamp(p / 0.16, 0, 1))
+          : 1 + 0.16 * (1 - Ease.out((p - 0.5) * 2));
       }
-      for (const fx of scores) fx.flight = clamp((t * duration - duration + 560) / 560, 0, 1) ** 4;
     }, Ease.lin) || !current()) return false;
+    for (const { view } of items) present.juniorCollection[view.adultVariant]++;
+    celebrateMonster(present.monster, effects.now());
     present.flyingTotems = present.flyingTotems.filter(item => !items.includes(item));
-    return finishTotemScores(present, scores, effects, current);
+    const variants = [...new Set(items.map(item => item.view.adultVariant))];
+    const finished = await Promise.all(variants.map(variant => bounceJunior(variant, current)));
+    return finished.every(Boolean);
   }
 
+  async function bounceJunior(variant, current) {
+    const stamp = ++collectionMotion[variant];
+    const from = present.juniorScales[variant];
+    if (!await tween(70, p => {
+      if (stamp === collectionMotion[variant]) present.juniorScales[variant] = from + (1.22 - from) * p;
+    }, Ease.out) || !current()) return false;
+    return await tween(180, p => {
+      if (stamp === collectionMotion[variant]) present.juniorScales[variant] = 1 + 0.22 * (1 - p);
+    }, Ease.outBack) && current();
+  }
   async function animate(event, run, holdForSpawn, released = false) {
     const current = () => run === generation;
     switch (event.type) {
@@ -342,10 +360,14 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
         return fall(event.moves, current, released);
       }
       case 'clear': {
+        celebrateMonster(present.monster, effects.now());
         // Keep the pre-clear snapshot visible until the departing blocks vanish.
-        // Power-up completes before the board-wide wipe; gravity is a later event.
+        // Feeding Frenzy eats the food first, then reveals the grown-up creatures.
         interruptSquash();
-        if (event.godClear && !await activatePower(event, current)) return false;
+        if (event.godClear) {
+          sfx('god-clear');
+          celebrateGodClear();
+        }
         const progress = advanceLevel(event.state, holdForSpawn);
         // Capture the old expression before any display snapshot can replace it.
         // Capped faces still acknowledge a clear with the same small pulse.
@@ -356,7 +378,11 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
             const after = event.state.blocks.find(next => next.id === b.id);
             return after ? [{ b, from: b.smile ?? 1, to: after.smile ?? 1 }] : [];
           }) : [];
-        if (event.displayBlocks) adopt({ ...state, blocks: event.displayBlocks });
+        if (event.displayBlocks) {
+          const stages = new Map(state.blocks.map(b => [b.id, b.smile ?? 1]));
+          adopt({ ...state, blocks: event.displayBlocks.map(b => event.godClear && b.kind === 'totem'
+            ? { ...b, smile: stages.get(b.id) ?? 1 } : b) });
+        }
         for (const reaction of reactions) {
           reaction.v = viewOf(reaction.b);
           reaction.v.expression = reaction.from;
@@ -405,10 +431,20 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
             }
           }
         }, Ease.lin) || !current()) return false;
+        if (event.godClear) {
+          const removed = new Set(event.blocks.map(b => b.id));
+          adopt({ ...state, blocks: state.blocks.filter(b => !removed.has(b.id)) });
+          if (!await activatePower(event, current)) return false;
+        }
         adopt(event.state);
         if (!await progress || !current()) return false;
         if (event.godClear && (!await wait(120) || !current())) return false;
-        if (event.award?.pts) stackScore(present, event.award, effects);
+        if (event.award?.pts) {
+          const { left, right } = state.shape?.rows[0] ?? { left: 0, right: COLS };
+          stackScore(present, event.award, effects, {
+            x: BX + (left + right) * CELL / 2, y: boardY() + CELL / 2 + 12
+          });
+        }
         return true;
       }
       case 'totem-drop': {
@@ -417,6 +453,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
         adopt(event.state);
         const b = state.blocks.find(b => b.id === event.id);
         if (b && state.playMode === 'totem-building') {
+          celebrateMonster(present.monster, effects.now());
           if (pendingProgress !== null) {
             const target = pendingProgress, from = present.displayProgress;
             const stamp = ++progressMotion;
@@ -458,6 +495,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
       }
       case 'game-over': {
         interruptSquash();
+        present.monster.dead = true;
         if (!await bankScore(present, effects, current) || !current()) return false;
         sfx('fail');
         const top = state.blocks.filter(b => event.blockIds.includes(b.id));
@@ -495,8 +533,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
           return finished.every(Boolean) && run === generation;
         }
         if (event.type === 'totem-collect') {
-          if (!await collect(event, () => run === generation,
-            result.events.slice(i + 1).some(next => next.type === 'totem-drop'), flights)) return false;
+          if (!await collect(event, () => run === generation, flights)) return false;
         } else if (!await animate(event, run, event.type === 'clear'
           && event.state.playMode === 'totem-building'
           && result.events.slice(i + 1).some(next => next.type === 'totem-drop'),
@@ -598,6 +635,7 @@ export function createPresenter({ boardY = () => 0, effects = createEffects(), s
       }
     }
     effects.update(ms);
+    if (state) updateMonster(present.monster, state, viewOf, boardY(), effects.now(), ms);
     return true;
   }
 

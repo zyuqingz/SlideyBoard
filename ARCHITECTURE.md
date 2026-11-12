@@ -37,6 +37,7 @@ owns a separate copy of the state currently on screen, which may trail the engin
 | `js/difficulty.js` | Shared Normal row geometry and difficulty normalization |
 | `js/presenter.js` | Shown state, animated block views, event playback, playback cancellation |
 | `js/fx.js`, `js/score-fx.js` | Instance-local visual clocks, particles, score feedback |
+| `js/monster.js` | Board-creature gaze, celebration timing, visible-cell panic and death pose |
 | `js/render.js` | Board, HUD and effects drawing; cached paused paints and digit widths |
 | `js/canvas-layout.js` | Canvas binding, viewport/safe-area layout, coordinate conversion, paint invalidation |
 | `js/canvas-draw.js` | Shared rounded-rectangle, text and hover drawing helpers |
@@ -89,9 +90,9 @@ the engine snapshot already contains the fully resolved opening and score.
 
 Classic and Shaped are maps (board outlines), registered in `GAME_MODES`. Play
 modes are `standard`, `tetris`, and `totem-building`. Tetris keeps one live drop.
-Totem Building drops independent 1×1 totems, replacing them and adding level-up extras
-within a per-turn spawn budget.
-Clears improve totem smiles; reaching the floor collects them for points. An
+Totem Building drops independent 1×1 totems, replacing them and adding one extra
+when the Next Junior bar fills.
+Clears improve totem smiles; collection adds them to the cosmetic HUD without bonus points. An
 all-totem row activates Power Mode: every totem reaches max smile, all ordinary
 blocks are cleared, then totems fall and collect through the normal floor sequence.
 Neither play mode blasts rows when a totem reaches the top.
@@ -125,18 +126,17 @@ Every event has `type` and a detached `state` **after** that logical step.
 | `rise` | — | Animate the committed row and existing blocks upward |
 | `shaped-rise` | `blocks` (pre-trim, destination coordinates), `trimmed` (discarded spans) | Animate original spans upward, emit chips, adopt surviving geometry |
 | `totem-drop` | `id` | Introduce the incoming totem above the board; subsequent gravity animates its fall |
-| `totem-collect` | collected `blocks`, `award` | Compress and rebound, launch each intact tile on a spinning particle-like arc, then bank individual scores and adopt the snapshot |
+| `totem-collect` | collected `blocks` | Compress and rebound, adopt the snapshot at takeoff, then fly each intact creature into its matching collection slot |
 | `game-over` | `blockIds` | Bank score, show danger feedback, reveal result |
 | `turn-complete` | — | Finish score feedback and adopt final snapshot |
 
 Events contain facts, not durations, easing curves, pixels, colors or drawing
 instructions. Their snapshots are deliberately simple for this small board;
 there is no global event bus or event-sourced persistence system.
-Standard/Tetris row awards contain cumulative points for the current turn, so
-successive clears replace the pending popup. Building collection awards contain
-only that batch's points and `totems: [{ id, pts, mult }]` for individual popups.
-God Clear preserves totems in the clear snapshot and awards points only during
-subsequent floor collection, using the level after completed-row progression.
+Row awards contain cumulative points for the current turn, so successive clears
+replace the pending popup. Building collections carry no award and do not change
+score, best score, or level progress. God Clear preserves totems in the clear
+snapshot; only the cleared ordinary tiles score, under Mode 2's row-scoring rules.
 The wipe counts the triggering full rows for progression, not partial rows it
 also removes. Remaining all-totem rows cannot retrigger Power Mode during that settle.
 
@@ -177,8 +177,9 @@ mode keeps its own candidate generator and preview search. Engine reset reconstr
 calling the mode, so shape and loss metadata cannot leak between modes.
 Mode hooks initialize only their geometry and preview; Classic uses `setupClassic`.
 All modes share `awardRows` bookkeeping. Standard and Tetris clear batches score
-at their pre-update level using playable row widths. Building clears advance
-lines and level without awarding points; collections use `awardTotemCollect`.
+at their pre-update level using playable row widths. Building Mode 1 clears advance
+lines and level without awarding points; Mode 2 scores ordinary cleared cells.
+Neither Building ruleset awards collection bonuses.
 
 ### Shaped mode
 
@@ -299,11 +300,11 @@ Mode 2 overrides collection, scoring, and expression placement:
 - Power mode (button or all-totem row) upgrades every totem to stage 3 and wipes
   ordinary tiles. Every totem then flies away once from its upgrade position.
 - Ordinary cleared cells score `10 × level × combo`; each affected tile row adds
-  one combo step, including partial rows in a power wipe. Totems additionally
-  award `50 × smile × level`, independently of the row-score popup.
-- The level bar uses total score, including totem bonuses. Level L starts at
-  `200 × L × (L - 1)` points and requires `400 × L` points to advance. Collection
-  level-ups use the same held-full-bar and capped bonus-drop flow as row clears.
+  one combo step, including partial rows in a power wipe. Growing and collecting
+  creatures adds no bonus points or score popups.
+- The level bar uses ordinary-tile score. Level L starts at
+  `500 × L × (L - 1)` points and requires `1000 × L` points to advance.
+  Collections do not advance the bar or grant level-up drops.
 - Stage 1 faces sit in the bottom half, stage 2 in the middle, and stage 3 keeps
   its original position. Upgrades interpolate smoothly between these positions.
 - Detached preview boards preserve `buildingMode`; Mode 2 candidate difficulty
@@ -312,15 +313,15 @@ Mode 2 overrides collection, scoring, and expression placement:
 ### Totem Building Mode 1 and shared lifecycle
 
 - Reset drops one independent 1×1 totem with `smile: 1`. Opening drops resolve
-  clears, smile upgrades and floor collections with normal scoring before input.
+  clears, smile upgrades and floor collections before input; only Mode 2 food clears score.
   Refill only if needed to restore a legal first slide; an immediately
   collected opening face is not repeatedly replaced. The presenter plays the
   engine's opening events, including the fall, clears, collections and refill.
 - When no totems remain, allow one replacement per turn after refilling/settling.
   This is separate from level-up extras. Clearing or collecting a drop spends its
   allowance; an exhausted replacement allowance becomes available again next turn.
-- Every five cleared rows advances a level. New levels grant `min(level, 3)` extras,
-  capped at three level-up drops across the entire turn (four with replacement).
+- Filling the Next Junior bar grants one extra junior, even if several levels
+  cascade in the same turn (two drops with replacement).
   The budget is calculated from the turn's starting level to its current level,
   with already-spawned extras deducted. Replacement is not a recent column for
   extras. Refill and drop cascades cannot renew it.
@@ -337,11 +338,10 @@ Mode 2 overrides collection, scoring, and expression placement:
 - Full rows containing ordinary tiles clear those tiles and improve each touched
   totem's smile, up to stage 3. Totem-only rows immediately set every participating
   totem to stage 3 and collect them in place. Rows still advance level progression;
-  points come from the collected totems.
-- After gravity and row clears finish, floor totems are collected for
-  `50 × smile × level` points each. Collection can release another totem or cascade;
-  each totem has its own score popup and banks its points as its collection
-  animation finishes, before the rest of the chain completes.
+  Mode 1 awards no points.
+- After gravity and row clears finish, floor totems are collected without bonus
+  points. Collection can release another totem or cascade; each creature flies
+  into its matching HUD slot and increments that slot's count on arrival.
 - Incoming candidates use lengths 2–4. Rise at least once, then refill to three
   distinct occupied ordinary-tile rows: 0/1/2+ rows normally get 3/2/1 rises.
   Totems are excluded; shards count their actual occupied cell rows. Recount after
@@ -355,26 +355,25 @@ Mode 2 overrides collection, scoring, and expression placement:
   preserve Building faces and floor collections remove them during simulation.
   Classic candidates use the Building five-line progression curve. Both searches
   reject Building rises that touch the ceiling before simulating a response slide.
-- Sand, jade, and gold faces blend through ordinary smile upgrades. Floor
-  collections compress and rebound, then launch intact on a sideways, upward arc,
-  rotating and fading as gravity pulls them down. In both Building rulesets,
+- Junior faces grow through ordinary smile upgrades and reveal their adult look.
+  Collections compress and rebound, then launch intact on a curved path into the
+  matching HUD slot without fading. Younger Mode 1 creatures mature during flight.
+  In both Building rulesets,
   the board queue resumes immediately at takeoff after the 340ms rebound.
-  Detached `flyingTotems` poses animate and bank scores independently of live
+  Detached `flyingTotems` poses animate independently of live
   block views. Released tiles fall with quadratic acceleration, staggered from
   the bottom upward so each tile falls independently into the opened space.
-  Each totem repeats the same floor compression/rebound and particle-like flight
-  after the released tiles land. Individual score impacts overlap the
-  falling stack and the next arrival's feedback rather than delaying them.
+  Each totem repeats the same floor compression/rebound and collection flight
+  after the released tiles land. Slot impacts overlap the falling stack and the
+  next arrival's feedback rather than delaying them.
   Input unlocks at the end of the board queue even while flights remain. Flights
   share the pause/reset clock, and their completion never adopts board snapshots.
   Clears, rises, drops, and longer falls remain playback boundaries. All-totem
   row clears upgrade every totem to gold, then wipe ordinary blocks in a
   top-to-bottom wave before totems fall and collect. Side confetti accompanies
   a centered, scale-only “POWER MODE ACTIVATED!” celebration. The
-  celebration shares the pause/reset clock and can outlive board motion. Individual score
-  popups originate beside each totem and fly toward the total during its animation.
-  Their collected smile stage sets the styling: small white, medium pale gold,
-  and large gold for stages 1–3, including max-stage god clears.
+  celebration shares the pause/reset clock and can outlive board motion.
+  Creature growth and collection never create a score popup or score impact.
 
 ## Playback and lifecycle
 
@@ -399,13 +398,22 @@ Mode 2 overrides collection, scoring, and expression placement:
   and both rise variants start one row below their destination. Dragging identifies
   a block by ID and resolves its current shown geometry for rendering and release.
 - Menus freeze the visual clock. Resume continues playback from the same point.
+- The board creature follows primary mouse/touch coordinates with bounded, eased
+  irises; touch retains its last contact point. Clears and Junior arrivals/collections
+  renew a brief upside-down-U eye smile, with no celebration movement of the mouth or cheeks.
+  Expressions switch immediately without fading; pointer tracking remains eased.
+  Panic retains a subtle nervous lip wave. Visible occupied cells in the top two rows override the smile with
+  panic, excluding departing clears and cells still above the board. Game-over
+  playback immediately replaces the irises with red Xs before the result overlay.
+  Gaze and expressions share the paused visual clock and reset with the presenter.
 - Drags require horizontal intent beyond a 0.12-cell dead zone; vertical starts
   are rejected for that contact. Travel uses a steady 0.92 gain and selects a new
   cell only past 0.6 cells, leaving a 0.2-cell hysteresis band against release jitter.
   Walls discard overshoot so reversal responds immediately. Tiles follow the hand
-  with a 32% pull toward the selected cell for soft snaps and a fast critically damped filter,
+  continuously through a fast critically damped filter, without pulling toward grid cells,
   catching up in roughly 12ms; reversal brakes leftover momentum immediately.
-  The selected ghost is the release destination. Both accepted slides and returns
+  A dashed white board-slot outline marks the release destination around the tiles.
+  Both accepted slides and returns
   carry visual velocity into a bounded snap, then finish a short compression and
   subtle rebound before unlocking input or continuing board playback. Position,
   pickup scale and contact share one tween; adoption/reset clears drag velocity.
@@ -432,8 +440,8 @@ Totem tests cover notches/overhang collisions, row-only clears and leftover smil
 seeded multi-turn geometry for both difficulties and every shape, play-mode persistence,
 committed previews, no top-edge row blast, Building smile upgrades and floor collection,
 and split clear/shard/drop playback including pause and restart cancellation.
-Building regressions cover individual collection score presentation and immediate
-banking, max-smile all-totem row clears, deferred
+Building regressions cover score-free collection, matching HUD arrivals,
+ordinary-tile score banking, max-smile all-totem row clears, deferred
 drop retries, rule-preserving board copies, level pacing, and usable row runs.
 Regression tests also cover mirrored drag thresholds, stationary/repeated pointer
 events, direction reversal, board bounds, blocked-storage audio import, seeded

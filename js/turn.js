@@ -1,7 +1,7 @@
 // Shared turn lifecycle. Modes supply insertion/preview rules, options add drops.
 import { ROWS, rowSpan, computeGravity, settleBoard, touchingTop, hasMoves,
   occupiedTileRows, fullRows, heightOf, applyPowerMode } from './board.js';
-import { createTurnScore, awardRows, awardTotemCollect } from './sim.js';
+import { createTurnScore, awardRows } from './sim.js';
 import { spawnTotem, spawnBuildingTotem } from './totem-spawn.js';
 import { isBuilding, isTetris, usesTotems, tetrisDropInterval,
   isBuildingMode2, buildingTotemsForLevelUp, REFILL_ROWS } from './play-mode.js';
@@ -23,8 +23,6 @@ function scoreSteps(state, emit) {
         const { left, right } = rowSpan(state, row);
         return right - left;
       }, data.rows.length);
-    } else if (type === 'totem-collect') {
-      data.award = awardTotemCollect(state, data.blocks);
     }
     emit(type, data);
   };
@@ -90,7 +88,7 @@ export function resolveTurn(state, random, emit, rise, options = {}) {
       const budget = buildingTotemsForLevelUp(startingLevel, state.level);
       if (!replacement && levelDrops >= budget) break;
       // Charge before landing. Clears/collections never refund a drop, and
-      // later level-ups can only increase this turn's budget up to the cap.
+      // later level-ups cannot grant extra juniors beyond this turn's cap.
       if (replacement) replacementUsed = true;
       else levelDrops++;
       const block = spawnBuildingTotem(state, random, dropColumns);

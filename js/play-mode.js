@@ -8,8 +8,7 @@ export const BUILDING_LINES_STEP = 1;
 // First-level Building requirement; later levels add BUILDING_LINES_STEP through LINES_GROWTH_LAST_LEVEL.
 export const BUILDING_LINES_PER_LEVEL = BUILDING_LINES_BASE;
 export const TOTEM_SMILE_MAX = 3;
-export const TOTEM_COLLECT_SCORE = 50;
-export const BUILDING_SPAWN_CAP = 3;
+export const BUILDING_SPAWN_CAP = 1;
 // Ordinary-tile refill target shared by all play modes.
 export const REFILL_ROWS = 3;
 // Turns between tetromino drops. Later levels speed up, but stay sparse.
@@ -48,12 +47,8 @@ export function levelForBuildingLines(lines) {
 }
 
 export function buildingTotemsForLevelUp(fromLevel, toLevel) {
-  let n = 0;
-  // One budget for the whole turn, even when a cascade crosses several levels.
-  for (let lv = (fromLevel | 0) + 1; lv <= (toLevel | 0) && n < BUILDING_SPAWN_CAP; lv++) {
-    n += Math.min(lv, BUILDING_SPAWN_CAP);
-  }
-  return Math.min(n, BUILDING_SPAWN_CAP);
+  // One junior per filled Next Junior bar this turn, even across cascaded levels.
+  return (toLevel | 0) > (fromLevel | 0) ? BUILDING_SPAWN_CAP : 0;
 }
 
 export function buildingLevelProgress(lines) {
@@ -79,10 +74,12 @@ export const isBuildingMode2 = state => isBuilding(state) && state.buildingMode 
 export const normalizeBuildingMode = mode => mode === 2 ? 2 : 1;
 
 // Score targets grow with the level, matching the level multiplier on awards.
+// Level L costs BUILDING_SCORE_PER_LEVEL * L (1000, 2000, 3000, …).
+export const BUILDING_SCORE_PER_LEVEL = 1000;
 export function buildingScoreProgress(score) {
   const points = Math.max(0, score);
-  const level = Math.floor((1 + Math.sqrt(1 + points / 50)) / 2);
-  const start = 200 * level * (level - 1);
-  return { level, levelProgress: (points - start) / (400 * level) };
+  const level = Math.floor((1 + Math.sqrt(1 + points / (BUILDING_SCORE_PER_LEVEL / 8))) / 2);
+  const start = (BUILDING_SCORE_PER_LEVEL / 2) * level * (level - 1);
+  return { level, levelProgress: (points - start) / (BUILDING_SCORE_PER_LEVEL * level) };
 }
 export const usesTotems = state => isTetris(state) || isBuilding(state);

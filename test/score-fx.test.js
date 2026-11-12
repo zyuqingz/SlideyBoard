@@ -12,7 +12,7 @@ function clock(effects) {
   };
 }
 
-test('cascade points wait, fly once, react, then snap to the total', async () => {
+test('cascade points hold on the board, exit in place, then snap to the total', async () => {
   const effects = createEffects();
   const advance = clock(effects);
   const s = createState();
@@ -22,7 +22,7 @@ test('cascade points wait, fly once, react, then snap to the total', async () =>
   assert.equal(present.comboFx, null);
   await advance(2000);
   assert.equal(present.displayScore, 0);
-  assert.equal(present.scoreFx.flight, null, 'a long cascade must not auto-bank');
+  assert.equal(present.scoreFx.exit, 0, 'a long cascade must not auto-bank');
   stackScore(present, awardRows(s, [8], turn), effects);
   assert.equal(present.comboFx.mult, 2);
   assert.equal(present.scoreFx.pts, 240);
@@ -30,7 +30,8 @@ test('cascade points wait, fly once, react, then snap to the total', async () =>
   const done = bankScore(present, effects);
   await advance(480);
   await advance(280);
-  assert.ok(present.scoreFx.flight > 0 && present.scoreFx.flight < 0.5, 'flight accelerates');
+  assert.ok(present.scoreFx.exit > 0 && present.scoreFx.exit < 0.5, 'popup eases out in place');
+  assert.equal(present.scoreFx.flight, undefined, 'row scores have no HUD flight');
   assert.equal(present.displayScore, 0);
   await advance(280);
   assert.equal(present.scoreFx, null);

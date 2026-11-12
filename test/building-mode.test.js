@@ -42,25 +42,28 @@ test('Mode 2 collects at stage 3 in place before cascades can reuse the totem', 
   assert.deepEqual(fullRows(board), []);
 });
 
-test('Mode 2 tile scores and totem bonuses both advance levels and spawn bonuses', () => {
+test('Mode 2 collections add no score, progress, or level-up spawn bonus', () => {
   const initial = stateFor([totem(1, 8, 7, 2), tile(2, 8, 0, 7), tile(3, 9, 6, 2), tile(4, 9, 0, 2)]);
-  initial.score = 250;
+  initial.score = 650;
   Object.assign(initial, buildingScoreProgress(initial.score));
   const result = engineFor(initial).dispatch({ type: 'slide', id: 4, col: 1 });
   const clear = result.events.find(e => e.type === 'clear');
   const collect = result.events.find(e => e.type === 'totem-collect');
   assert.equal(clear.award.pts, 70);
-  assert.equal(clear.state.score, 320);
-  assert.equal(clear.state.levelProgress, 0.8);
-  assert.equal(collect.award.pts, 150);
-  assert.equal(collect.state.score, 470);
-  assert.equal(collect.state.level, 2);
-  assert.equal(collect.state.levelProgress, 70 / 800);
-  assert.equal(result.events.filter(e => e.type === 'totem-drop').length, 3);
+  assert.equal(clear.state.score, 720);
+  assert.equal(clear.state.levelProgress, 0.72);
+  assert.equal(collect.award, undefined);
+  assert.equal(collect.state.score, 720);
+  assert.equal(collect.state.best, clear.state.best);
+  assert.equal(collect.state.level, 1);
+  assert.equal(collect.state.levelProgress, 0.72);
+  assert.equal(result.events.filter(e => e.type === 'totem-drop').length, 1, 'only the empty-board replacement');
 });
 
 test('Mode 2 power upgrades every totem, scores the wipe, and collects each once in place', () => {
   const initial = stateFor([totem(1, 5, 3, 1), totem(2, 7, 5, 2), tile(3, 8, 0, 4), tile(4, 9, 4, 4)]);
+  initial.score = 400;
+  Object.assign(initial, buildingScoreProgress(initial.score));
   const result = engineFor(initial).dispatch({ type: 'power-mode' });
   const clear = result.events[0], collect = result.events[1];
   assert.equal(clear.godClear, true);
@@ -68,9 +71,10 @@ test('Mode 2 power upgrades every totem, scores the wipe, and collects each once
   assert.ok(clear.state.blocks.every(b => b.smile === 3));
   assert.equal(collect.type, 'totem-collect');
   assert.deepEqual(collect.blocks.map(b => [b.id, b.row]), [[1, 5], [2, 7]]);
-  assert.equal(collect.award.pts, 300);
+  assert.equal(collect.award, undefined);
+  assert.equal(collect.state.score, 520, 'only the food wipe scores');
   assert.equal(collect.state.blocks.length, 0);
-  assert.equal(collect.state.level, 2);
+  assert.equal(collect.state.level, 1);
   assert.equal(result.events.filter(e => e.type === 'totem-collect').length, 1);
 });
 
@@ -111,10 +115,10 @@ test('ruleset storage defaults safely and restores the saved toggle', t => {
   assert.equal(loadBuildingMode(), 2);
 });
 
-test('Mode 2 playback flies from the upgrade position and banks tile and totem scores exactly once', async () => {
+test('Mode 2 playback flies from the upgrade position and banks only tile scores', async () => {
   for (const step of [16, 250, 1000]) {
     const initial = stateFor([totem(1, 5, 3, 1), tile(2, 8, 0, 4), tile(3, 9, 4, 4)]);
-    initial.score = 250;
+    initial.score = 500;
     Object.assign(initial, buildingScoreProgress(initial.score));
     const result = engineFor(initial).dispatch({ type: 'power-mode' });
     const presenter = createPresenter({ sfx: () => {} });

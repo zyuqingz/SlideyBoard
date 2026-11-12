@@ -23,7 +23,7 @@ bindCanvas(canvas);
 loadLang();
 const engine = createEngine({ modeId: 'classic', best: loadBest('classic'),
   difficulty: loadDifficulty(), playMode: loadPlayMode(), buildingMode: loadBuildingMode() });
-const presenter = createPresenter({ boardY: () => layout.BY });
+const presenter = createPresenter({ boardY: () => layout.BY, collectionY: () => layout.COLLECTION_Y });
 presenter.present.powerButton = loadPowerButton();
 
 function showBoard(snapshot) {
@@ -145,8 +145,9 @@ window.__slidey = {
         return { ...b, vx: v.vx, vy: v.vy, s: v.s, sq: v.sq };
       }),
       score: state.score, displayScore: present.displayScore,
-      pendingScore: (present.scoreFx?.pts || 0) + present.totemScoreFx.reduce((sum, fx) => sum + fx.pts, 0),
-      scoreAnimating: !!(present.scoreFx || present.totemScoreFx.length || present.scoreScale !== 1),
+      juniorCollection: [...present.juniorCollection],
+      pendingScore: present.scoreFx?.pts || 0,
+      scoreAnimating: !!(present.scoreFx || present.scoreScale !== 1),
       combo: present.comboFx?.mult || 0, level: state.level, lines: state.lines,
       busy: presenter.busy, over: state.phase === 'over', paused: present.menu === 'pause',
       modeOpen: present.menu === 'mode', mode: state.mode, best: state.best,

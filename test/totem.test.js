@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEngine } from '../js/engine.js';
-import { createState, rise, awardTotemCollect } from '../js/sim.js';
+import { createState, rise } from '../js/sim.js';
 import { resolveTurn, spawnOpeningTotem } from '../js/turn.js';
 import { classic } from '../js/modes.js';
 import { shaped } from '../js/shaped-mode.js';
@@ -447,16 +447,16 @@ test('optional Totems are deterministic on classic for both difficulties', () =>
   assert.ok(drops > 0);
 });
 
-test('building level-up bonuses use the new level, capped at 3 across the turn', () => {
+test('building level-up bonuses spawn one junior per filled bar, even across a cascade', () => {
   assert.equal(buildingTotemsForLevelUp(1, 1), 0);
-  assert.equal(buildingTotemsForLevelUp(1, 2), 2);
-  assert.equal(buildingTotemsForLevelUp(2, 3), 3);
-  assert.equal(buildingTotemsForLevelUp(3, 4), 3);
-  assert.equal(buildingTotemsForLevelUp(4, 5), 3);
-  assert.equal(buildingTotemsForLevelUp(5, 6), 3);
-  assert.equal(buildingTotemsForLevelUp(1, 3), 3);
-  assert.equal(buildingTotemsForLevelUp(4, 6), 3);
-  assert.equal(buildingTotemsForLevelUp(100, 1000), 3);
+  assert.equal(buildingTotemsForLevelUp(1, 2), 1);
+  assert.equal(buildingTotemsForLevelUp(2, 3), 1);
+  assert.equal(buildingTotemsForLevelUp(3, 4), 1);
+  assert.equal(buildingTotemsForLevelUp(4, 5), 1);
+  assert.equal(buildingTotemsForLevelUp(5, 6), 1);
+  assert.equal(buildingTotemsForLevelUp(1, 3), 1);
+  assert.equal(buildingTotemsForLevelUp(4, 6), 1);
+  assert.equal(buildingTotemsForLevelUp(100, 1000), 1);
 });
 
 test('Totem Building opening totem is already on the board', () => {
@@ -482,8 +482,8 @@ test('Building openings settle before the first slide', () => {
     assert.ok(hasMoves(state));
     assert.equal(state.hasMoved, false);
     assert.deepEqual(opening.events.at(-1).state, state);
-    assert.equal(state.score, opening.events.reduce((sum, e) => sum
-      + (e.type === 'totem-collect' ? e.award.pts : 0), 0));
+    assert.equal(state.score, 0);
+    assert.ok(opening.events.filter(e => e.type === 'totem-collect').every(e => !e.award));
     const saved = engine.opening();
     opening.events[0].state.blocks.length = 0;
     assert.deepEqual(engine.opening(), saved, 'opening events are detached');
@@ -521,8 +521,8 @@ test('Totem Building drops every level-up totem during the same turn', () => {
   assert.ok(drop.events.some(e => e.type === 'totem-drop'));
   assert.ok(!drop.events.some(e => e.type === 'totem-stack'));
   assert.equal(drop.state.level, 2);
-  assert.equal(drop.events.filter(e => e.type === 'totem-drop').length, 3,
-    'one replacement plus two level-up extras');
+  assert.equal(drop.events.filter(e => e.type === 'totem-drop').length, 2,
+    'one replacement plus one level-up junior');
   assert.ok(drop.events.findIndex(e => e.type === 'totem-drop')
     > drop.events.findLastIndex(e => e.type === 'rise'));
   assert.ok(drop.state.blocks.some(b => b.kind === 'totem'), 'drops land on the refill');
@@ -556,7 +556,7 @@ test('Building replaces a collected last totem without needing a level-up on eit
       () => insertRow(initial, [{ col: 2, len: 2, color: 0 }]));
     assert.equal(initial.phase, 'play');
     assert.equal(initial.level, 1);
-    assert.equal(initial.score, 100);
+    assert.equal(initial.score, 0);
     assert.equal(events.filter(e => e.type === 'totem-drop').length, 1);
     const replacement = initial.blocks.filter(b => b.kind === 'totem');
     assert.equal(replacement.length, 1);
@@ -566,7 +566,7 @@ test('Building replaces a collected last totem without needing a level-up on eit
   }
 });
 
-test('Building gives three level-up extras in addition to an empty-board replacement', () => {
+test('Building gives one level-up junior in addition to an empty-board replacement', () => {
   const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
     lines: buildingLinesTo(5) - 1, level: 4, blocks: [block(1, 9, 0, 8)] };
   const events = [];
@@ -574,25 +574,25 @@ test('Building gives three level-up extras in addition to an empty-board replace
     () => insertRow(state, [{ col: 0, len: 2, color: 0 }]));
   assert.equal(state.level, 5);
   assert.equal(state.phase, 'play');
-  assert.equal(events.filter(type => type === 'totem-drop').length, 4);
+  assert.equal(events.filter(type => type === 'totem-drop').length, 2);
   assert.equal(state.blocks.filter(b => b.kind === 'totem').length
-    + events.filter(type => type === 'totem-collect').length, 4);
+    + events.filter(type => type === 'totem-collect').length, 2);
   valid(state);
 });
 
-test('Building caps a multi-level clear at three extras plus one replacement', () => {
+test('Building caps a multi-level clear at one extra plus one replacement', () => {
   const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
     lines: buildingLinesTo(2), level: 2, blocks: Array.from({ length: 9 }, (_, i) => block(i + 1, i + 1, 0, 8)) };
   const events = [];
   resolveTurn(state, () => 0, type => events.push(type),
     () => insertRow(state, [{ col: 0, len: 2, color: 0 }]));
   assert.equal(state.level, 3);
-  assert.equal(events.filter(type => type === 'totem-drop').length, 4);
+  assert.equal(events.filter(type => type === 'totem-drop').length, 2);
   assert.equal(state.phase, 'play');
   valid(state);
 });
 
-test('Building stops at three extras when an existing totem needs no replacement', () => {
+test('Building stops at one extra when an existing totem needs no replacement', () => {
   const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
     lines: buildingLinesTo(5) - 1, level: 4, blocks: [block(1, 9, 0, 8),
       ...[6, 7, 8].map((row, i) => block(i + 2, row, 0, 2)), pole(10, 5, 0, 1)] };
@@ -600,9 +600,9 @@ test('Building stops at three extras when an existing totem needs no replacement
   resolveTurn(state, () => 0, type => events.push(type),
     () => insertRow(state, [{ col: 0, len: 2, color: 0 }]));
   assert.equal(state.level, 5);
-  assert.equal(events.filter(type => type === 'totem-drop').length, 3);
+  assert.equal(events.filter(type => type === 'totem-drop').length, 1);
   assert.equal(state.blocks.filter(b => b.kind === 'totem').length
-    + events.filter(type => type === 'totem-collect').length, 4);
+    + events.filter(type => type === 'totem-collect').length, 2);
   assert.equal(state.phase, 'play');
   valid(state);
 });
@@ -615,9 +615,9 @@ test('Building drop-induced levels and collections cannot renew the turn budget'
   const events = [];
   resolveTurn(state, () => 0.999, type => events.push(type),
     () => insertRow(state, [{ col: 0, len: 7, color: 0 }]));
-  assert.equal(state.level, 6, 'drop cascades cross further levels during the same turn');
-  assert.equal(events.filter(type => type === 'totem-drop').length, 4);
-  assert.equal(events.filter(type => type === 'totem-collect').length, 4);
+  assert.equal(state.level, 5, 'drop cascades can still raise the level during the same turn');
+  assert.equal(events.filter(type => type === 'totem-drop').length, 2);
+  assert.equal(events.filter(type => type === 'totem-collect').length, 2);
   assert.equal(state.blocks.filter(b => b.kind === 'totem').length, 0);
   assert.equal(state.phase, 'play');
   assert.equal(occupiedTileRows(state), 3);
@@ -732,22 +732,21 @@ test('Building level-up drops stack sequentially when only one column is reachab
     }, () => rise(state, () => 0.5));
   assert.equal(state.level, 2);
   const drops = events.filter(e => e.type === 'totem-drop');
-  assert.equal(drops.length, 2);
+  assert.equal(drops.length, 1);
   assert.ok(drops.every(e => e.state.blocks.find(b => b.id === e.id).col === 0));
   const first = state.blocks.find(b => b.id === drops[0].id);
-  const second = state.blocks.find(b => b.id === drops[1].id);
-  assert.equal(second.row, first.row - 1);
+  assert.ok(first);
   assert.ok(!('pendingTotemSpawns' in state));
   assert.ok(!('totemSpawnBlocked' in state));
   valid(state);
 });
 
-test('an empty Building opening resolves and scores its floor collection', () => {
+test('an empty Building opening resolves its floor collection without bonus points', () => {
   const initial = createState(0, 'easy', 'totem-building');
   const events = [];
   spawnOpeningTotem(initial, () => 0, (type, data) => events.push({ type, ...data }));
   assert.equal(initial.blocks.length, 0);
-  assert.equal(initial.score, 50);
+  assert.equal(initial.score, 0);
   assert.deepEqual(events.map(e => e.type), ['totem-drop', 'gravity', 'totem-collect']);
   assert.ok(!('pendingTotemSpawns' in initial));
   assert.ok(!('totemSpawnBlocked' in initial));
@@ -985,18 +984,22 @@ test('all-totem rows power up every totem and wipe the board before falling on e
   }
 });
 
-test('collection awards carry only their own points and retain per-totem values', () => {
-  const state = { ...createState(0, 'easy', 'totem-building'), level: 2 };
-  const first = awardTotemCollect(state, [{ id: 1, smile: 1 }, { id: 2, smile: 3 }]);
-  const second = awardTotemCollect(state, [{ id: 3, smile: 2 }]);
-  assert.deepEqual(first.totems, [{ id: 1, pts: 100, mult: 1 }, { id: 2, pts: 300, mult: 1 }]);
-  assert.equal(first.pts, 400);
-  assert.equal(second.pts, 200);
-  assert.equal(state.score, 600);
-  assert.equal(state.best, 600);
+test('collection preserves score and best for every maturity stage', () => {
+  for (const smile of [1, 2, 3]) {
+    const initial = { ...createState(900, 'easy', 'totem-building'), nextId: 100,
+      score: 700, blocks: [{ ...pole(1, 9, 6, 1), smile }, block(2, 9, 0, 2)] };
+    const events = [];
+    resolveTurn(initial, () => 0, (type, data) => events.push({ type, ...data }),
+      () => insertRow(initial, [{ col: 2, len: 2, color: 0 }]));
+    const collection = events.find(e => e.type === 'totem-collect');
+    assert.ok(collection);
+    assert.equal(collection.award, undefined);
+    assert.equal(initial.score, 700);
+    assert.equal(initial.best, 900);
+  }
 });
 
-test('live god clear scores every max-level totem once on floor collection', () => {
+test('live god clear collects max-level totems without a bonus', () => {
   const initial = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
     nextRow: [{ col: 0, len: 2, color: 0 }], blocks: [
       ...Array.from({ length: 7 }, (_, col) => ({ ...pole(col + 1, 8, col, 1), smile: 1 })),
@@ -1007,10 +1010,11 @@ test('live god clear scores every max-level totem once on floor collection', () 
   assert.ok(clear);
   assert.equal(clear.state.score, 0);
   const collection = result.events.find(e => e.type === 'totem-collect');
-  assert.equal(collection.award.pts, 1200);
-  assert.deepEqual(collection.award.totems.map(a => a.pts), Array(8).fill(150));
+  assert.equal(collection.award, undefined);
+  assert.equal(collection.blocks.length, 8);
+  assert.ok(collection.blocks.every(b => b.smile === 3));
   assert.equal(result.events.filter(e => e.godClear).length, 1, 'floor row cannot retrigger power mode');
-  assert.equal(result.state.score, 1200);
+  assert.equal(result.state.score, 0);
 });
 
 test('power-mode command wipes ordinary blocks and upgrades totems', () => {
