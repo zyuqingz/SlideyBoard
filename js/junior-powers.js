@@ -1,6 +1,7 @@
 // Collected Junior identities and grid-space targeting; no presentation state.
 import { ROWS, rowSpan, connectedGroups, takeNextId } from './board.js';
-import { cellsOf } from './block-geometry.js';
+import { cellsOf, isCarved } from './block-geometry.js';
+import { TOTEM_SMILE_MAX } from './play-mode.js';
 
 export const JUNIOR_COUNT = 4;
 
@@ -9,12 +10,18 @@ function inBlast(row, col, target) {
 }
 
 export function juniorTarget(state, variant, row, col) {
+  const preview = juniorPreview(state, variant, row, col);
+  return preview?.blockIds.length ? { row, col, blockIds: preview.blockIds } : null;
+}
+
+// Grid-space facts for input and drawing, including valid but empty target areas.
+export function juniorPreview(state, variant, row, col) {
   if (!Number.isInteger(variant) || variant < 0 || variant >= JUNIOR_COUNT
     || !Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= ROWS) return null;
   const { left, right } = rowSpan(state, row);
   if (col < left || col >= right) return null;
   const blocks = state.blocks.filter(b => {
-    if (variant === 1) return b.kind === 'totem' && (b.smile ?? 1) < 3
+    if (variant === 1) return b.kind === 'totem' && (b.smile ?? 1) < TOTEM_SMILE_MAX
       && cellsOf(b).some(cell => b.row + cell.row === row && b.col + cell.col === col);
     if (b.kind === 'totem') return false;
     if (variant === 3) return cellsOf(b).length > 1;
@@ -22,10 +29,36 @@ export function juniorTarget(state, variant, row, col) {
       const r = b.row + cell.row, c = b.col + cell.col;
       if (variant === 0) return r === row;
       if (variant === 2) return inBlast(r, c, { row, col });
-      return r === row && c === col;
     });
   });
-  return blocks.length ? { row, col, blockIds: blocks.map(b => b.id) } : null;
+  const global = variant === 3, radius = variant === 2 ? 1 : 0;
+  const first = global ? 0 : Math.max(0, row - radius);
+  const last = global ? ROWS - 1 : Math.min(ROWS - 1, row + radius);
+  const bands = [];
+  for (let r = first; r <= last; r++) {
+    const span = rowSpan(state, r);
+    const wholeRow = global || variant === 0;
+    const left = wholeRow ? span.left : Math.max(span.left, col - radius);
+    const right = wholeRow ? span.right : Math.min(span.right, col + radius + 1);
+    if (left >= right) continue;
+    const previous = bands.at(-1);
+    if (previous && previous.left === left && previous.right === right && previous.end === r)
+      previous.end++;
+    else bands.push({ left, right, row: r, end: r + 1 });
+  }
+  const highlights = blocks.flatMap(b => {
+    const cells = cellsOf(b).filter(cell => variant !== 2
+      || inBlast(b.row + cell.row, b.col + cell.col, { row, col }));
+    const spans = [];
+    for (const cell of cells.slice().sort((a, b) => a.row - b.row || a.col - b.col)) {
+      const r = b.row + cell.row, c = b.col + cell.col;
+      const previous = spans.at(-1);
+      if (!isCarved(b) && previous && previous.row === r && previous.col + previous.len === c) previous.len++;
+      else spans.push({ row: r, col: c, len: 1 });
+    }
+    return spans;
+  });
+  return { row, col, blockIds: blocks.map(b => b.id), bands, highlights };
 }
 
 function foodFragment(block, cells, id) {
@@ -79,7 +112,7 @@ export function applyJuniorPower(state, variant, target) {
     effect.blocks = structuredClone(affected);
     state.blocks = state.blocks.filter(b => !ids.has(b.id));
   } else if (variant === 1) {
-    for (const b of affected) b.smile = Math.min(3, (b.smile ?? 1) + 1);
+    for (const b of affected) b.smile = Math.min(TOTEM_SMILE_MAX, (b.smile ?? 1) + 1);
   } else if (variant === 2) effect = cutBlast(state, ids, target);
   else effect = splitFood(state, ids);
   state.juniorCollection[variant]--;

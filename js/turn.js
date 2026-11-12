@@ -109,7 +109,7 @@ export function resolveTurn(state, random, emit, rise, options = {}) {
   }
   if (options.forcePower && building) {
     step('clear', applyPowerMode(state));
-    settleBoard(state, step, true);
+    settleBoard(state, step);
     if (touchingTop(state)) endGame(state, emit, 'top-out');
     if (state.phase === 'over') return;
     return finishBuilding();

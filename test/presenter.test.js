@@ -658,8 +658,8 @@ test('opening clears and collections animate once, pause, and cancel on reset', 
     const engine = createEngine({ modeId: 'classic', playMode: 'totem-building',
       random: () => 0, modes: [{ ...classic, reset(state, random, options, emit) {
         state.shape = { rows: Array.from({ length: 10 }, (_, row) => ({ left: 0, right: row === 0 ? 1 : 8 })) };
-        state.blocks = [{ id: 1, row: 9, col: 1, len: 7, color: 0 }];
-        state.nextId = 2;
+        state.blocks = [8, 9].map((row, i) => ({ id: i + 1, row, col: 1, len: 7, color: 0 }));
+        state.nextId = 3;
         spawnOpeningTotem(state, random, emit);
       } }] });
     const opening = engine.opening(), saved = structuredClone(opening);
@@ -1331,12 +1331,12 @@ test('stacked collection pauses and cancels during contact, free fall, and fligh
   }
 });
 
-test('successive Building collections award no bonus at any playback speed', async () => {
+test('simultaneous Building collections award no bonus at any playback speed', async () => {
   for (const step of [16, 250, 1000]) {
     const initial = { ...createState(0, 'easy', 'totem-building'), nextId: 10,
       nextRow: [{ col: 0, len: 2, color: 0 }], blocks: [
-        { id: 1, row: 9, col: 4, len: 1, height: 1, kind: 'totem', smile: 1, color: 4 },
-        { id: 2, row: 8, col: 4, len: 1, height: 1, kind: 'totem', smile: 2, color: 4 },
+        { id: 1, row: 9, col: 4, len: 1, height: 1, kind: 'totem', smile: 3, color: 4 },
+        { id: 2, row: 8, col: 4, len: 1, height: 1, kind: 'totem', smile: 3, color: 4 },
         { id: 3, row: 9, col: 0, len: 2, color: 0 }
       ] };
     const engine = createEngine({ random: () => 0, modes: [{ ...classic,
@@ -1345,7 +1345,9 @@ test('successive Building collections award no bonus at any playback speed', asy
     const presenter = createPresenter({ sfx: () => {} });
     presenter.reset(engine.snapshot());
     const result = engine.dispatch({ type: 'slide', id: 3, col: 1 });
-    assert.equal(result.events.filter(e => e.type === 'totem-collect').length, 2);
+    const collections = result.events.filter(e => e.type === 'totem-collect');
+    assert.equal(collections.length, 1);
+    assert.deepEqual(collections[0].blocks.map(b => [b.id, b.row]), [[1, 9], [2, 8]]);
     assert.equal(result.state.score, 0);
     const done = presenter.play(result);
     await drain(presenter, step);
@@ -1433,13 +1435,13 @@ test('collected totems curve into matching slots, shrink only after halfway, and
   assert.deepEqual(result, saved);
 });
 
-test('collection flights mature before HUD contact without changing their score or identity', async () => {
-  for (const [mode, stage] of [[1, 1], [1, 2], [1, 3], [2, 3]]) {
+test('collection flights preserve mature appearance, score and identity through HUD contact', async () => {
+  for (const mode of [1, 2]) {
     const variant = 2;
     const presenter = createPresenter({ sfx: () => {},
       appearanceRandom: () => (variant + 0.5) / ADULT_LOOKS.length });
     const block = { id: 1, row: 9, col: 4, len: 1, height: 1,
-      kind: 'totem', color: 4, smile: stage };
+      kind: 'totem', color: 4, smile: 3 };
     const initial = { ...createState(0, 'easy', 'totem-building', mode), blocks: [block] };
     const final = { ...structuredClone(initial), blocks: [] };
     const result = { accepted: true, events: [
@@ -1451,23 +1453,22 @@ test('collection flights mature before HUD contact without changing their score 
     const done = presenter.play(result);
     await advance(presenter, 340);
     const flying = presenter.present.flyingTotems[0], v = flying.view;
-    assert.equal(v.expression, stage, 'takeoff preserves the collected appearance');
+    assert.equal(v.expression, 3, 'takeoff preserves the collected appearance');
     await advance(presenter, 155);
-    if (stage < 3) assert.ok(v.expression > stage && v.expression < 3, 'growth is animated');
-    else assert.equal(v.expression, 3, 'adults remain mature during flight');
+    assert.equal(v.expression, 3, 'adults remain mature during flight');
     presenter.present.menu = 'pause';
     const frozen = structuredClone(v);
     await advance(presenter, 1000);
-    assert.deepEqual(v, frozen, 'pause freezes maturation along with the flight');
+    assert.deepEqual(v, frozen, 'pause freezes the flight pose');
     presenter.present.menu = null;
     await advance(presenter, 310);
     assert.equal(v.expression, 3, 'the full adult look is visible before contact');
     assert.equal(v.adultVariant, variant);
     assert.deepEqual(totemPaint(v.expression, v.adultVariant), totemPaint(3, variant));
-    assert.equal(presenter.present.juniorCollection[variant], 0, 'growth does not count as arrival');
+    assert.equal(presenter.present.juniorCollection[variant], 0, 'inventory waits for arrival');
     assert.ok(presenter.present.flyingTotems.includes(flying));
-    assert.equal(flying.block.smile, stage, 'cosmetic growth leaves collected maturity intact');
-    assert.equal(presenter.present.scoreFx, null, 'maturation creates no score popup');
+    assert.equal(flying.block.smile, 3, 'flight leaves collected maturity intact');
+    assert.equal(presenter.present.scoreFx, null, 'collection creates no score popup');
     await advance(presenter, 155);
     assert.equal(v.s, 1);
     assert.equal(presenter.present.juniorCollection[variant], 1);
@@ -1475,7 +1476,7 @@ test('collection flights mature before HUD contact without changing their score 
     assert.equal(await done, true);
     assert.equal(presenter.present.displayScore, final.score);
     assert.deepEqual(presenter.state, final);
-    assert.deepEqual(result, saved, 'maturation never mutates engine events');
+    assert.deepEqual(result, saved, 'flight never mutates engine events');
   }
 });
 
@@ -1563,7 +1564,7 @@ function godClearSetup({ shaped = false, mixed = false } = {}) {
     Array.from({ length: shaped ? 5 : 8 }, (_, i) => {
       const col = i + (shaped ? 2 : 0);
       return { id: col + 1, row: 8, col, len: 1,
-        height: 1, kind: 'totem', color: 4, smile: col % 3 + 1 };
+        height: 1, kind: 'totem', color: 4, smile: col % 2 + 1 };
     }).reverse() };
   if (shaped) initial.shape = { rows: Array.from({ length: 10 }, () => ({ left: 2, right: 7 })) };
   initial.blocks.push({ id: 21, row: 9, col: shaped ? 2 : 0, len: shaped ? 5 : 8, color: 0 });
@@ -1583,7 +1584,7 @@ function godClearSetup({ shaped = false, mixed = false } = {}) {
   return { initial, final, result, presenter };
 }
 
-test('feeding frenzy clears food, then grows creatures before dropping and collecting them', async () => {
+test('feeding frenzy clears food, then grows creatures before collecting them in place', async () => {
   for (const step of [16, 250, 1000]) {
     const { result, presenter } = godClearSetup();
     const saved = structuredClone(result);
@@ -1613,11 +1614,12 @@ test('feeding frenzy clears food, then grows creatures before dropping and colle
     assert.ok(totems.every(b => presenter.viewOf(b).vy === 8 && !presenter.viewOf(b).clearing));
     assert.ok(presenter.state.blocks.every(b => b.kind === 'totem'));
     assert.equal(presenter.present.scoreFx, null);
-    assert.ok(presenter.state.blocks.every(b => b.kind === 'totem'), 'meal and growth finish before gravity');
+    assert.ok(presenter.state.blocks.every(b => b.kind === 'totem'), 'meal and growth finish before collection');
     assert.ok(totems.every(b => presenter.viewOf(b).vy === 8));
     await advance(presenter, 160);
     await advance(presenter, 100);
-    assert.ok(presenter.viewOf(totems[0]).vy > 8, 'totems now fall into the cleared board');
+    assert.ok(totems.every(b => presenter.viewOf(b).vy === 8), 'totems collect at their upgrade positions');
+    assert.ok(!result.events.some(e => e.type === 'gravity'));
     assert.equal(presenter.present.scoreFx, null, 'growth creates no score popup');
     await drain(presenter, step);
     assert.equal(await done, true);

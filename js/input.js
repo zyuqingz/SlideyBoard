@@ -4,15 +4,14 @@ import { cellsOf } from './block-geometry.js';
 import { CELL, BX, ADULT_LOOKS, JUNIOR_DRAG_LIFT, juniorSlot } from './theme.js';
 import { createDrag, followDrag } from './drag.js';
 import { layout, toLogical, toOverlay, hit, GO_RESTART, invalidateCanvas } from './canvas-layout.js';
-import { mapControl, modeResume, shapeControl, difficultyControl, playModeControl,
-  powerButtonControl, buildingModeControl } from './mode-popup.js';
+import { modePopup } from './mode-popup.js';
 import { settingsPopup } from './settings-popup.js';
 import { setLang } from './i18n.js';
 import { unlockAudio, isMuted, setMuted, playSfx } from './audio.js';
 
-export function bindInput(canvas, { presenter, modes, moveRange, slide, restart, shapeSelection,
+export function bindInput(canvas, { presenter, moveRange, slide, restart, shapeSelection,
   toggleDifficulty, cyclePlayMode, cycleMap, cycleShape, togglePowerButton, triggerPowerMode, toggleBuildingMode,
-  juniorTarget, useJunior,
+  juniorPreview, useJunior,
   sfx = playSfx }) {
   const { present, viewOf } = presenter;
   const click = () => sfx('click');
@@ -56,16 +55,17 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
       return null;
     }
     if (present.menu === 'mode') {
-      if (hit(difficultyControl(modes), op)) return 'btn:difficulty';
-      if (hit(powerButtonControl(modes), op)) return 'btn:power-toggle';
-      if (hit(playModeControl(modes), op)) return 'btn:play-mode';
-      if (presenter.state.playMode === 'totem-building' && hit(buildingModeControl(modes), op))
+      const pop = modePopup();
+      if (hit(pop.difficulty, op)) return 'btn:difficulty';
+      if (hit(pop.powerButton, op)) return 'btn:power-toggle';
+      if (hit(pop.playMode, op)) return 'btn:play-mode';
+      if (presenter.state.playMode === 'totem-building' && hit(pop.buildingMode, op))
         return 'btn:building-mode';
-      if (presenter.state.playMode !== 'tetris' && hit(mapControl(modes), op)) return 'btn:map';
-      const control = shapeControl(modes);
+      if (presenter.state.playMode !== 'tetris' && hit(pop.map, op)) return 'btn:map';
+      const control = pop.control;
       const shaped = presenter.state.mode === 'shaped';
       if (control && shapeSelection && shaped && hit(control, op)) return 'shape';
-      if (hit(modeResume(modes), op)) return 'btn:mode-resume';
+      if (hit(pop.resume, op)) return 'btn:mode-resume';
       return null;
     }
     if (presenter.state.phase === 'over') {
@@ -141,8 +141,9 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
       const p = toLogical(e);
       drag.x = p.x;
       drag.y = p.y - JUNIOR_DRAG_LIFT;
-      drag.target = juniorTarget?.(drag.variant,
+      drag.preview = juniorPreview(drag.variant,
         Math.floor((drag.y - layout.BY) / CELL), Math.floor((drag.x - BX) / CELL)) ?? null;
+      drag.target = drag.preview?.blockIds.length ? drag.preview : null;
       return;
     }
     const b = presenter.state.blocks.find(b => b.id === drag.blockId);
@@ -187,39 +188,40 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
       return;
     }
     if (present.menu === 'mode') {
-      if (hit(playModeControl(modes), op)) {
+      const pop = modePopup();
+      if (hit(pop.playMode, op)) {
         click();
         cyclePlayMode();
         return;
       }
-      if (hit(difficultyControl(modes), op)) {
+      if (hit(pop.difficulty, op)) {
         click();
         toggleDifficulty();
         return;
       }
-      if (presenter.state.playMode === 'totem-building' && hit(buildingModeControl(modes), op)) {
+      if (presenter.state.playMode === 'totem-building' && hit(pop.buildingMode, op)) {
         click();
         toggleBuildingMode?.();
         return;
       }
-      if (hit(powerButtonControl(modes), op)) {
+      if (hit(pop.powerButton, op)) {
         click();
         togglePowerButton();
         return;
       }
-      if (presenter.state.playMode !== 'tetris' && hit(mapControl(modes), op)) {
+      if (presenter.state.playMode !== 'tetris' && hit(pop.map, op)) {
         click();
         cycleMap();
         return;
       }
-      const control = shapeControl(modes);
+      const control = pop.control;
       if (control && shapeSelection && presenter.state.mode === 'shaped' && hit(control, op)) {
         click();
         const direction = op.x < control.x + 60 ? -1 : 1;
         cycleShape(direction);
         return;
       }
-      if (hit(modeResume(modes), op)) { click(); closeMenu(); }
+      if (hit(pop.resume, op)) { click(); closeMenu(); }
       return;
     }
     if (presenter.state.phase === 'over') {
@@ -243,7 +245,8 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     if (variant >= 0) {
       present.hoverKey = null;
       present.drag = { kind: 'junior', variant, id: e.pointerId,
-        pointerType: e.pointerType, x: p.x, y: p.y - JUNIOR_DRAG_LIFT, target: null };
+        pointerType: e.pointerType, x: p.x, y: p.y - JUNIOR_DRAG_LIFT, target: null, preview: null };
+      moveDrag(e);
       canvas.style.cursor = 'grabbing';
       try { canvas.setPointerCapture(e.pointerId); } catch {}
       return;

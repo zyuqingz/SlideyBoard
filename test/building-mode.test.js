@@ -17,29 +17,73 @@ const engineFor = state => createEngine({ modes: [{ ...classic,
   reset(target) { Object.assign(target, structuredClone(state)); }
 }], random: () => 0.5 });
 
-test('Mode 2 keeps immature floor totems while Mode 1 still collects them', () => {
+test('both Building modes keep immature totems when they fall to the floor', () => {
   for (const smile of [1, 2]) for (const buildingMode of [1, 2]) {
     const board = { ...stateFor([totem(1, 7, 0, smile)]), buildingMode };
     const events = [];
     settleBoard(board, type => events.push(type));
-    assert.equal(events.includes('totem-collect'), buildingMode === 1);
-    assert.equal(board.blocks.length, buildingMode === 1 ? 0 : 1);
+    assert.deepEqual(events, ['gravity']);
+    assert.equal(board.blocks.length, 1);
+    assert.equal(board.blocks[0].row, 9);
+    assert.equal(board.blocks[0].smile, smile);
   }
 });
 
-test('Mode 2 collects at stage 3 in place before cascades can reuse the totem', () => {
-  const board = stateFor([totem(1, 8, 7, 2), tile(2, 8, 0, 7),
-    tile(3, 9, 6, 2), tile(4, 7, 0, 7)]);
-  const preview = copyBoard(copyBoard(board));
-  const events = [];
-  settleBoard(board, (type, data) => events.push(structuredClone({ type, ...data })));
-  settleBoard(preview);
-  assert.deepEqual(events.map(e => e.type), ['clear', 'totem-collect', 'gravity']);
-  assert.equal(events[1].blocks[0].row, 8);
-  assert.equal(events[1].blocks[0].smile, 3);
-  assert.ok(!board.blocks.some(b => b.id === 1));
-  assert.deepEqual(board.blocks, preview.blocks);
-  assert.deepEqual(fullRows(board), []);
+test('falling to the bottom grants no inventory until a Junior fully grows', async () => {
+  for (const buildingMode of [1, 2]) for (const smile of [1, 2]) {
+    const initial = { ...stateFor([totem(1, 7, 4, smile), tile(2, 9, 0, 2)]), buildingMode };
+    initial.blocks[0].adultVariant = 2;
+    initial.juniorCollection = [0, 2, 0, 0];
+    const engine = engineFor(initial);
+    const presenter = createPresenter({ sfx: () => {} });
+    presenter.reset(initial);
+    const play = async result => {
+      const done = presenter.play(result);
+      for (let i = 0; i < 400; i++) {
+        presenter.update(16);
+        for (let j = 0; j < 12; j++) await Promise.resolve();
+      }
+      assert.equal(await done, true);
+      assert.deepEqual(presenter.present.juniorCollection, result.state.juniorCollection);
+    };
+    const dropped = engine.dispatch({ type: 'slide', id: 2, col: 1 });
+    assert.ok(dropped.accepted);
+    assert.ok(dropped.events.some(e => e.type === 'gravity'
+      && e.moves.some(move => move.id === 1 && move.to === 9)));
+    assert.ok(!dropped.events.some(e => e.type === 'totem-collect'));
+    assert.deepEqual(dropped.state.juniorCollection, initial.juniorCollection);
+    assert.equal(dropped.state.blocks.find(b => b.id === 1).smile, smile);
+    await play(dropped);
+
+    for (let stage = smile; stage < 3; stage++) {
+      const b = engine.snapshot().blocks.find(b => b.id === 1);
+      const grown = engine.dispatch({ type: 'use-junior', variant: 1, row: b.row, col: b.col });
+      assert.ok(grown.accepted);
+      const collected = grown.events.filter(e => e.type === 'totem-collect');
+      assert.equal(collected.length, stage === 2 ? 1 : 0);
+      assert.equal(grown.state.juniorCollection[2], stage === 2 ? 1 : 0);
+      if (stage === 2) assert.deepEqual(collected[0].blocks.map(b => b.id), [1]);
+      await play(grown);
+    }
+  }
+});
+
+test('both Building modes collect at stage 3 in place before cascades can reuse the totem', () => {
+  for (const buildingMode of [1, 2]) {
+    const board = stateFor([totem(1, 8, 7, 2), tile(2, 8, 0, 7),
+      tile(3, 9, 6, 2), tile(4, 7, 0, 7)]);
+    board.buildingMode = buildingMode;
+    const preview = copyBoard(copyBoard(board));
+    const events = [];
+    settleBoard(board, (type, data) => events.push(structuredClone({ type, ...data })));
+    settleBoard(preview);
+    assert.deepEqual(events.map(e => e.type), ['clear', 'totem-collect', 'gravity']);
+    assert.equal(events[1].blocks[0].row, 8);
+    assert.equal(events[1].blocks[0].smile, 3);
+    assert.ok(!board.blocks.some(b => b.id === 1));
+    assert.deepEqual(board.blocks, preview.blocks);
+    assert.deepEqual(fullRows(board), []);
+  }
 });
 
 test('Mode 2 collections add no score, progress, or level-up spawn bonus', () => {
@@ -51,12 +95,12 @@ test('Mode 2 collections add no score, progress, or level-up spawn bonus', () =>
   const collect = result.events.find(e => e.type === 'totem-collect');
   assert.equal(clear.award.pts, 70);
   assert.equal(clear.state.score, 720);
-  assert.equal(clear.state.levelProgress, 0.36);
+  assert.equal(clear.state.levelProgress, 0.72);
   assert.equal(collect.award, undefined);
   assert.equal(collect.state.score, 720);
   assert.equal(collect.state.best, clear.state.best);
   assert.equal(collect.state.level, 1);
-  assert.equal(collect.state.levelProgress, 0.36);
+  assert.equal(collect.state.levelProgress, 0.72);
   assert.equal(result.events.filter(e => e.type === 'totem-drop').length, 0, 'the bar has not filled');
 });
 

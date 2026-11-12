@@ -5,8 +5,6 @@ export const CLASSIC_LINES_BASE = 12;
 export const CLASSIC_LINES_STEP = 1;
 export const BUILDING_LINES_BASE = 8;
 export const BUILDING_LINES_STEP = 1;
-// First-level Building requirement; later levels add BUILDING_LINES_STEP through LINES_GROWTH_LAST_LEVEL.
-export const BUILDING_LINES_PER_LEVEL = BUILDING_LINES_BASE;
 export const TOTEM_SMILE_MAX = 3;
 export const BUILDING_SPAWN_CAP = 1;
 // Ordinary-tile refill target shared by all play modes.
@@ -74,8 +72,8 @@ export const isBuildingMode2 = state => isBuilding(state) && state.buildingMode 
 export const normalizeBuildingMode = mode => mode === 2 ? 2 : 1;
 
 // Score targets grow with the level, matching the level multiplier on awards.
-// Level L costs BUILDING_SCORE_PER_LEVEL * L (2000, 4000, 6000, …).
-export const BUILDING_SCORE_PER_LEVEL = 2000;
+// Level L costs BUILDING_SCORE_PER_LEVEL * L (1000, 2000, 3000, …).
+export const BUILDING_SCORE_PER_LEVEL = 1000;
 export function buildingScoreProgress(score) {
   const points = Math.max(0, score);
   const level = Math.floor((1 + Math.sqrt(1 + points / (BUILDING_SCORE_PER_LEVEL / 8))) / 2);

@@ -16,7 +16,6 @@ const shapeSelection = {
   value: 'funnel',
   options: [{ id: 'random', label: 'RANDOM' }, ...SHAPES.map(({ id, label }) => ({ id, label }))]
 };
-let activeShapeSelection = 'funnel';
 
 const canvas = document.getElementById('game');
 bindCanvas(canvas);
@@ -67,9 +66,8 @@ function cycleMap() {
   const index = modes.findIndex(mode => mode.id === engine.snapshot().mode);
   const next = modes[(index < 0 ? 0 : index + 1) % modes.length];
   input.cancelDrag();
-  activeShapeSelection = shapeSelection.value;
   showBoard(engine.reset(next.id, { best: loadBest(next.id),
-    modeOptions: next.id === 'shaped' ? { shapeId: activeShapeSelection } : {} }));
+    modeOptions: next.id === 'shaped' ? { shapeId: shapeSelection.value } : {} }));
   presenter.present.menu = 'mode';
 }
 
@@ -78,8 +76,7 @@ function cycleShape(direction) {
   const { options, value } = shapeSelection;
   const index = options.findIndex(option => option.id === value);
   shapeSelection.value = options[(index + direction + options.length) % options.length].id;
-  activeShapeSelection = shapeSelection.value;
-  resetOptions({ modeOptions: { shapeId: activeShapeSelection } });
+  resetOptions({ modeOptions: { shapeId: shapeSelection.value } });
 }
 
 function resetOptions(options) {
@@ -120,10 +117,10 @@ function useJunior(variant, row, col) {
 }
 
 const input = bindInput(canvas, {
-  presenter, modes: engine.modes, moveRange: id => engine.moveRange(id),
+  presenter, moveRange: id => engine.moveRange(id),
   slide, restart, shapeSelection, toggleDifficulty, cyclePlayMode, cycleMap, cycleShape,
   togglePowerButton, triggerPowerMode, toggleBuildingMode, useJunior,
-  juniorTarget: (variant, row, col) => engine.juniorTarget(variant, row, col)
+  juniorPreview: (variant, row, col) => engine.juniorPreview(variant, row, col)
 });
 
 let last = performance.now();

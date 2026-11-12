@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { bindCanvas, layout } from '../js/canvas-layout.js';
 import { createPresenter } from '../js/presenter.js';
 import { createState } from '../js/sim.js';
+import { juniorPreview } from '../js/junior-powers.js';
+import { getLang, setLang } from '../js/i18n.js';
 import { COLS, ROWS } from '../js/board.js';
 import { W, H, BX, BW, CELL, PAD, COLLECTION_SIZE, LEVEL_BAR_H } from '../js/theme.js';
 
@@ -42,7 +44,7 @@ test('collection and row-score rendering', async t => {
         right: Math.max(...path.map(p => p[0])), bottom: Math.max(...path.map(p => p[1])),
         dash: pose.dash, color: this.strokeStyle, width: this.lineWidth });
     },
-    fillRect(x, y, w, h) { fills.push({ x, y, w, h }); },
+    fillRect(x, y, w, h) { fills.push({ x, y, w, h, color: this.fillStyle }); },
     fillText(label, x, y) {
       hudLabels.push({ label, x: pose.x + x * pose.sx, y: pose.y + y * pose.sy,
         align: this.textAlign, color: this.fillStyle });
@@ -124,7 +126,10 @@ test('collection and row-score rendering', async t => {
       assert.equal(label.globalAlpha, 1);
     }
   });
-  await t.test('tooltips explain hovered juniors and hide during dragging and in menus', () => {
+  await t.test('tooltips explain hovered and off-board dragged juniors, hiding on-board and in menus', t => {
+    const previousLang = getLang();
+    setLang('en');
+    t.after(() => setLang(previousLang));
     presenter.present.juniorCollection = [1, 1, 1, 1];
     for (let variant = 0; variant < 4; variant++) {
       presenter.present.hoverKey = 'junior:' + variant;
@@ -134,11 +139,20 @@ test('collection and row-score rendering', async t => {
     }
     presenter.present.hoverKey = null;
     presenter.present.drag = { kind: 'junior', variant: 1, x: 300, y: 600,
-      target: { row: 4, col: 3, blockIds: [] } };
+      target: null, preview: juniorPreview(presenter.state, 1, 4, 3) };
     hudLabels.length = 0;
     draw(1000, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
     assert.ok(!hudLabels.some(item => item.label === 'SPROUT · GROWTH'));
     assert.ok(!hudLabels.some(item => item.label.includes('Release to use')));
+    for (const [row, col] of [[10, 3], [-1, 3], [4, -1], [4, 8], [4, 3], [10, 3]]) {
+      Object.assign(presenter.present.drag, {
+        x: BX + (col + 0.5) * CELL, y: layout.BY + (row + 0.5) * CELL,
+        preview: juniorPreview(presenter.state, 1, row, col)
+      });
+      hudLabels.length = 0;
+      draw(1000, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
+      assert.equal(hudLabels.some(item => item.label === 'SPROUT · GROWTH'), row !== 4 || col !== 3);
+    }
     presenter.present.drag = null;
     presenter.present.hoverKey = 'junior:1';
     presenter.present.menu = 'pause';
@@ -151,7 +165,8 @@ test('collection and row-score rendering', async t => {
       juniorCollection: [1, 1, 1, 1] });
     const preview = (variant, row, col) => {
       presenter.present.drag = { kind: 'junior', variant,
-        x: BX + (col + 0.5) * CELL, y: layout.BY + (row + 0.5) * CELL, target: null };
+        x: BX + (col + 0.5) * CELL, y: layout.BY + (row + 0.5) * CELL, target: null,
+        preview: juniorPreview(presenter.state, variant, row, col) };
       ranges.length = 0;
       draw(1000, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
       return [...ranges];
@@ -171,5 +186,22 @@ test('collection and row-score rendering', async t => {
     assert.deepEqual(preview(2, 5, 2), [bounds(2, 4, 4, 7)], 'range respects shaped-board edges');
     assert.deepEqual(preview(3, 5, 2), [bounds(2, 0, 6, ROWS)], 'bow respects shaped-board edges');
     assert.deepEqual(preview(0, 5, 1), [], 'shape cutouts have no range');
+  });
+  await t.test('ceiling warning agrees with visible danger through spawn, rise and clear', () => {
+    const block = { id: 1, row: 1, col: 3, len: 1, kind: 'totem', smile: 1, adultVariant: 0 };
+    presenter.reset({ ...createState(0, 'easy', 'totem-building', 2), blocks: [block] });
+    const view = presenter.viewOf(block);
+    for (const [vy, spawning, clearing, danger] of [
+      [-1, true, false, false], [1, true, false, false], [1, false, false, true],
+      [2, false, false, false], [1.75, false, false, true], [1, false, true, false]
+    ]) {
+      Object.assign(view, { vy, spawning, clearing });
+      presenter.update(0);
+      fills.length = 0;
+      draw(1000, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
+      const warned = fills.some(fill => fill.color.startsWith('rgba(210,75,45,'));
+      assert.equal(warned, danger, `visible row ${vy}, spawning=${spawning}, clearing=${clearing}`);
+      assert.equal(presenter.present.monster.panic, danger ? 1 : 0);
+    }
   });
 });

@@ -5,7 +5,7 @@ import { bindCanvas, layout } from '../js/canvas-layout.js';
 import { createPresenter } from '../js/presenter.js';
 import { createState } from '../js/sim.js';
 import { BX, CELL, W, H, juniorSlot } from '../js/theme.js';
-import { modeResume, buildingModeControl } from '../js/mode-popup.js';
+import { modePopup } from '../js/mode-popup.js';
 
 class Target {
   listeners = new Map();
@@ -65,7 +65,7 @@ test('Junior tools hover, hold, target the board, and only activate on a valid r
   presenter.reset({ ...createState(0, 'easy', 'totem-building'), juniorCollection: [2, 0, 0, 0] });
   const uses = [];
   bindInput(canvas, { presenter, modes: [], sfx: () => {},
-    juniorTarget: (variant, row, col) => row === 9 && col === 3 ? { row, col, blockIds: [1] } : null,
+    juniorPreview: (variant, row, col) => row === 9 && col === 3 ? { row, col, blockIds: [1] } : null,
     useJunior: (...args) => uses.push(args) });
   const slot = juniorSlot(0, layout.COLLECTION_Y);
   const event = { button: 0, buttons: 1, isPrimary: true, pointerId: 1,
@@ -118,7 +118,7 @@ test('Building rules toggle is immediately clickable only in Totem Building', t 
   const presenter = createPresenter({ sfx: () => {} });
   let toggles = 0;
   bindInput(canvas, { presenter, modes: [], toggleBuildingMode: () => toggles++, sfx: () => {} });
-  const control = buildingModeControl([]);
+  const control = modePopup().buildingMode;
   const click = () => canvas.emit('pointerdown', { button: 0, isPrimary: true,
     clientX: control.x + control.w / 2, clientY: layout.OY + control.y + control.h / 2 });
   presenter.reset(createState(0, 'easy', 'totem-building'));
@@ -210,6 +210,35 @@ test('browser pointer lifecycle only commits intentional releases', async t => {
   range = [3, 3];
   pointer('pointerdown');
   assert.equal(presenter.present.drag, null, 'immovable blocks do not capture a drag');
+});
+
+test('mouse and touch releases reach the intended distant cell from any grab point', t => {
+  const { canvas } = setupBrowser(t);
+  const presenter = createPresenter({ sfx: () => {} });
+  const slides = [];
+  bindInput(canvas, { presenter, modes: [], moveRange: () => [0, 6],
+    slide: (id, col) => { slides.push({ id, col }); return true; }, sfx: () => {} });
+  for (const pointerType of ['mouse', 'touch']) {
+    for (const direction of [-1, 1]) {
+      for (const grab of [0.1, 1, 1.9]) {
+        const col = direction > 0 ? 0 : 6;
+        presenter.reset({ ...createState(), blocks: [{ id: 1, row: 8, col, len: 2, color: 0 }] });
+        slides.length = 0;
+        const pointer = (type, travel) => canvas.emit(type, {
+          button: 0, buttons: type === 'pointerup' ? 0 : 1, isPrimary: true,
+          pointerId: 1, pointerType, clientX: BX + (col + grab + direction * travel) * CELL,
+          clientY: layout.BY + 8.5 * CELL
+        });
+        pointer('pointerdown', 0);
+        pointer('pointermove', 4.4);
+        assert.equal(presenter.present.drag.target, col + direction * 4);
+        pointer('pointermove', 4.8);
+        assert.equal(presenter.present.drag.target, col + direction * 5);
+        pointer('pointerup', 4.77);
+        assert.deepEqual(slides, [{ id: 1, col: col + direction * 5 }]);
+      }
+    }
+  }
 });
 
 test('desktop drags continue through side margins without pointer capture', t => {
@@ -315,7 +344,7 @@ test('three score taps open mode controls directly and every reopening needs thr
     assert.equal(presenter.present.menu, null);
     tap();
     assert.equal(presenter.present.menu, 'mode');
-    if (exit === 'Resume') click(modeResume([]), true);
+    if (exit === 'Resume') click(modePopup().resume, true);
     else window.emit('keydown', { key: exit });
     assert.equal(presenter.present.menu, null, `${exit} closes the menu once`);
   }

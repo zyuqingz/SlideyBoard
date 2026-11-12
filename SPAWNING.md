@@ -74,9 +74,10 @@ cannot reset the cap. Drops wait until refill rows have risen and settled.
 Among reachable below-ceiling columns, rank ordinary-tile landing height from
 highest to lowest, including columns one row lower than the tallest tile stack.
 Live totems do not add height, but a drop may still land on them. Pick randomly
-among the matching columns. Mode 1 collects floor
-drops; Mode 2 keeps them until stage 3, then collects before gravity or cascades.
-Mode 2 levels use ordinary-tile score, with `2000 × current level` points needed
+among the matching columns. Both modes collect fully grown stage-3 Juniors
+immediately in place before gravity or cascades; immature floor drops remain
+on the board.
+Mode 2 levels use ordinary-tile score, with `1000 × current level` points needed
 for each level; Mode 1 uses cleared-row progression. Creature collections award
 no bonus points and cannot generate level-up drops.
 Both rulesets share the same capped bonus-drop budget. Drops may complete
@@ -98,12 +99,12 @@ after the tool settles and after any earned drop resolves. Natural clears caused
 by tools still grant the turn's single level-up Junior, even without a refill.
 Any required refill precedes that drop; drop cascades cannot renew the allowance.
 
-A completed row touching any Totem cell removes the entire piece in Tetris mode,
-but clears and scores only the completed row. Cells outside that row detach and
-burst away; neighbouring blocks in other rows remain. Totem Building only
-removes the cells in the filled rows. Neither play mode blasts extra rows when
-a totem reaches the top; a shaped rise that would cut into the piece leaves it
-whole instead of trimming it.
+A completed row removes only its occupied cells from Tetris pieces; the remaining
+orthogonally connected groups survive as smiling shards. Only the completed rows
+score. Totem Building preserves touched Juniors and upgrades their smile stage;
+collection then follows the selected Building ruleset. Neither play mode blasts
+extra rows when a totem reaches the top. Shaped rises trim cells outside the
+destination outline, rebase surviving footprints, and award no trimming points.
 
 Enabling Totems keeps the base map's board-aware row selection. Shared collision,
 gravity and clearing routines handle occupied-cell geometry and row-only clears

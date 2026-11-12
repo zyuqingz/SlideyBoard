@@ -51,12 +51,34 @@ test('each Junior power targets its described tiles and spends exactly one match
   }
 });
 
+test('Sprout pulses only its selected Junior, including pause and reset during growth', async () => {
+  const { game } = fixture({ blocks: [junior(1, 9, 0, 1), junior(2, 9, 3, 2)] });
+  const before = game.snapshot();
+  const presenter = createPresenter({ sfx: () => {} });
+  presenter.reset(before);
+  const result = game.dispatch({ type: 'use-junior', variant: 1, row: 9, col: 0 });
+  const done = presenter.play(result);
+  presenter.update(120);
+  const target = presenter.viewOf(before.blocks[0]), neighbor = presenter.viewOf(before.blocks[1]);
+  assert.ok(target.evolve > 0 && target.expression > 1);
+  assert.equal(neighbor.expression, 1);
+  assert.equal(neighbor.evolve, 0);
+  assert.equal(neighbor.s, 1);
+  presenter.present.menu = 'pause';
+  const frozen = { ...target };
+  presenter.update(1000);
+  assert.deepEqual(target, frozen);
+  presenter.reset(before);
+  assert.equal(await done, false);
+  assert.equal(presenter.viewOf(before.blocks[0]).expression, 1);
+});
+
 test('tool-induced level-ups grant one Junior with or without a required refill in both rulesets', async () => {
   for (const buildingMode of [1, 2]) for (const keepFood of [true, false]) {
     const lines = BUILDING_LINES_BASE - 1;
     const progress = buildingMode === 1
       ? { lines, levelProgress: buildingLevelProgress(lines) }
-      : { score: 1950, ...buildingScoreProgress(1950) };
+      : { score: 950, ...buildingScoreProgress(950) };
     const { game } = fixture({ buildingMode, progress, blocks: [
       food(1, 9, 0), food(2, 9, 5, 3), food(3, 7, 0), food(4, 7, 2, 3),
       ...(keepFood ? [food(5, 6, 0)] : [])
@@ -68,7 +90,7 @@ test('tool-induced level-ups grant one Junior with or without a required refill 
     assert.equal(result.accepted, true);
     assert.equal(result.state.phase, 'play');
     assert.equal(result.state.level, 2);
-    assert.equal(result.events.find(e => e.type === 'clear').state.score, buildingMode === 2 ? 2030 : 0);
+    assert.equal(result.events.find(e => e.type === 'clear').state.score, buildingMode === 2 ? 1030 : 0);
     const drops = result.events.filter(e => e.type === 'totem-drop');
     assert.equal(drops.length, 1, 'the natural clear earns exactly one drop this turn');
     const rises = result.events.filter(e => e.type === 'rise');
@@ -143,6 +165,22 @@ test('Horns cuts only in-range cells and leaves separate food bars on both sides
     if (col === 3) assert.deepEqual(state.blocks.filter(b => b.row === 8)
       .map(b => [b.col, b.len]), [[0, 2], [5, 3]]);
   }
+});
+
+test('Junior preview highlights match affected cells and stay detached from the engine', () => {
+  const { game } = fixture({ blocks: [food(1, 9, 0, 7), junior(2, 8, 3, 1)] });
+  const before = game.snapshot();
+  const preview = game.juniorPreview(2, 9, 3);
+  assert.deepEqual(preview.highlights, [{ row: 9, col: 2, len: 3 }]);
+  assert.deepEqual(preview.blockIds, [1]);
+  const result = game.dispatch({ type: 'use-junior', variant: 2, row: 9, col: 3 });
+  assert.deepEqual(result.events[0].blocks.map(({ row, col, len }) => ({ row, col, len })), preview.highlights);
+  preview.highlights[0].len = 999;
+  assert.deepEqual(before.blocks[0], food(1, 9, 0, 7));
+  assert.ok(game.snapshot().blocks.every(b => b.len < 999));
+  assert.deepEqual(game.juniorPreview(0, 0, 3).blockIds, []);
+  assert.deepEqual(game.juniorPreview(0, 0, 3).bands, [{ left: 0, right: 8, row: 0, end: 1 }]);
+  assert.equal(game.juniorPreview(0, -1, 3), null);
 });
 
 test('Horns fragments animate at their cut positions and survive turn resolution', async () => {
@@ -262,10 +300,10 @@ test('Bow pieces fall independently and animate from their cut positions on both
 test('Sprout grows only the selected junior and credits its collection in both rulesets', () => {
   for (const buildingMode of [1, 2]) {
     const { game } = fixture({ buildingMode, blocks: [
-      food(1, 9, 0), food(2, 8, 0), junior(3, buildingMode === 1 ? 9 : 7, 4, 0, 2),
+      food(1, 9, 0), food(2, 8, 0), junior(3, 7, 4, 0, 2),
       junior(4, 8, 6, 3, 2), junior(5, 7, 0, 2, 1), food(6, 9, 6, 1)
     ] });
-    const row = buildingMode === 1 ? 9 : 7;
+    const row = 7;
     assert.deepEqual(game.juniorTarget(1, row, 4).blockIds, [3]);
     const result = game.dispatch({ type: 'use-junior', variant: 1, row, col: 4 });
     assert.equal(result.accepted, true);
@@ -273,6 +311,8 @@ test('Sprout grows only the selected junior and credits its collection in both r
     assert.equal(result.events[0].state.blocks.find(b => b.id === 3).smile, 3);
     assert.deepEqual(result.state.juniorCollection, [2, 0, 1, 1]);
     const collections = result.events.filter(e => e.type === 'totem-collect');
+    assert.equal(result.events[1].type, 'totem-collect');
+    assert.equal(collections[0].blocks[0].row, row, 'collects at the growth position');
     assert.deepEqual(collections.flatMap(e => e.blocks.map(b => b.adultVariant)), [0]);
     assert.equal(result.state.blocks.find(b => b.id === 4).smile, 2);
     assert.equal(result.state.blocks.find(b => b.id === 5).smile, 1);

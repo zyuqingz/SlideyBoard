@@ -1,12 +1,14 @@
 // Plays detached engine events. This module never imports or invokes game rules.
-import { COLS, ROWS } from './board.js';
+import { COLS } from './board.js';
 import { cellsOf, facesOf } from './block-geometry.js';
 import { visualDragCol } from './drag.js';
-import { W, CELL, PAD, BX, BW, BH, COLORS, totemPaint, ADULT_LOOKS, juniorSlot } from './theme.js';
+import { W, CELL, PAD, BX, BH, COLORS, totemPaint, ADULT_LOOKS } from './theme.js';
 import { Ease, createEffects } from './fx.js';
 import { createScorePresentation, stackScore, bankScore } from './score-fx.js';
 import { playSfx } from './audio.js';
 import { createMonster, celebrateMonster, updateMonster } from './monster.js';
+import { createLevelPresentation } from './level-fx.js';
+import { createCollectionPresentation } from './collection-fx.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 // Near-immediate follow: ~95% caught up in 12ms, within one 60Hz frame.
@@ -24,8 +26,8 @@ export function createPresenter({ boardY = () => 0, collectionY = () => 0, effec
   };
   const { tween, wait } = effects;
   let state, busy = false, generation = 0, lock = 0, motion = 0;
-  let pendingProgress = null, progressMotion = 0;
-  const collectionMotion = ADULT_LOOKS.map(() => 0);
+  const level = createLevelPresentation(present, effects);
+  const collection = createCollectionPresentation(present, effects, { boardY, collectionY, sfx });
 
   // Landing feedback keeps writing after its fall returns. A later slide, drop,
   // clear, or rise must invalidate that write or blocks flatten mid-motion.
@@ -62,8 +64,7 @@ export function createPresenter({ boardY = () => 0, collectionY = () => 0, effec
     lock++;
     motion++;
     effects.clear();
-    pendingProgress = null;
-    progressMotion++;
+    level.reset();
     views.clear();
     adopt(snapshot);
     const powerButton = present.powerButton;
@@ -101,51 +102,6 @@ export function createPresenter({ boardY = () => 0, collectionY = () => 0, effec
 
   const fallMs = d => 0.75 * (110 + 95 * Math.sqrt(d));
   const TOTEM_STAGGER_MS = 42;
-
-  function celebrateLevel() {
-    const fx = { scale: 0, alpha: 1, rise: 0 };
-    present.levelUpFx = fx;
-    tween(1600, p => {
-      fx.scale = Ease.outBack(clamp(p * 1600 / 240, 0, 1));
-      fx.alpha = 1 - Ease.in(clamp((p * 1600 - 1180) / 420, 0, 1));
-      fx.rise = 24 * Ease.out(p);
-      if (p === 1 && present.levelUpFx === fx) present.levelUpFx = null;
-    }, Ease.lin);
-  }
-
-  function advanceLevel(snapshot, holdForSpawn) {
-    const from = present.displayProgress, level = present.displayLevel;
-    const target = snapshot.levelProgress ?? 0, nextLevel = snapshot.level ?? level;
-    const levelUp = nextLevel > level;
-    if (levelUp && holdForSpawn) pendingProgress = target;
-    const held = pendingProgress !== null;
-    if (held) pendingProgress = target;
-    if (!levelUp && target === from) return Promise.resolve(true);
-    const stamp = ++progressMotion;
-    let celebrated = false;
-    // Finish each progress update alongside its clear, so cascades cannot leave
-    // competing HUD tweens or let an incoming totem precede the full-bar beat.
-    const duration = levelUp ? 400 : 240;
-    return tween(duration, p => {
-      if (stamp !== progressMotion) return;
-      const elapsed = p * duration;
-      const fill = Ease.out(clamp(elapsed / 220, 0, 1));
-      present.displayProgress = from + ((levelUp || held ? 1 : target) - from) * fill;
-      present.levelScale = 1 + 0.12 * Math.sin(Math.PI * p);
-      if (levelUp && elapsed >= 220 && !celebrated) {
-        celebrated = true;
-        present.displayLevel = nextLevel;
-        celebrateLevel();
-      }
-      if (levelUp && !held && elapsed > 320)
-        present.displayProgress = 1 + (target - 1) * Ease.out((elapsed - 320) / 80);
-      if (p === 1) {
-        present.displayProgress = held ? 1 : target;
-        present.displayLevel = nextLevel;
-        present.levelScale = 1;
-      }
-    }, Ease.lin);
-  }
 
   function celebrateGodClear() {
     const colors = ['#ffdb79', '#fff3cc', '#91d6bd', '#d7a6ff', '#ff9ba8'];
@@ -268,8 +224,6 @@ export function createPresenter({ boardY = () => 0, collectionY = () => 0, effec
 
   async function collect(event, current, flights) {
     interruptSquash();
-    celebrateMonster(present.monster, effects.now());
-    const contactMs = 340;
     const mode2 = state.buildingMode === 2;
     const items = event.blocks.map(block => {
       const v = viewOf(block);
@@ -277,72 +231,12 @@ export function createPresenter({ boardY = () => 0, collectionY = () => 0, effec
       v.collecting = true;
       return { block: structuredClone(block), view: v };
     });
-    if (!await tween(contactMs, p => {
-      const squash = p < 0.28 ? 0.24 * Ease.out(p / 0.28)
-        : p < 0.65 ? 0.24 - 0.33 * Ease.out((p - 0.28) / 0.37)
-          : -0.09 * (1 - Ease.out((p - 0.65) / 0.35));
-      for (const { block, view } of items)
-        view.sq = p === 1 ? 0 : squash / Math.sqrt(block.height ?? 1);
-    }, Ease.lin) || !current()) return false;
-
-    // Flight poses are detached from live views. Subsequent gravity, rises,
-    // clears and turns may adopt snapshots without touching these particles.
-    for (const item of items) {
-      item.view = { ...item.view, sq: 0, slot: 0, flight: { x: 0, y: 0, rotation: 0, alpha: 1 } };
-      present.flyingTotems.push(item);
-    }
-    sfx('totem-clear', { volume: 0.92 });
-    const distance = mode2 ? 1 : Math.max(1, ...event.blocks.map(b => ROWS - b.row));
-    flights.push(flyTotems(items, 620 + (distance - 1) * 215, current));
+    if (!await collection.contact(items, current) || !current()) return false;
+    flights.push(collection.launch(items, mode2, current));
     adopt(event.state);
     return true;
   }
 
-  async function flyTotems(items, duration, current) {
-    if (!await tween(duration, t => {
-      const p = t * t * (3 - 2 * t);
-      const growth = clamp(t / 0.75, 0, 1);
-      const mature = growth * growth * (3 - 2 * growth);
-      for (const { block: b, view: v } of items) {
-        // Mode 1 can collect babies. Reveal the adult before slot contact;
-        // only the detached pose grows, preserving the collected stage.
-        const stage = b.smile ?? 1;
-        v.expression = stage + (3 - stage) * mature;
-        const slot = juniorSlot(v.adultVariant, collectionY());
-        const dx = slot.x + slot.size / 2 - (BX + (v.vx + b.len / 2) * CELL);
-        const dy = slot.y + slot.size / 2 - (boardY() + (v.vy + (b.height ?? 1) / 2) * CELL);
-        const distance = Math.max(1, Math.hypot(dx, dy));
-        const side = b.col + b.len / 2 < COLS / 2 ? -1 : 1;
-        const arc = side * Math.min(150, distance * 0.2) * 2 * p * (1 - p);
-        v.flight = {
-          x: dx * p - dy / distance * arc,
-          y: dy * p + dx / distance * arc,
-          rotation: side * 0.12 * Math.sin(Math.PI * p),
-          alpha: 1
-        };
-        // Lift to a held travel size, then settle to the full-size slot after halfway.
-        v.s = p <= 0.5 ? 1 + 0.16 * Ease.out(clamp(p / 0.16, 0, 1))
-          : 1 + 0.16 * (1 - Ease.out((p - 0.5) * 2));
-      }
-    }, Ease.lin) || !current()) return false;
-    for (const { view } of items) present.juniorCollection[view.adultVariant]++;
-    celebrateMonster(present.monster, effects.now());
-    present.flyingTotems = present.flyingTotems.filter(item => !items.includes(item));
-    const variants = [...new Set(items.map(item => item.view.adultVariant))];
-    const finished = await Promise.all(variants.map(variant => bounceJunior(variant, current)));
-    return finished.every(Boolean);
-  }
-
-  async function bounceJunior(variant, current) {
-    const stamp = ++collectionMotion[variant];
-    const from = present.juniorScales[variant];
-    if (!await tween(70, p => {
-      if (stamp === collectionMotion[variant]) present.juniorScales[variant] = from + (1.22 - from) * p;
-    }, Ease.out) || !current()) return false;
-    return await tween(180, p => {
-      if (stamp === collectionMotion[variant]) present.juniorScales[variant] = 1 + 0.22 * (1 - p);
-    }, Ease.outBack) && current();
-  }
   async function animate(event, run, holdForSpawn, released = false) {
     const current = () => run === generation;
     switch (event.type) {
@@ -358,7 +252,7 @@ export function createPresenter({ boardY = () => 0, collectionY = () => 0, effec
           }, Ease.lin) && current();
         }
         // Reuse tile departure and growth feedback without awarding tool-removal points.
-        return animate({ ...event, type: 'clear' }, run, holdForSpawn);
+        return animate({ ...event, type: 'clear', reactionIds: event.blockIds }, run, holdForSpawn);
       }
       case 'slide': {
         interruptSquash();
@@ -386,12 +280,13 @@ export function createPresenter({ boardY = () => 0, collectionY = () => 0, effec
           sfx('god-clear');
           celebrateGodClear();
         }
-        const progress = advanceLevel(event.state, holdForSpawn);
+        const progress = level.advance(event.state, holdForSpawn);
         // Capture the old expression before any display snapshot can replace it.
         // Capped faces still acknowledge a clear with the same small pulse.
         const reactions = state.playMode === 'totem-building' && !event.godClear ? state.blocks
           .filter(b => b.kind === 'totem'
-            && cellsOf(b).some(cell => event.rows.includes(b.row + cell.row)))
+            && (event.reactionIds ? event.reactionIds.includes(b.id)
+              : cellsOf(b).some(cell => event.rows.includes(b.row + cell.row))))
           .flatMap(b => {
             const after = event.state.blocks.find(next => next.id === b.id);
             return after ? [{ b, from: b.smile ?? 1, to: after.smile ?? 1 }] : [];
@@ -474,15 +369,7 @@ export function createPresenter({ boardY = () => 0, collectionY = () => 0, effec
           // Keep this flag through batched drop snapshots until the arrival lands.
           viewOf(b).spawning = true;
           celebrateMonster(present.monster, effects.now());
-          if (pendingProgress !== null) {
-            const target = pendingProgress, from = present.displayProgress;
-            const stamp = ++progressMotion;
-            pendingProgress = null;
-            tween(180, p => {
-              if (stamp === progressMotion)
-                present.displayProgress = p === 1 ? target : from + (target - from) * p;
-            }, Ease.out);
-          }
+          level.release();
         }
         return true;
       }

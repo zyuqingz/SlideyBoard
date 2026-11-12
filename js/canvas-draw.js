@@ -13,15 +13,16 @@ export function rr(x, y, w, h, r) {
   ctx.closePath();
 }
 
-export function text(str, x, y, size, color, align = 'center', weight = 800, base = 'middle') {
+export function text(str, x, y, size, color, align = 'center', weight = 800, base = 'middle', maxWidth) {
   ctx.font = `${weight} ${size}px ${FONT}`;
   ctx.fillStyle = color;
   ctx.textAlign = align;
   ctx.textBaseline = base;
-  ctx.fillText(str, x, y);
+  if (maxWidth === undefined) ctx.fillText(str, x, y);
+  else ctx.fillText(str, x, y, maxWidth);
 }
 
-export function outlinedText(str, x, y, size, color, align = 'center', weight = 800) {
+export function outlinedText(str, x, y, size, color, align = 'center', weight = 800, maxWidth) {
   ctx.save();
   ctx.font = `${weight} ${size}px ${FONT}`;
   ctx.textAlign = align;
@@ -29,8 +30,9 @@ export function outlinedText(str, x, y, size, color, align = 'center', weight = 
   ctx.strokeStyle = C.bg;
   ctx.lineWidth = Math.max(3, size * 0.16);
   ctx.lineJoin = 'round';
-  ctx.strokeText(str, x, y);
-  text(str, x, y, size, color, align, weight);
+  if (maxWidth === undefined) ctx.strokeText(str, x, y);
+  else ctx.strokeText(str, x, y, maxWidth);
+  text(str, x, y, size, color, align, weight, 'middle', maxWidth);
   ctx.restore();
 }
 

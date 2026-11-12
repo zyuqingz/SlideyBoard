@@ -22,7 +22,7 @@ owns a separate copy of the state currently on screen, which may trail the engin
 | Module | Owns |
 | --- | --- |
 | `js/engine.js` | Authoritative state, base-state reset, command validation, snapshots, per-mode best scores/options |
-| `js/junior-powers.js` | Four Junior tool identities, target previews and single-use effects |
+| `js/junior-powers.js` | Four Junior tool identities, grid-space target areas/highlights and single-use effects |
 | `js/modes.js` | Classic/Shaped map registry and Classic's turn adapter |
 | `js/play-mode.js` | Standard / Tetris / Totem Building identifiers and progression tuning |
 | `js/turn.js` | Shared settling, scoring, rescue timing, refills and optional Totem drops |
@@ -38,8 +38,13 @@ owns a separate copy of the state currently on screen, which may trail the engin
 | `js/difficulty.js` | Shared Normal row geometry and difficulty normalization |
 | `js/presenter.js` | Shown state, animated block views, event playback, playback cancellation |
 | `js/fx.js`, `js/score-fx.js` | Instance-local visual clocks, particles, score feedback |
+| `js/level-fx.js` | Level-bar transitions and full-bar holds before Junior drops |
+| `js/collection-fx.js` | Detached Junior flights, inventory arrival and slot impacts |
 | `js/monster.js` | Board-creature gaze, celebration timing, visible-cell panic and death pose |
+| `js/visible-danger.js` | Shared visible-cell ceiling exposure for creature, board and block feedback |
 | `js/render.js` | Board, HUD and effects drawing; cached paused paints and digit widths |
+| `js/block-render.js` | Food, carved-piece and Junior block rendering shared with collection sprites |
+| `js/junior-render.js` | Collection slots, tooltips and engine-described target feedback |
 | `js/canvas-layout.js` | Canvas binding, viewport/safe-area layout, coordinate conversion, paint invalidation |
 | `js/canvas-draw.js` | Shared rounded-rectangle, text and hover drawing helpers |
 | `js/overlay-render.js` | Settings, mode and game-over overlay drawing |
@@ -48,7 +53,7 @@ owns a separate copy of the state currently on screen, which may trail the engin
 | `js/settings-popup.js` | Settings card layout, language buttons, restart and resume |
 | `js/i18n.js` | English/Chinese UI strings and language persistence |
 | `js/input.js` | Browser gestures, hit testing, drag preview, menu interaction; three quick total-score taps open mode controls |
-| `js/drag.js` | Horizontal intent lock, resisted drag travel, cell hysteresis and bounded landing preview |
+| `js/drag.js` | Horizontal intent lock, one-to-one drag travel, cell hysteresis and bounded landing preview |
 | `js/audio.js` | Sound cues, guarded browser-storage access, mute persistence |
 | `js/storage.js` | Per-map best scores and shared difficulty/play-mode preferences |
 | `js/main.js` | Browser composition and visual frame loop |
@@ -139,7 +144,8 @@ replace the pending popup. Building collections carry no award and do not change
 score, best score, or level progress. God Clear preserves totems in the clear
 snapshot; only the cleared ordinary tiles score, under Mode 2's row-scoring rules.
 The wipe counts the triggering full rows for progression, not partial rows it
-also removes. Remaining all-totem rows cannot retrigger Power Mode during that settle.
+also removes. The next settle iteration collects every stage-3 totem before gravity
+or row detection, leaving the wiped board empty without a separate retrigger guard.
 
 ## Adding a mode
 
@@ -293,7 +299,7 @@ Browser first run and missing storage default to Mode 2. Headless `createEngine`
 `createState` still default to Mode 1 unless options are passed. Classic is the
 default map. Both maps support either Building ruleset.
 
-Mode 2 overrides collection, scoring, and expression placement:
+Both modes share stage-3 collection; Mode 2 overrides scoring and expression placement:
 
 - Stage-1 and stage-2 totems remain on the board, including at the floor. A row
   clear upgrades each touched totem once. At stage 3 it collects immediately at
@@ -304,7 +310,7 @@ Mode 2 overrides collection, scoring, and expression placement:
   one combo step, including partial rows in a power wipe. Growing and collecting
   creatures adds no bonus points or score popups.
 - The level bar uses ordinary-tile score. Level L starts at
-  `1000 × L × (L - 1)` points and requires `2000 × L` points to advance.
+  `500 × L × (L - 1)` points and requires `1000 × L` points to advance.
   Collections do not advance the bar or grant level-up drops.
 - Stage 1 faces sit in the bottom half, stage 2 in the middle, and stage 3 keeps
   its original position. Upgrades interpolate smoothly between these positions.
@@ -314,7 +320,7 @@ Mode 2 overrides collection, scoring, and expression placement:
 ### Totem Building Mode 1 and shared lifecycle
 
 - Reset drops one independent 1×1 totem with `smile: 1`. Opening drops resolve
-  clears, smile upgrades and floor collections before input; only Mode 2 food clears score.
+  clears, smile upgrades and stage-3 collections before input; only Mode 2 food clears score.
   Refill only if needed to restore a legal first slide; an immediately
   collected opening face is not repeatedly replaced. The presenter plays the
   engine's opening events, including the fall, clears, collections and refill.
@@ -329,15 +335,17 @@ Mode 2 overrides collection, scoring, and expression placement:
 - Drops rank reachable below-ceiling columns by ordinary-tile landing height,
   including columns one row lower than the tallest tile stack. Live totems do
   not add height; a drop may still land on them. Randomly choose among that band.
-  Floor drops collect normally. Row-completing
+   Immature floor drops stay on the board. Row-completing
   drops resolve normal clears and smile upgrades. If only ceiling landings remain,
   the tile lands and ends the game instead of deferring.
 - Full rows containing ordinary tiles clear those tiles and improve each touched
   totem's smile, up to stage 3. Totem-only rows immediately set every participating
   totem to stage 3 and collect them in place. Rows still advance level progression;
   Mode 1 awards no points.
-- After gravity and row clears finish, floor totems are collected without bonus
-  points. Collection can release another totem or cascade; each creature flies
+- Fully grown (stage-3) totems are collected immediately at their current position,
+  before gravity or another row clear, including after Sprout growth. Collection
+  awards no bonus points. Stage-1 and stage-2 totems remain on the board, even at the
+  floor. Collection can release another totem or cascade; each creature flies
   into its matching HUD slot and increments that slot's count on arrival.
 - Incoming candidates use lengths 2–4. Rise at least once, then refill to three
   distinct occupied ordinary-tile rows: 0/1/2+ rows normally get 3/2/1 rises.
@@ -350,11 +358,12 @@ Mode 2 overrides collection, scoring, and expression placement:
   move becomes available or the ceiling is reached; Building has no `no-moves` loss.
 - Both preview searches retain `playMode` in every detached board copy, so clears
   preserve Building faces and floor collections remove them during simulation.
-  Classic candidates use the Building five-line progression curve. Both searches
+  Classic candidates use the Building progression curve (Mode 1 starts at eight
+  cleared rows per level and grows through level 10; Mode 2 uses score). Both searches
   reject Building rises that touch the ceiling before simulating a response slide.
 - Junior faces grow through ordinary smile upgrades and reveal their adult look.
   Collections compress and rebound, then launch intact on a curved path into the
-  matching HUD slot without fading. Younger Mode 1 creatures mature during flight.
+   matching HUD slot without fading. Creatures must mature before collection begins.
   In both Building rulesets,
   the board queue resumes immediately at takeoff after the 340ms rebound.
   Detached `flyingTotems` poses animate independently of live
@@ -401,8 +410,15 @@ that cascade cannot grant a second drop.
 the drag highlight, or null. `dispatch({ type: 'use-junior', variant, row, col })`
 validates mode, phase, stock, playable shape cells and a nonempty effect before
 spending exactly one charge. Invalid drops change neither inventory nor RNG.
-Mouse hover shows localized descriptions; holding and dragging show the tool and
-its target range without a tooltip. Only releasing a held tool over a
+`engine.juniorPreview(variant, row, col)` additionally returns merged grid-space
+`bands` for the target area and `highlights` for affected occupied spans. Valid
+empty target areas retain their outline with an empty `blockIds` array; off-board
+and invalid targets return null. Input passes this detached description to the
+renderer, which does not duplicate tool footprint rules. Sprout's growth animation
+uses affected block IDs rather than reacting to every Junior in the same row.
+Mouse hover and dragging outside the playable board show localized descriptions.
+Dragging inside the board shows the tool and its target range without a tooltip,
+including over empty cells. Only releasing a held tool over a
 valid target activates it; leaving the board or cancelling the gesture keeps it.
 
 Building drops store `adultVariant` in their block data. The fractional remainder
@@ -444,10 +460,12 @@ an authoritative snapshot restores its inventory; a new run starts empty.
   until their first landing. Arrival flags survive batched drop snapshots and pause;
   landed Juniors participate in danger checks normally. Game-over
   playback immediately replaces the irises with red Xs before the result overlay.
+  The board's ceiling warning uses the same visible-danger predicate as the creature.
   Gaze and expressions share the paused visual clock and reset with the presenter.
 - Drags require horizontal intent beyond a 0.12-cell dead zone; vertical starts
-  are rejected for that contact. Travel uses a steady 0.92 gain and selects a new
-  cell only past 0.6 cells, leaving a 0.2-cell hysteresis band against release jitter.
+  are rejected for that contact. Once active, travel tracks the pointer one-to-one,
+  including the initial dead-zone travel, and selects a new cell at 0.55 cells,
+  leaving a 0.1-cell hysteresis band against release jitter.
   Walls discard overshoot so reversal responds immediately. Tiles follow the hand
   continuously through a fast critically damped filter, without pulling toward grid cells,
   catching up in roughly 12ms; reversal brakes leftover momentum immediately.

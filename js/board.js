@@ -1,6 +1,6 @@
 // Grid-space rules only. Pixel geometry and palettes belong to theme.js.
 import { cellsOf } from './block-geometry.js';
-import { isBuilding, isBuildingMode2, TOTEM_SMILE_MAX, classicProgressFromLines } from './play-mode.js';
+import { isBuilding, TOTEM_SMILE_MAX, classicProgressFromLines } from './play-mode.js';
 export const COLS = 8, ROWS = 10;
 // Abstract color-group IDs in block data; no dependency on a visual palette.
 export const COLOR_GROUPS = 5;
@@ -50,14 +50,6 @@ export function buildGrid(state) {
     }
   }
   return g;
-}
-
-export function fitsSpan(state, row, col, len, height = 1) {
-  for (let r = Math.max(0, row); r < row + height; r++) {
-    const { left, right } = rowSpan(state, r);
-    if (r >= ROWS || col < left || col + len > right) return false;
-  }
-  return col >= 0 && col + len <= COLS;
 }
 
 export function fitsBlock(state, block, row = block.row, col = block.col, grid = buildGrid(state)) {
@@ -179,7 +171,7 @@ function smilingShard(state, world, color) {
 
 // Tetris leftovers keep orthogonally connected groups as smiling shards.
 // Building totems gain a smile stage; all-totem rows power up every totem
-// and remove all ordinary blocks before gravity and floor collection resume.
+// and remove all ordinary blocks before collection and gravity resume.
 export function clearRows(state, rows) {
   const removed = new Set(rows), blocks = [], displayBlocks = [], survivors = [];
   let split = false;
@@ -241,9 +233,7 @@ function collectBuildingTotems(board) {
   if (!isBuilding(board)) return [];
   const kept = [], collected = [];
   for (const b of board.blocks) {
-    if (b.kind === 'totem' && (isBuildingMode2(board)
-      ? (b.smile ?? 1) >= TOTEM_SMILE_MAX
-      : b.row + heightOf(b) - 1 >= ROWS - 1)) collected.push(b);
+    if (b.kind === 'totem' && (b.smile ?? 1) >= TOTEM_SMILE_MAX) collected.push(b);
     else kept.push(b);
   }
   if (!collected.length) return [];
@@ -265,37 +255,24 @@ export function applyPowerMode(state, rows = []) {
   return { rows: [...new Set(rows)].sort((a, b) => a - b), blocks, displayBlocks, godClear: true };
 }
 
-export function settleBoard(board, onStep = () => {}, alreadyPowered = false) {
+export function settleBoard(board, onStep = () => {}) {
   let cleared = 0;
-  let powered = alreadyPowered;
   for (;;) {
-    // Mode 2 cashes out at the upgrade position, before gravity or another
+    // Fully grown Juniors cash out at the upgrade position, before gravity or another
     // cascade can reuse the stage-3 tile to complete a row.
-    if (isBuildingMode2(board)) {
-      const collected = collectBuildingTotems(board);
-      if (collected.length) {
-        onStep('totem-collect', { blocks: collected });
-        continue;
-      }
+    const collected = collectBuildingTotems(board);
+    if (collected.length) {
+      onStep('totem-collect', { blocks: collected });
+      continue;
     }
     const moves = computeGravity(board);
     if (moves.length) onStep('gravity', { moves });
-    // After a board wipe only totems remain. Let complete totem rows fall and
-    // collect rather than repeatedly triggering the same power-up in place.
-    const rows = powered ? [] : fullRows(board);
+    const rows = fullRows(board);
     if (rows.length) {
       const clear = clearRows(board, rows);
-      powered = !!clear.godClear;
       cleared += clear.rows.length;
       onStep('clear', clear);
       continue;
-    }
-    if (isBuilding(board) && !isBuildingMode2(board)) {
-      const collected = collectBuildingTotems(board);
-      if (collected.length) {
-        onStep('totem-collect', { blocks: collected });
-        continue;
-      }
     }
     return cleared;
   }

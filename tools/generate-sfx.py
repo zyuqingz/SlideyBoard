@@ -191,15 +191,6 @@ def make_totem_clear(rng):
     return out
 
 
-def make_totem_submit(rng):
-    out = silence(520)
-    mix(out, air(rng, 190, cutoff=1300, attack=0.48), gain=0.7)
-    mix(out, rounded_hit(220, 220, decay=43, bend=0.22), 150, 0.42)
-    mix(out, mallet(523.25, 370, decay=70, warmth=0.1), 150, 0.35)
-    mix(out, mallet(783.99, 335, decay=70, warmth=0.07), 185, 0.24)
-    return out
-
-
 def make_god_clear(rng):
     out = silence(920)
     mix(out, rounded_hit(130, 300, decay=60, bend=0.2), gain=0.44)
@@ -233,7 +224,6 @@ CUES = {
     'clear': (make_clear, 67, 0.57),
     'totem-spawn': (make_totem_spawn, 89, 0.55),
     'totem-clear': (make_totem_clear, 107, 0.57),
-    'totem-submit': (make_totem_submit, 131, 0.55),
     'god-clear': (make_god_clear, 163, 0.68),
     'fail': (make_fail, 199, 0.49),
 }

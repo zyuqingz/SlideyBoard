@@ -11,7 +11,6 @@ export const SFX = {
   clear: 'clear.wav',
   'totem-spawn': 'totem-spawn.wav',
   'totem-clear': 'totem-clear.wav',
-  'totem-submit': 'totem-submit.wav',
   'god-clear': 'god-clear.wav',
   fail: 'fail.wav'
 };

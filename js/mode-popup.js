@@ -13,9 +13,8 @@ function placeY(rect, y) {
   return rect && { ...rect, y: rect.y + y };
 }
 
-// Offsets are measured from the card top so extra modes grow the card, then
-// the whole card is centered on H.
-export function modePopup(modes = []) {
+// Fixed selector layout, centered on the design canvas.
+export function modePopup() {
   const map = { ...POP_BTN, y: MODE_FIRST_BTN_Y, h: 60 };
   const control = { x: 285, y: map.y + map.h + 32, w: 280, h: 60 };
   const dividerY = control.y + control.h + 28;
@@ -36,7 +35,6 @@ export function modePopup(modes = []) {
     modeTitleY: y + modeTitleY,
     dividerY: y + dividerY,
     map: placeY(map, y),
-    buttons: [placeY(map, y)],
     control: placeY(control, y),
     playMode: placeY(playMode, y),
     buildingMode: placeY(buildingMode, y),
@@ -45,15 +43,3 @@ export function modePopup(modes = []) {
     resume: placeY(resume, y)
   };
 }
-
-export const modeButton = (index, modes = []) => {
-  const { buttons } = modePopup(modes);
-  return buttons[index] ?? buttons[0];
-};
-export const mapControl = modes => modePopup(modes).map;
-export const shapeControl = modes => modePopup(modes).control;
-export const modeResume = modes => modePopup(modes).resume;
-export const difficultyControl = modes => modePopup(modes).difficulty;
-export const powerButtonControl = modes => modePopup(modes).powerButton;
-export const playModeControl = modes => modePopup(modes).playMode;
-export const buildingModeControl = modes => modePopup(modes).buildingMode;

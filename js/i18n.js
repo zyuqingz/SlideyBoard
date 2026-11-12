@@ -47,7 +47,7 @@ const DICT = {
     hintClassic: 'Each full row adds fullness.',
     hintShaped: 'Edges nibble food · Fill a row to eat',
     hintTetris: 'Fill rows to eat food and break pieces',
-    hintTotemBuilding: 'Clear rows. Collect juniors at the bottom.',
+    hintTotemBuilding: 'Juniors collect immediately when fully grown.',
     hintTotemBuilding2: 'Clear rows to grow and collect juniors.',
     hintJuniorPowers: 'Drag collected juniors to use tools.',
     buildingRules: 'CREATURE RULES',
@@ -108,7 +108,7 @@ const DICT = {
     hintClassic: '每次消行都能增加饱腹值。',
     hintShaped: '边缘会啃掉食物 · 填满一行开吃',
     hintTetris: '填满一行，吃掉食物并打碎拼块',
-    hintTotemBuilding: '消行，到底部收集幼崽。',
+    hintTotemBuilding: '幼崽完全长大后，立即原地收集。',
     hintTotemBuilding2: '消行养大幼崽，即可收集。',
     hintJuniorPowers: '拖动收集的幼崽，使用工具。',
     buildingRules: '幼崽规则',
@@ -125,7 +125,7 @@ const DICT = {
   }
 };
 
-let lang = 'en';
+let lang = 'zh';
 
 export function getLang() {
   return lang;

@@ -2,7 +2,7 @@
 import { createState } from './sim.js';
 import { GAME_MODES } from './modes.js';
 import { resolvePlayMode, normalizeBuildingMode } from './play-mode.js';
-import { juniorTarget } from './junior-powers.js';
+import { juniorTarget, juniorPreview } from './junior-powers.js';
 
 /**
  * A mode supplies { id, label, reset(state, random, options, emit), moveRange(state, block),
@@ -57,6 +57,21 @@ export function createEngine({ best = 0, random = Math.random, modes = GAME_MODE
     return block ? [...mode.moveRange(state, block)] : null;
   }
 
+  function execute(options, movement) {
+    const events = [];
+    const emit = (type, data = {}) => events.push(structuredClone({ type, ...data, state }));
+    if (movement) {
+      const { block, col } = movement;
+      const from = block.col;
+      block.col = col;
+      state.hasMoved = true;
+      emit('slide', { id: block.id, from, to: col });
+    } else if (options?.juniorPower) state.hasMoved = true;
+    mode.resolveTurn(state, random, emit, options);
+    emit('turn-complete');
+    return { accepted: true, events, state: snapshot() };
+  }
+
   function dispatch(command) {
     const reject = reason => ({ accepted: false, reason, events: [], state: snapshot() });
     if (command?.type === 'use-junior') {
@@ -67,21 +82,12 @@ export function createEngine({ best = 0, random = Math.random, modes = GAME_MODE
         return reject('unavailable-junior');
       const target = juniorTarget(state, variant, row, col);
       if (!target) return reject('invalid-target');
-      const events = [];
-      const emit = (type, data = {}) => events.push(structuredClone({ type, ...data, state }));
-      state.hasMoved = true;
-      mode.resolveTurn(state, random, emit, { juniorPower: { variant, target } });
-      emit('turn-complete');
-      return { accepted: true, events, state: snapshot() };
+      return execute({ juniorPower: { variant, target } });
     }
     if (command?.type === 'power-mode') {
       if (state.phase !== 'play') return reject('game-over');
       if (state.playMode !== 'totem-building') return reject('wrong-mode');
-      const events = [];
-      const emit = (type, data = {}) => events.push(structuredClone({ type, ...data, state }));
-      mode.resolveTurn(state, random, emit, { forcePower: true });
-      emit('turn-complete');
-      return { accepted: true, events, state: snapshot() };
+      return execute({ forcePower: true });
     }
     if (command?.type !== 'slide') return reject('unknown-command');
     if (state.phase !== 'play') return reject('game-over');
@@ -92,21 +98,15 @@ export function createEngine({ best = 0, random = Math.random, modes = GAME_MODE
       return reject('illegal-slide');
     if (command.col === block.col) return reject('no-change');
 
-    const events = [];
-    const emit = (type, data = {}) => events.push(structuredClone({ type, ...data, state }));
-    const from = block.col;
-    block.col = command.col;
-    state.hasMoved = true;
-    emit('slide', { id: block.id, from, to: block.col });
-    mode.resolveTurn(state, random, emit);
-    emit('turn-complete');
-    return { accepted: true, events, state: snapshot() };
+    return execute(undefined, { block, col: command.col });
   }
 
   reset(modeId);
   return Object.freeze({ snapshot, reset, moveRange, dispatch,
     juniorTarget: (variant, row, col) => state.phase === 'play' && state.playMode === 'totem-building'
       ? juniorTarget(state, variant, row, col) : null,
+    juniorPreview: (variant, row, col) => state.phase === 'play' && state.playMode === 'totem-building'
+      ? juniorPreview(state, variant, row, col) : null,
     opening: () => structuredClone({ accepted: openingEvents.length > 0, events: openingEvents }),
     modes: Object.freeze(modes.map(({ id, label }) => Object.freeze({ id, label }))) });
 }

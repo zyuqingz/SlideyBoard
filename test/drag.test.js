@@ -5,17 +5,29 @@ import { DRAG_COMMIT, DRAG_DEAD_ZONE, createDrag, commitTarget, followDrag, visu
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-8, `${a} ≈ ${b}`);
 
 for (const direction of [-1, 1]) {
-  test(`slides require deliberate travel without accelerating past the hand: ${direction}`, () => {
-    for (const [distance, cells] of [[0.2, 0], [0.42, 0], [0.75, 0], [0.8, 1], [1.9, 2], [3, 3]]) {
+  test(`slides track the hand and select cells just past the midpoint: ${direction}`, () => {
+    for (const [distance, cells] of [[0.2, 0], [0.42, 0], [0.54, 0], [0.55, 1], [0.75, 1], [0.8, 1], [1.9, 2], [3, 3]]) {
       const drag = createDrag(4, 0, 8);
       followDrag(drag, distance * direction);
       assert.equal(drag.target, 4 + cells * direction);
-      assert.ok(Math.abs(drag.vx - 4) < distance);
+      close(drag.vx, 4 + distance * direction);
       followDrag(drag, 0);
       assert.equal(drag.target, 4 + cells * direction);
     }
     assert.equal(commitTarget(4 + direction * (DRAG_COMMIT - 0.01), 4, 0, 8, direction), 4);
     assert.equal(commitTarget(4 + direction * DRAG_COMMIT, 4, 0, 8, direction), 4 + direction);
+  });
+
+  test(`long drags do not land one cell short: ${direction}`, () => {
+    const start = direction > 0 ? 0 : 7;
+    for (let cells = 1; cells <= 7; cells++) {
+      const drag = createDrag(start, 0, 7);
+      // Allow a natural slight undershoot, including at the far board edge.
+      followDrag(drag, direction * (cells - 0.2));
+      assert.equal(drag.target, start + direction * cells);
+      followDrag(drag, -direction * 0.03);
+      assert.equal(drag.target, start + direction * cells);
+    }
   });
 
   test(`tap jitter stays still and returning home cancels the slide: ${direction}`, () => {
@@ -35,8 +47,9 @@ for (const direction of [-1, 1]) {
 
   test(`release jitter preserves the landing, deliberate reversal changes it: ${direction}`, () => {
     const drag = createDrag(4, 0, 8);
-    followDrag(drag, direction * 0.8);
+    followDrag(drag, direction * 0.56);
     const committed = drag.target;
+    assert.equal(committed, 4 + direction);
     for (let i = 0; i < 10; i++) {
       followDrag(drag, -direction * 0.02);
       assert.equal(drag.target, committed);
@@ -65,7 +78,7 @@ for (const direction of [-1, 1]) {
 
   test(`small forward jitters do not mask an intentional reversal: ${direction}`, () => {
     const drag = createDrag(4, 0, 8);
-    followDrag(drag, direction * 0.8);
+    followDrag(drag, direction * 0.65);
     for (let i = 0; i < 15; i++) {
       followDrag(drag, -direction * 0.03);
       followDrag(drag, direction * 0.01);
@@ -114,17 +127,17 @@ for (const direction of [-1, 1]) {
   test(`held tile stays continuous when the snap outline changes slots: ${direction}`, () => {
     const drag = createDrag(4, 0, 8);
     close(visualDragCol(drag), 4);
-    followDrag(drag, direction * 0.77);
+    followDrag(drag, direction * 0.54);
     assert.equal(drag.target, 4);
     const before = visualDragCol(drag);
     followDrag(drag, direction * 0.01);
     assert.equal(drag.target, 4 + direction);
     const after = visualDragCol(drag);
     assert.ok((after - before) * direction > 0);
-    assert.ok(Math.abs(after - before) <= 0.01, 'changing slots must not jump the tile');
+    assert.ok(Math.abs(after - before) <= 0.01 + 1e-9, 'changing slots must not jump the tile');
     close(after, drag.vx);
     assert.notEqual(after, drag.target, 'only release snaps the tile to the outlined slot');
-    followDrag(drag, -direction * 0.78);
+    followDrag(drag, -direction * 0.55);
     close(visualDragCol(drag), 4);
   });
 }

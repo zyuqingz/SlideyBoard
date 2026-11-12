@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
@@ -30,7 +30,7 @@
 <body>
 <main id="intro" aria-label="Slidey presentation" data-copy-aria-label="presentation">
   <div class="intro-deck">
-    <div class="intro-toolbar"><button class="intro-language" type="button" aria-label="Switch to Chinese">中文</button></div>
+    <div class="intro-toolbar"><button class="intro-language" type="button" aria-label="当前语言：中文。切换为英文"><span lang="zh-CN" data-lang="zh" class="is-active">中文</span><span lang="en" data-lang="en">EN</span></button></div>
     <div class="intro-slides">
       <section class="intro-slide" aria-labelledby="pacing-title">
         <p class="intro-eyebrow" data-copy="pacingSection">01 / GAMEPLAY</p>
@@ -76,10 +76,11 @@
         <p class="intro-eyebrow" data-copy="playSection">04 / TRY THE PROTOTYPE</p>
         <div class="play-content">
           <img class="play-juniors" src="assets/intro-juniors.svg" alt="Your Junior companions are ready." data-copy-alt="playAlt">
-          <h1 id="play-title" tabindex="-1" data-copy="playTitle">Let’s feast.</h1>
-          <p class="intro-lead" data-copy="playLead">Slide. Clear. Grow.</p>
-          <div class="intro-disclaimer"><span data-copy="prototypeNote">PROTOTYPE NOTE</span><p data-copy="disclaimer">The game has not been balanced yet.<br>You might not be able to die.</p></div>
-          <button class="start-game" type="button"><span data-copy="start">Start Game</span><span aria-hidden="true">↗</span></button>
+          <div class="intro-disclaimer">
+            <h1 id="play-title" tabindex="-1" data-copy="prototypeNote">PROTOTYPE NOTE</h1>
+            <p data-copy="disclaimer">The game has not been balanced yet.</p>
+          </div>
+          <button class="start-game" type="button"><span data-copy="start">Start Game</span></button>
           <p class="intro-start-error" role="alert" data-copy="startError" hidden>Couldn’t start the game. Please reload and try again.</p>
         </div>
       </section>

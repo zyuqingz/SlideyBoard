@@ -1,6 +1,6 @@
 // Board-creature poses live on the presentation clock, separate from game rules.
 import { COLS } from './board.js';
-import { facesOf } from './block-geometry.js';
+import { isVisibleDanger } from './visible-danger.js';
 import { BX, CELL } from './theme.js';
 
 export function createMonster(dead = false) {
@@ -22,13 +22,7 @@ export function celebrateMonster(monster, now) {
 export function updateMonster(monster, state, viewOf, boardY, now, ms) {
   monster.dead ||= state.phase === 'over';
   // Arrival paths cross the ceiling without threatening it; landed tiles still count.
-  const danger = !monster.dead && state.blocks.some(b => {
-    const v = viewOf(b);
-    return !v.clearing && !v.spawning && facesOf(b).some(face => {
-      const row = v.vy + face.row;
-      return row < 2 && row + 1 > 0;
-    });
-  });
+  const danger = !monster.dead && state.blocks.some(b => isVisibleDanger(b, viewOf(b)));
   const ease = 1 - Math.exp(-14 * Math.max(0, ms) / 1000);
   const smile = !monster.dead && !danger && now < monster.happyUntil ? 1 : 0;
   monster.smile = smile;

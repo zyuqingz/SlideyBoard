@@ -34,9 +34,10 @@ function translate() {
     }
   }
   startLabel.textContent = introCopy(startup, lang);
-  language.textContent = lang === 'en' ? '中文' : 'EN';
-  language.lang = lang === 'en' ? 'zh-CN' : 'en';
-  language.setAttribute('aria-label', lang === 'en' ? 'Switch to Chinese' : '切换为英文');
+  language.querySelectorAll('[data-lang]').forEach(el => {
+    el.classList.toggle('is-active', el.dataset.lang === lang);
+  });
+  language.setAttribute('aria-label', lang === 'en' ? 'Current language: English. Switch to Chinese' : '当前语言：中文。切换为英文');
 }
 
 language.addEventListener('click', () => {
@@ -61,7 +62,7 @@ function show(index) {
     else dot.removeAttribute('aria-current');
   });
   previous.disabled = current === 0;
-  next.disabled = current === slides.length - 1;
+  next.hidden = current === slides.length - 1;
   intro.querySelector('.intro-count').textContent = `0${current + 1} / 0${slides.length}`;
   slides[current].querySelector('h1').focus({ preventScroll: true });
 }

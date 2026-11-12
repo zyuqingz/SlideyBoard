@@ -2,7 +2,7 @@
 import { W, COLORS, C } from './theme.js';
 import { ctx, layout, GO_RESTART } from './canvas-layout.js';
 import { rr, text, hoverOf } from './canvas-draw.js';
-import { modePopup, shapeControl } from './mode-popup.js';
+import { modePopup } from './mode-popup.js';
 import { settingsPopup } from './settings-popup.js';
 import { getLang, t, modeLabel } from './i18n.js';
 import { isMuted } from './audio.js';
@@ -65,8 +65,7 @@ function drawSelector(b, label, hover, fill = C.panel, ink = '#c5adc9', border =
   ctx.restore();
 }
 
-function drawShapeControl(modes, selection, present, enabled) {
-  const b = shapeControl(modes);
+function drawShapeControl(b, selection, present, enabled) {
   if (!b || !selection) return;
   const option = selection.options.find(option => option.id === selection.value);
   const lines = t('boardShape').split('\n');
@@ -102,7 +101,7 @@ export function drawOverlays(now, state, present, modes, shapeSelection) {
   if (phase === 'mode') {
     ctx.fillStyle = 'rgba(16,11,19,0.82)';
     ctx.fillRect(-OX, -OY, VW, VH);
-    const pop = modePopup(modes);
+    const pop = modePopup();
     drawCard(pop.card.x, pop.card.y, pop.card.w, pop.card.h);
     text(t('map'), W / 2, pop.titleY, 36, C.white);
     const current = modes.find(mode => mode.id === state.mode) ?? modes[0];
@@ -113,7 +112,7 @@ export function drawOverlays(now, state, present, modes, shapeSelection) {
       mapLocked ? '#100d14' : mapChrome.fill,
       mapLocked ? '#3a3144' : mapChrome.ink,
       mapLocked ? '#241c2a' : mapChrome.border);
-    drawShapeControl(modes, shapeSelection, present, state.mode === 'shaped');
+    drawShapeControl(pop.control, shapeSelection, present, state.mode === 'shaped');
     ctx.strokeStyle = '#43374c'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(pop.playMode.x, pop.dividerY);
     ctx.lineTo(pop.playMode.x + pop.playMode.w, pop.dividerY); ctx.stroke();
