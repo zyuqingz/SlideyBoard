@@ -1,10 +1,10 @@
 // Game state, scoring, and lifecycle. Board rules and spawn policy are independent.
-import { COLS, insertRow, levelForLines, settleBoard } from './board.js';
+import { COLS, insertRow, settleBoard } from './board.js';
 import { generateRowCandidate, generateNextRow } from './spawn.js';
 import { normalizeDifficulty } from './difficulty.js';
 import {
   resolvePlayMode, tetrisDropInterval, isBuilding, isBuildingMode2, normalizeBuildingMode, buildingScoreProgress,
-  levelForBuildingLines, buildingLevelProgress, TOTEM_COLLECT_SCORE
+  levelForBuildingLines, buildingLevelProgress, classicProgressFromLines, TOTEM_COLLECT_SCORE
 } from './play-mode.js';
 
 const START_ROWS = 4;
@@ -54,8 +54,9 @@ export function awardRows(state, rows, st, widthOf = () => COLS, lineCount = row
   state.lines += lineCount;
   if (isBuildingMode2(state)) Object.assign(state, buildingScoreProgress(state.score));
   else {
-    state.level = levelForLines(state.lines);
-    state.levelProgress = (state.lines % 10) / 10;
+    const classic = classicProgressFromLines(state.lines);
+    state.level = classic.level;
+    state.levelProgress = classic.levelProgress;
   }
   if (state.score > state.best) state.best = state.score;
   return { pts: st.pts, mult: st.combo };

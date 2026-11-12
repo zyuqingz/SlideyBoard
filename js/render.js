@@ -44,15 +44,11 @@ function drawIcon(icon, cx, cy, size = 50, light = 0) {
 
 const CEILING_WARN = '#6b1218';
 
-function totemHitsCeiling(b, v, shape) {
-  if (b.kind !== 'totem') return false;
-  const vx = Number.isFinite(v?.vx) ? v.vx : b.col;
+function hitsDeathCeiling(b) {
   for (const face of facesOf(b)) {
-    const row = b.row + face.row, col = vx + face.col;
-    if (row < 0) continue;
-    if (row === 0) return true;
-    const above = shape?.rows[row - 1];
-    if (above && (col + 0.5 < above.left || col + 0.5 >= above.right)) return true;
+    const row = b.row + face.row;
+    // Row 1 is one rise from top-out; row 0 is the rescue/death row.
+    if (row === 0 || row === 1) return true;
   }
   return false;
 }
@@ -181,7 +177,8 @@ function drawBlock(b, v, hover = 0, shape = null, now = 0, building = false, hel
   const w = b.len * CELL - 2 * PAD, h = (b.height ?? 1) * CELL - 2 * PAD;
   const pop = v.collecting ? 0 : Math.max(v.slot, hover);
   const scale = v.s * (1 + 0.07 * pop);
-  const panic = totemHitsCeiling(b, v, shape) && v.vy === b.row && !v.clearing && !v.evolve;
+  const dangerShake = hitsDeathCeiling(b) && v.vy === b.row && !v.clearing && !v.evolve;
+  const panic = b.kind === 'totem' && dangerShake;
   const shocked = held && b.kind === 'totem' && !panic;
   ctx.save();
   if (b.kind === 'totem') {
@@ -197,7 +194,7 @@ function drawBlock(b, v, hover = 0, shape = null, now = 0, building = false, hel
     ctx.rotate(v.flight.rotation);
     ctx.translate(-(x + w / 2), -(y + h / 2));
   }
-  if (panic) ctx.translate(Math.sin(now / 40) * 3.5, 0);
+  if (dangerShake) ctx.translate(Math.sin(now / 55) * 6, 0);
   if (scale !== 1) {
     ctx.translate(x + w / 2, y + h / 2);
     ctx.scale(scale, scale);
@@ -441,16 +438,18 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   lastMenu = present.menu;
   lastState = state;
   const phase = present.menu || state.phase;
-  const { VH, BY, PANEL, PREV_Y, PREV_H } = layout;
+  const { VH, VW, OX, BY, PANEL, PREV_Y, PREV_H } = layout;
   ctx.fillStyle = C.bg;
-  ctx.fillRect(0, 0, W, VH);
+  ctx.fillRect(-OX, 0, VW, VH);
   ctx.save();
   if (present.shake) ctx.translate(present.shake, 0);
 
   ctx.fillStyle = C.deco;
+  const decoShift = Math.max(0, Math.ceil(OX / W));
   DECO.forEach(([x, fy, s], i) => {
     const oy = Math.sin(now / 1400 + i * 1.7) * 3;
-    ctx.fillRect(x - s / 2, fy * VH - s / 2 + oy, s, s);
+    for (let k = -decoShift; k <= decoShift; k++)
+      ctx.fillRect(x + k * W - s / 2, fy * VH - s / 2 + oy, s, s);
   });
 
   const modeCx = layout.MODE_BTN.x + layout.MODE_BTN.w / 2;
@@ -483,9 +482,11 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
     }
     ctx.restore();
   }
-  if (playId !== 'standard')
-    text(`${modeLabel(playId, playId)} ${t('mode')}${playId === 'totem-building' ? ` ${state.buildingMode ?? 1}` : ''}`,
-      W / 2, layout.MODE_Y, 22, C.muted, 'center', 700);
+  const headerMode = playId === 'totem-building'
+    ? t((state.buildingMode ?? 1) === 2 ? 'buildingMode2' : 'buildingMode1')
+    : modeLabel(playId, playId);
+  text(`${t('score')} - ${headerMode}`,
+    W / 2, layout.MODE_Y, 22, C.muted, 'center', 700);
   const scoreTarget = drawScore(present, slots.scoreY);
   const guideY = BY - LEVEL_BAR_H - 26;
   // Instructions and the live countdown sit just above the board-edge bar.
@@ -529,11 +530,10 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   ctx.closePath(); ctx.stroke();
 
   let warning = null;
-  if (state.phase !== 'over'
-    && state.blocks.some(b => b.row <= 0 && b.kind !== 'totem')) {
+  if (state.phase !== 'over' && state.blocks.some(hitsDeathCeiling)) {
     const { left, right } = state.shape?.rows[0] ?? { left: 0, right: COLS };
     warning = 0.5 + 0.5 * Math.sin(now / 140);
-    ctx.fillStyle = `rgba(210,75,45,${0.10 + 0.12 * warning})`;
+    ctx.fillStyle = `rgba(210,75,45,${0.16 + 0.16 * warning})`;
     ctx.fillRect(BX + left * CELL, BY, (right - left) * CELL, CELL);
   }
 

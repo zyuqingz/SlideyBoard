@@ -154,7 +154,7 @@ window.__slidey = {
     };
   },
   get layout() {
-    return { W, H, VH: layout.VH, OY: layout.OY, BX, BY: layout.BY, HY: layout.HY,
-      CELL, COLS, ROWS, panelY: layout.PANEL.y };
+    return { W, H, VH: layout.VH, VW: layout.VW, OY: layout.OY, OX: layout.OX,
+      BX, BY: layout.BY, HY: layout.HY, CELL, COLS, ROWS, panelY: layout.PANEL.y };
   }
 };

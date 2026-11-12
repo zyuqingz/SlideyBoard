@@ -10,6 +10,9 @@ import { clearRows as clearTotemRows, computeGravity as totemGravity, settleBoar
 import { spawnBuildingTotem } from '../js/totem-spawn.js';
 import { spawnOpeningTotem, resolveTurn } from '../js/turn.js';
 import { W } from '../js/theme.js';
+import { BUILDING_LINES_BASE, BUILDING_LINES_STEP, linesToReachLevel } from '../js/play-mode.js';
+
+const buildingLinesTo = level => linesToReachLevel(level, BUILDING_LINES_BASE, BUILDING_LINES_STEP);
 
 function setup({ loss = false } = {}) {
   const initial = { ...createState(), nextId: 20, nextRow: [{ col: 0, len: 1, color: 0 }],
@@ -885,7 +888,7 @@ test('totem-building row clear eases the level bar', async () => {
   const initial = { ...createState(0, 'easy', 'totem-building'),
     lines: 0, level: 1, levelProgress: 0, blocks: [tile] };
   const after = { ...structuredClone(initial), blocks: [],
-    lines: 1, level: 1, levelProgress: 0.2 };
+    lines: 1, level: 1, levelProgress: 1 / BUILDING_LINES_BASE };
   const result = { accepted: true, state: after, events: [
     { type: 'clear', rows: [9], blocks: [tile], displayBlocks: [],
       award: { pts: 0, mult: 1 }, state: after },
@@ -898,11 +901,11 @@ test('totem-building row clear eases the level bar', async () => {
   const done = presenter.play(result);
   await advance(presenter, 80);
   assert.ok(presenter.present.levelScale > 1, 'bar highlights when progress increases');
-  assert.ok(presenter.present.displayProgress > 0 && presenter.present.displayProgress < 0.2,
+  assert.ok(presenter.present.displayProgress > 0 && presenter.present.displayProgress < 1 / BUILDING_LINES_BASE,
     'bar eases toward the new fill');
   await drain(presenter);
   assert.equal(await done, true);
-  assert.equal(presenter.present.displayProgress, 0.2);
+  assert.equal(presenter.present.displayProgress, 1 / BUILDING_LINES_BASE);
   assert.equal(presenter.present.levelScale, 1);
 });
 
@@ -1019,7 +1022,7 @@ test('level completion fills before drops, then cascades keep HUD progress in sy
 
 test('a real Building drop wave flashes every column and pauses and resets together', async () => {
   const initial = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
-    lines: 19, level: 4, levelProgress: 0.8,
+    lines: buildingLinesTo(5) - 1, level: 4, levelProgress: (BUILDING_LINES_BASE + 3 * BUILDING_LINES_STEP - 1) / (BUILDING_LINES_BASE + 3 * BUILDING_LINES_STEP),
     blocks: [{ id: 1, row: 9, col: 0, len: 8, color: 0 }] };
   const state = structuredClone(initial), events = [];
   resolveTurn(state, () => 0,

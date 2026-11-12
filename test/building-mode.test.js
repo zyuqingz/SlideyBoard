@@ -104,11 +104,11 @@ test('ruleset storage defaults safely and restores the saved toggle', t => {
     getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value)
   } });
   t.after(() => previous ? Object.defineProperty(globalThis, 'localStorage', previous) : delete globalThis.localStorage);
-  assert.equal(loadBuildingMode(), 1);
-  saveBuildingMode(2);
   assert.equal(loadBuildingMode(), 2);
   saveBuildingMode(1);
   assert.equal(loadBuildingMode(), 1);
+  saveBuildingMode(2);
+  assert.equal(loadBuildingMode(), 2);
 });
 
 test('Mode 2 playback flies from the upgrade position and banks tile and totem scores exactly once', async () => {

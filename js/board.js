@@ -1,12 +1,12 @@
 // Grid-space rules only. Pixel geometry and palettes belong to theme.js.
 import { cellsOf } from './block-geometry.js';
-import { isBuilding, isBuildingMode2, TOTEM_SMILE_MAX } from './play-mode.js';
+import { isBuilding, isBuildingMode2, TOTEM_SMILE_MAX, classicProgressFromLines } from './play-mode.js';
 export const COLS = 8, ROWS = 10;
 // Abstract color-group IDs in block data; no dependency on a visual palette.
 export const COLOR_GROUPS = 5;
 
 export function levelForLines(lines) {
-  return 1 + Math.floor(lines / 10);
+  return classicProgressFromLines(lines).level;
 }
 
 export function copyBoard(state) {

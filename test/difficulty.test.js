@@ -5,6 +5,7 @@ import { createEngine } from '../js/engine.js';
 import { generateRowCandidate, generateNextRow } from '../js/spawn.js';
 import { generateNormalRow } from '../js/difficulty.js';
 import { createState } from '../js/sim.js';
+import { levelForBuildingLines } from '../js/play-mode.js';
 import { generateShapedCandidate } from '../js/shaped-spawn.js';
 import { SHAPES } from '../js/shapes.js';
 
@@ -150,9 +151,9 @@ test('Building candidates always contain usable blocks and a gap, including narr
   }
 });
 
-test('Classic Building preview generation uses its five-line level curve', () => {
-  for (const difficulty of ['easy', 'normal']) for (const lines of [5, 25, 50]) {
-    const state = { ...createState(0, difficulty, 'totem-building'), lines, level: 1 + lines / 5 };
+test('Classic Building preview generation uses its line level curve', () => {
+  for (const difficulty of ['easy', 'normal']) for (const lines of [8, 25, 50]) {
+    const state = { ...createState(0, difficulty, 'totem-building'), lines, level: levelForBuildingLines(lines) };
     // Empty boards use the candidate fallback, allowing identical RNG streams to
     // compare the preview against candidate generation at the actual game level.
     for (let seed = 0; seed < 20; seed++) {

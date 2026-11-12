@@ -89,12 +89,12 @@ function drawShapeControl(modes, selection, present, enabled) {
 
 export function drawOverlays(now, state, present, modes, shapeSelection) {
   const phase = present.menu || state.phase;
-  const { VH, OY } = layout;
+  const { VH, VW, OY, OX } = layout;
   ctx.save();
   ctx.translate(0, OY);
   if (phase === 'pause') {
     ctx.fillStyle = 'rgba(16,11,19,0.82)';
-    ctx.fillRect(0, -OY, W, VH);
+    ctx.fillRect(-OX, -OY, VW, VH);
     const pop = settingsPopup();
     drawCard(pop.card.x, pop.card.y, pop.card.w, pop.card.h);
     text(t('settings'), W / 2, pop.titleY, 48, C.white);
@@ -108,7 +108,7 @@ export function drawOverlays(now, state, present, modes, shapeSelection) {
   }
   if (phase === 'mode') {
     ctx.fillStyle = 'rgba(16,11,19,0.82)';
-    ctx.fillRect(0, -OY, W, VH);
+    ctx.fillRect(-OX, -OY, VW, VH);
     const pop = modePopup(modes);
     drawCard(pop.card.x, pop.card.y, pop.card.w, pop.card.h);
     if (!isModeUnlocked()) {
@@ -157,7 +157,7 @@ export function drawOverlays(now, state, present, modes, shapeSelection) {
     ctx.save();
     ctx.globalAlpha = present.overlayA;
     ctx.fillStyle = 'rgba(16,11,19,0.84)';
-    ctx.fillRect(0, -OY, W, VH);
+    ctx.fillRect(-OX, -OY, VW, VH);
     const dy = (1 - present.overlayA) * 40;
     ctx.translate(0, dy);
     drawCard(95, 380, 560, 610);

@@ -8,7 +8,7 @@ const HUD_ICON_SIZE = 64, HUD_GAP = 12;
 const BEST_LEFT = ICON_EDGE + 28;
 export const GO_RESTART = { x: 215, y: 850, w: 320, h: 100 };
 export const layout = {
-  VH: H, OY: 0, BY: 0, HY: 0, SCORE_Y: 0, COMBO_Y: 0,
+  VH: H, VW: W, OY: 0, OX: 0, BY: 0, HY: 0, SCORE_Y: 0, COMBO_Y: 0,
   MODE_Y: 0,
   BEST_X: BEST_LEFT, BEST_Y: 0, BEST_SCORE_Y: 0,
   PANEL: { x: 48, y: 0, w: 654, h: PANEL_H },
@@ -68,15 +68,18 @@ function resize() {
   // Fit the complete layout inside the usable height, including on short screens.
   const s = Math.min(vw / W, Math.max(1, vh - safeTop - safeBot) / H);
   layout.VH = vh / s;
+  layout.VW = vw / s;
   layout.OY = (layout.VH - H) / 2;
+  layout.OX = (layout.VW - W) / 2;
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
-  const cssW = Math.floor(W * s), cssH = Math.floor(layout.VH * s);
+  const cssW = Math.floor(vw), cssH = Math.floor(vh);
   canvas.style.width = cssW + 'px';
   canvas.style.height = cssH + 'px';
-  document.body.style.background = vw < vh ? C.bg : '';
+  document.body.style.background = C.bg;
   canvas.width = Math.round(cssW * dpr);
   canvas.height = Math.round(cssH * dpr);
-  ctx.setTransform(canvas.width / W, 0, 0, canvas.height / layout.VH, 0, 0);
+  ctx.setTransform(canvas.width / layout.VW, 0, 0, canvas.height / layout.VH,
+    layout.OX * canvas.width / layout.VW, 0);
   const k = layout.VH / Math.max(1, cssH);
   place(safeTop * k, safeBot * k);
   invalidateCanvas();
@@ -84,7 +87,10 @@ function resize() {
 
 export function toLogical(e) {
   const r = canvas.getBoundingClientRect();
-  return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * layout.VH / r.height };
+  return {
+    x: (e.clientX - r.left) * layout.VW / r.width - layout.OX,
+    y: (e.clientY - r.top) * layout.VH / r.height
+  };
 }
 
 export const toOverlay = p => ({ x: p.x, y: p.y - layout.OY });

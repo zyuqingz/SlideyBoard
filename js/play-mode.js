@@ -1,5 +1,12 @@
 export const PLAY_MODES = Object.freeze(['standard', 'tetris', 'totem-building']);
-export const BUILDING_LINES_PER_LEVEL = 5;
+// Last level whose line requirement still grows. Later levels keep leveling with that same count.
+export const LINES_GROWTH_LAST_LEVEL = 10;
+export const CLASSIC_LINES_BASE = 12;
+export const CLASSIC_LINES_STEP = 1;
+export const BUILDING_LINES_BASE = 8;
+export const BUILDING_LINES_STEP = 1;
+// First-level Building requirement; later levels add BUILDING_LINES_STEP through LINES_GROWTH_LAST_LEVEL.
+export const BUILDING_LINES_PER_LEVEL = BUILDING_LINES_BASE;
 export const TOTEM_SMILE_MAX = 3;
 export const TOTEM_COLLECT_SCORE = 50;
 export const BUILDING_SPAWN_CAP = 3;
@@ -10,9 +17,34 @@ export function tetrisDropInterval(level) {
   return (level || 1) <= 1 ? 5 : 4;
 }
 
+export function linesNeededForLevel(level, base, step) {
+  const lv = Math.max(1, level | 0);
+  return base + (Math.min(lv, LINES_GROWTH_LAST_LEVEL) - 1) * step;
+}
+
+export function linesToReachLevel(level, base, step) {
+  let total = 0;
+  for (let lv = 1; lv < (level | 0); lv++) total += linesNeededForLevel(lv, base, step);
+  return total;
+}
+
+export function progressFromLines(lines, base, step) {
+  let n = Math.max(0, lines | 0);
+  let level = 1;
+  for (;;) {
+    const need = linesNeededForLevel(level, base, step);
+    if (n < need) return { level, levelProgress: n / need };
+    n -= need;
+    level++;
+  }
+}
+
+export function classicProgressFromLines(lines) {
+  return progressFromLines(lines, CLASSIC_LINES_BASE, CLASSIC_LINES_STEP);
+}
+
 export function levelForBuildingLines(lines) {
-  const n = Math.max(0, lines | 0);
-  return 1 + Math.floor(n / BUILDING_LINES_PER_LEVEL);
+  return progressFromLines(lines, BUILDING_LINES_BASE, BUILDING_LINES_STEP).level;
 }
 
 export function buildingTotemsForLevelUp(fromLevel, toLevel) {
@@ -25,8 +57,7 @@ export function buildingTotemsForLevelUp(fromLevel, toLevel) {
 }
 
 export function buildingLevelProgress(lines) {
-  const n = Math.max(0, lines | 0);
-  return (n % BUILDING_LINES_PER_LEVEL) / BUILDING_LINES_PER_LEVEL;
+  return progressFromLines(lines, BUILDING_LINES_BASE, BUILDING_LINES_STEP).levelProgress;
 }
 
 export function resolvePlayMode({ playMode, totemsEnabled } = {}, fallback = 'standard') {

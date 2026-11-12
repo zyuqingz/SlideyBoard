@@ -8,6 +8,7 @@ import { ROWS, COLS, buildGrid, touchingTop } from '../js/board.js';
 import { copyBoard, slideRange, hasMoves, computeGravity, fullRows } from '../js/board.js';
 import { insertShapedRow, settleShapedBoard } from '../js/shaped-board.js';
 import { generateShapedCandidate, generateShapedNextRow } from '../js/shaped-spawn.js';
+import { CLASSIC_LINES_BASE } from '../js/play-mode.js';
 
 function seeded(seed) {
   return () => { seed = Math.imul(seed, 1664525) + 1013904223 | 0; return (seed >>> 0) / 4294967296; };
@@ -117,7 +118,7 @@ test('gravity treats narrowing below as a ledge, and a slide can release the blo
 });
 
 test('short rows clear only when all playable cells are filled; scores use width and pre-bump level', () => {
-  const state = fixture([block(1, 9, 2, 4), block(2, 8, 5)], uniform(), { lines: 9 });
+  const state = fixture([block(1, 9, 2, 4), block(2, 8, 5)], uniform(), { lines: CLASSIC_LINES_BASE - 1 });
   const engine = fixtureEngine(state);
   assert.equal(engine.dispatch({ type: 'slide', id: 2, col: 7 }).reason, 'illegal-slide');
   const result = engine.dispatch({ type: 'slide', id: 2, col: 6 });
@@ -125,7 +126,7 @@ test('short rows clear only when all playable cells are filled; scores use width
   assert.deepEqual(first.rows, [9]);
   assert.deepEqual(first.award, { pts: 50, mult: 1 });
   assert.equal(first.state.level, 2);
-  assert.equal(first.state.lines, 10);
+  assert.equal(first.state.lines, CLASSIC_LINES_BASE);
   assert.equal(result.events.filter(e => e.type === 'shaped-rise').length, 3);
   valid(result.state, true);
 });

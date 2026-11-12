@@ -22,4 +22,4 @@ export const classic = Object.freeze({
   }
 });
 
-export const GAME_MODES = Object.freeze([shaped, classic]);
+export const GAME_MODES = Object.freeze([classic, shaped]);

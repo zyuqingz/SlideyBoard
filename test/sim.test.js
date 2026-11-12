@@ -7,6 +7,7 @@ import {
   createState, createTurnScore, awardRows, setupClassic, rise
 } from '../js/sim.js';
 import { generateRowCandidate, generateNextRow } from '../js/spawn.js';
+import { CLASSIC_LINES_BASE } from '../js/play-mode.js';
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -78,12 +79,12 @@ test('full rows are reported from top to bottom', () => {
 test('clear score uses the level from before the level bump', () => {
   const s = createState();
   s.level = 1;
-  s.lines = 9;
+  s.lines = CLASSIC_LINES_BASE - 1;
   const st = createTurnScore();
   const a = awardRows(s, [8], st);
   assert.equal(s.score, COLS * 10);
   assert.equal(a.mult, 1);
-  assert.equal(s.lines, 10);
+  assert.equal(s.lines, CLASSIC_LINES_BASE);
   assert.equal(s.level, 2);
   assert.equal(s.best, COLS * 10);
 });

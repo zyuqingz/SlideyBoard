@@ -2,9 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEngine } from '../js/engine.js';
 import { classic } from '../js/modes.js';
-import { COLS, ROWS, buildGrid, fullRows, slideRange, touchingTop } from '../js/board.js';
+import { COLS, ROWS, buildGrid, fullRows, slideRange, touchingTop, levelForLines } from '../js/board.js';
 import { createState, createTurnScore, awardRows, rise, setupClassic } from '../js/sim.js';
 import { computeGravity } from '../js/board.js';
+import { CLASSIC_LINES_BASE, CLASSIC_LINES_STEP, LINES_GROWTH_LAST_LEVEL, BUILDING_LINES_BASE,
+  BUILDING_LINES_STEP, linesNeededForLevel, linesToReachLevel, levelForBuildingLines,
+  buildingLevelProgress } from '../js/play-mode.js';
 
 function seeded(seed) {
   return () => { seed = Math.imul(seed, 1664525) + 1013904223 | 0; return (seed >>> 0) / 4294967296; };
@@ -90,7 +93,7 @@ test('one command resolves cascades, combo, level change and rise without a rend
     reset(target) { Object.assign(target, structuredClone(fixture([
       block(1, 9, 0, 7), block(2, 8, 6), block(3, 8, 0, 4),
       block(4, 7, 0, 8), block(5, 6, 4, 4)
-    ], { lines: 9 }))); }
+    ], { lines: CLASSIC_LINES_BASE - 2 }))); }
   }] });
   const result = engine.dispatch({ type: 'slide', id: 2, col: 7 });
   assert.equal(result.accepted, true);
@@ -98,7 +101,7 @@ test('one command resolves cascades, combo, level change and rise without a rend
   assert.deepEqual(result.events.map(e => e.type),
     ['slide', 'gravity', 'clear', 'gravity', 'clear', 'rise', 'rise', 'rise', 'turn-complete']);
   assert.equal(result.state.score, 80 + 160 + 480);
-  assert.equal(result.state.lines, 12);
+  assert.equal(result.state.lines, CLASSIC_LINES_BASE + 1);
   assert.equal(result.state.level, 2);
   assert.deepEqual(result.events.filter(e => e.type === 'clear').map(e => e.award.mult), [2, 3]);
   assert.equal(result.events.find(e => e.type === 'clear').blocks.length, 3);
@@ -188,7 +191,35 @@ test('snapshots and events cannot mutate engine state or each other', () => {
 test('the default map is Classic and both maps remain in the menu', () => {
   const engine = createEngine({ random: () => 0.5 });
   assert.equal(engine.snapshot().mode, 'classic');
-  assert.deepEqual(engine.modes.map(m => m.id), ['shaped', 'classic']);
+  assert.deepEqual(engine.modes.map(m => m.id), ['classic', 'shaped']);
+});
+
+test('level-up line requirement grows until level 10 then stays the same while levels continue', () => {
+  assert.equal(linesNeededForLevel(1, CLASSIC_LINES_BASE, CLASSIC_LINES_STEP), 12);
+  assert.equal(linesNeededForLevel(2, CLASSIC_LINES_BASE, CLASSIC_LINES_STEP), 13);
+  assert.equal(linesNeededForLevel(10, CLASSIC_LINES_BASE, CLASSIC_LINES_STEP), 21);
+  assert.equal(linesNeededForLevel(11, CLASSIC_LINES_BASE, CLASSIC_LINES_STEP), 21);
+  assert.equal(linesNeededForLevel(LINES_GROWTH_LAST_LEVEL + 8, CLASSIC_LINES_BASE, CLASSIC_LINES_STEP), 21);
+  const almostTen = linesToReachLevel(10, CLASSIC_LINES_BASE, CLASSIC_LINES_STEP);
+  assert.equal(levelForLines(almostTen - 1), 9);
+  assert.equal(levelForLines(almostTen), 10);
+  const hold = linesNeededForLevel(10, CLASSIC_LINES_BASE, CLASSIC_LINES_STEP);
+  assert.equal(levelForLines(almostTen + hold - 1), 10);
+  assert.equal(levelForLines(almostTen + hold), 11);
+  assert.equal(levelForLines(almostTen + 2 * hold), 12);
+  const state = createState();
+  const st = createTurnScore();
+  awardRows(state, [9], st, () => COLS, CLASSIC_LINES_BASE - 1);
+  assert.equal(state.level, 1);
+  assert.equal(state.levelProgress, (CLASSIC_LINES_BASE - 1) / CLASSIC_LINES_BASE);
+  awardRows(state, [9], createTurnScore(), () => COLS, 1);
+  assert.equal(state.level, 2);
+  assert.equal(state.levelProgress, 0);
+  assert.equal(levelForBuildingLines(BUILDING_LINES_BASE - 1), 1);
+  assert.equal(buildingLevelProgress(BUILDING_LINES_BASE - 1), (BUILDING_LINES_BASE - 1) / BUILDING_LINES_BASE);
+  assert.equal(levelForBuildingLines(BUILDING_LINES_BASE), 2);
+  assert.equal(linesNeededForLevel(10, BUILDING_LINES_BASE, BUILDING_LINES_STEP),
+    linesNeededForLevel(20, BUILDING_LINES_BASE, BUILDING_LINES_STEP));
 });
 
 test('Tetris locks the map to Classic', () => {

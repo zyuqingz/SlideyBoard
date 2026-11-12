@@ -44,8 +44,11 @@ export function savePlayMode(value) {
 }
 
 export function loadBuildingMode() {
-  try { return localStorage.getItem('slidey_building_mode') === '2' ? 2 : 1; }
-  catch { return 1; }
+  try {
+    const stored = localStorage.getItem('slidey_building_mode');
+    if (stored === '1') return 1;
+    return 2;
+  } catch { return 2; }
 }
 
 export function saveBuildingMode(value) {

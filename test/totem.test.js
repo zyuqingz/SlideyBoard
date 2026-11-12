@@ -14,7 +14,10 @@ import { SHAPES } from '../js/shapes.js';
 import { insertShapedRow } from '../js/shaped-board.js';
 import { generateNextRow } from '../js/spawn.js';
 import { generateShapedNextRow } from '../js/shaped-spawn.js';
-import { tetrisDropInterval, buildingTotemsForLevelUp } from '../js/play-mode.js';
+import { tetrisDropInterval, buildingTotemsForLevelUp, BUILDING_LINES_BASE, BUILDING_LINES_STEP,
+  linesToReachLevel } from '../js/play-mode.js';
+
+const buildingLinesTo = level => linesToReachLevel(level, BUILDING_LINES_BASE, BUILDING_LINES_STEP);
 
 const block = (id, row, col, len = 1) => ({ id, row, col, len, color: 0 });
 const pole = (id, row, col, height) => ({ ...block(id, row, col), kind: 'totem', height });
@@ -110,7 +113,7 @@ test('Totems default off, persist across maps/restarts, and can be disabled with
   const engine = createEngine({ random: seeded(71), difficulty: 'normal' });
   assert.equal(engine.snapshot().totemsEnabled, false);
   assert.equal(engine.snapshot().playMode, 'standard');
-  assert.deepEqual(engine.modes.map(mode => mode.id), ['shaped', 'classic']);
+  assert.deepEqual(engine.modes.map(mode => mode.id), ['classic', 'shaped']);
   assert.equal(engine.reset(undefined, { playMode: 'tetris' }).totemsEnabled, true);
   assert.equal(engine.snapshot().playMode, 'tetris');
   assert.equal(engine.snapshot().mode, 'classic');
@@ -509,7 +512,7 @@ test('Building openings remain playable with constant RNG on every map', () => {
 test('Totem Building drops every level-up totem during the same turn', () => {
   const ready = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
     nextRow: [{ col: 0, len: 2, color: 0 }],
-    lines: 4, level: 1,
+    lines: buildingLinesTo(2) - 1, level: 1,
     blocks: [
       { id: 1, row: 9, col: 0, len: 7, color: 0 },
       { id: 2, row: 8, col: 6, len: 1, color: 1 }
@@ -565,7 +568,7 @@ test('Building replaces a collected last totem without needing a level-up on eit
 
 test('Building gives three level-up extras in addition to an empty-board replacement', () => {
   const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
-    lines: 19, level: 4, blocks: [block(1, 9, 0, 8)] };
+    lines: buildingLinesTo(5) - 1, level: 4, blocks: [block(1, 9, 0, 8)] };
   const events = [];
   resolveTurn(state, () => 0, type => events.push(type),
     () => insertRow(state, [{ col: 0, len: 2, color: 0 }]));
@@ -579,7 +582,7 @@ test('Building gives three level-up extras in addition to an empty-board replace
 
 test('Building caps a multi-level clear at three extras plus one replacement', () => {
   const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
-    lines: 4, level: 1, blocks: Array.from({ length: 9 }, (_, i) => block(i + 1, i + 1, 0, 8)) };
+    lines: buildingLinesTo(2), level: 2, blocks: Array.from({ length: 9 }, (_, i) => block(i + 1, i + 1, 0, 8)) };
   const events = [];
   resolveTurn(state, () => 0, type => events.push(type),
     () => insertRow(state, [{ col: 0, len: 2, color: 0 }]));
@@ -591,7 +594,7 @@ test('Building caps a multi-level clear at three extras plus one replacement', (
 
 test('Building stops at three extras when an existing totem needs no replacement', () => {
   const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
-    lines: 19, level: 4, blocks: [block(1, 9, 0, 8),
+    lines: buildingLinesTo(5) - 1, level: 4, blocks: [block(1, 9, 0, 8),
       ...[6, 7, 8].map((row, i) => block(i + 2, row, 0, 2)), pole(10, 5, 0, 1)] };
   const events = [];
   resolveTurn(state, () => 0, type => events.push(type),
@@ -607,12 +610,12 @@ test('Building stops at three extras when an existing totem needs no replacement
 test('Building drop-induced levels and collections cannot renew the turn budget', () => {
   const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
     shape: { rows: Array.from({ length: 10 }, (_, row) => ({ left: row === 0 ? 7 : 0, right: 8 })) },
-    lines: 19, level: 4, blocks: [block(1, 9, 0, 8),
+    lines: buildingLinesTo(5) - 1, level: 4, blocks: [block(1, 9, 0, 8),
       ...[5, 6, 7, 8].map((row, i) => block(i + 2, row, 0, 7))] };
   const events = [];
   resolveTurn(state, () => 0.999, type => events.push(type),
     () => insertRow(state, [{ col: 0, len: 7, color: 0 }]));
-  assert.equal(state.level, 7, 'drop cascades cross further levels during the same turn');
+  assert.equal(state.level, 6, 'drop cascades cross further levels during the same turn');
   assert.equal(events.filter(type => type === 'totem-drop').length, 4);
   assert.equal(events.filter(type => type === 'totem-collect').length, 4);
   assert.equal(state.blocks.filter(b => b.kind === 'totem').length, 0);
@@ -697,7 +700,7 @@ test('Building extras skip columns already used in the same wave', () => {
   for (const roll of [0, 0.999]) {
     const occupied = new Set();
     const state = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
-      lines: 19, level: 4, blocks: [block(1, 9, 0, 8)] };
+      lines: buildingLinesTo(5) - 1, level: 4, blocks: [block(1, 9, 0, 8)] };
     const cols = [], collected = [];
     resolveTurn(state, () => roll, (type, data) => {
       if (type === 'totem-drop') cols.push(state.blocks.find(b => b.id === data.id).col);
@@ -714,7 +717,7 @@ test('Building extras skip columns already used in the same wave', () => {
 });
 
 test('Building level-up drops stack sequentially when only one column is reachable', () => {
-  const state = { ...createState(0, 'easy', 'totem-building'), nextId: 10, lines: 4,
+  const state = { ...createState(0, 'easy', 'totem-building'), nextId: 10, lines: buildingLinesTo(2) - 1,
     shape: { rows: Array.from({ length: 10 }, (_, row) => ({ left: 0, right: row === 0 ? 1 : 8 })) },
     nextRow: [{ col: 0, len: 2, color: 0 }], blocks: [
       block(1, 9, 0, 8),

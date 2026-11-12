@@ -287,8 +287,9 @@ to the base mode; the retired Totem mode's score key is no longer read or writte
 ### Totem Building
 
 The mode menu has a persistent **Mode 1 / Mode 2** rules toggle (`buildingMode`).
-Mode 1 is the default and retains the floor-collection behavior described below.
-Classic is the default map. Both maps support either Building ruleset.
+Browser first run and missing storage default to Mode 2. Headless `createEngine` /
+`createState` still default to Mode 1 unless options are passed. Classic is the
+default map. Both maps support either Building ruleset.
 
 Mode 2 overrides collection, scoring, and expression placement:
 
