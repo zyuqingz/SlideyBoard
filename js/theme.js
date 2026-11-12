@@ -5,9 +5,11 @@ export const W = 750, H = 1334;
 export const CELL = 81, PAD = 3;
 export const BX = (W - COLS * CELL) / 2;
 export const BW = COLS * CELL, BH = ROWS * CELL;
+export const BOARD_OUTLINE_WIDTH = 24;
 export const LEVEL_BAR_H = 14;
 export const FACE_H = 80;
 export const COLLECTION_SIZE = CELL - 2 * PAD;
+export const JUNIOR_DRAG_LIFT = COLLECTION_SIZE / 2 + 18;
 export function juniorSlot(variant, y) {
   const gap = 18, size = COLLECTION_SIZE;
   const start = (W - ADULT_LOOKS.length * size - (ADULT_LOOKS.length - 1) * gap) / 2;

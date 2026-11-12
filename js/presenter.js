@@ -17,7 +17,7 @@ export function createPresenter({ boardY = () => 0, collectionY = () => 0, effec
   const views = new Map();
   const present = {
     ...createScorePresentation(), shake: 0, overlayA: 0, drag: null, menu: null,
-    hoverKey: null, hoverAmt: {}, landingDust: [], godClearFx: null, levelUpFx: null, spawnFx: [],
+    hoverKey: null, hoverAmt: {}, landingDust: [], godClearFx: null, levelUpFx: null,
     displayProgress: 0, displayLevel: 1, levelScale: 1, powerButton: false, flyingTotems: [],
     juniorCollection: ADULT_LOOKS.map(() => 0), juniorScales: ADULT_LOOKS.map(() => 1),
     monster: createMonster()
@@ -37,9 +37,10 @@ export function createPresenter({ boardY = () => 0, collectionY = () => 0, effec
   function viewOf(block) {
     if (!views.has(block.id)) views.set(block.id, {
       vx: block.col, vy: block.row, dragVelocity: 0, flash: 0, s: 1, sq: 0, land: 0, slot: 0,
-      danger: 0, clearing: false, collecting: false, expression: block.smile ?? 1, evolve: 0,
-      // Retained across snapshots and flight; cosmetic randomness is separate from game rules.
-      adultVariant: block.kind === 'totem' ? Math.floor(appearanceRandom() * ADULT_LOOKS.length) : 0
+      danger: 0, clearing: false, collecting: false, spawning: false, expression: block.smile ?? 1, evolve: 0,
+      // Building identity is authoritative because its collected form is a tool.
+      adultVariant: block.adultVariant ?? (block.kind === 'totem'
+        ? Math.floor(appearanceRandom() * ADULT_LOOKS.length) : 0)
     });
     return views.get(block.id);
   }
@@ -69,7 +70,8 @@ export function createPresenter({ boardY = () => 0, collectionY = () => 0, effec
     Object.assign(present, createScorePresentation(), {
       displayScore: state.score, shake: 0, overlayA: state.phase === 'over' ? 1 : 0,
       drag: null, menu: null, hoverKey: null, hoverAmt: {}, landingDust: [], godClearFx: null,
-      levelUpFx: null, spawnFx: [], flyingTotems: [], juniorCollection: ADULT_LOOKS.map(() => 0),
+      levelUpFx: null, flyingTotems: [],
+      juniorCollection: [...(state.juniorCollection ?? ADULT_LOOKS.map(() => 0))],
       juniorScales: ADULT_LOOKS.map(() => 1),
       displayProgress: state.levelProgress ?? 0,
       displayLevel: state.level ?? 1,
@@ -238,6 +240,7 @@ export function createPresenter({ boardY = () => 0, collectionY = () => 0, effec
       const v = viewOf(b);
       // Pin the pre-fall row before the first paint of the landing snapshot.
       v.vy = move.from;
+      v.spawning = state.playMode === 'totem-building' && b.kind === 'totem' && move.from < 0;
       return { move, b, v, d: move.to - move.from };
     });
     let totemWave = 0, tileLanded = false;
@@ -250,6 +253,7 @@ export function createPresenter({ boardY = () => 0, collectionY = () => 0, effec
       if (!await tween(total, t => {
         const p = released ? clamp((t * total - delay) / duration, 0, 1) : t;
         v.vy = move.from + d * Ease.in(p);
+        if (p === 1) v.spawning = false;
       }, Ease.lin) || !current())
         return false;
       if (d <= 0) return true;
@@ -342,6 +346,20 @@ export function createPresenter({ boardY = () => 0, collectionY = () => 0, effec
   async function animate(event, run, holdForSpawn, released = false) {
     const current = () => run === generation;
     switch (event.type) {
+      case 'junior-use': {
+        present.juniorCollection[event.variant]--;
+        if (event.splitBlocks) {
+          interruptSquash();
+          adopt(event.state);
+          sfx('clear');
+          const pieces = event.splitBlocks.map(b => viewOf(b));
+          return await tween(220, p => {
+            for (const v of pieces) v.s = 1 + 0.1 * Math.sin(Math.PI * p);
+          }, Ease.lin) && current();
+        }
+        // Reuse tile departure and growth feedback without awarding tool-removal points.
+        return animate({ ...event, type: 'clear' }, run, holdForSpawn);
+      }
       case 'slide': {
         interruptSquash();
         const held = viewOf(state.blocks.find(b => b.id === event.id));
@@ -453,6 +471,8 @@ export function createPresenter({ boardY = () => 0, collectionY = () => 0, effec
         adopt(event.state);
         const b = state.blocks.find(b => b.id === event.id);
         if (b && state.playMode === 'totem-building') {
+          // Keep this flag through batched drop snapshots until the arrival lands.
+          viewOf(b).spawning = true;
           celebrateMonster(present.monster, effects.now());
           if (pendingProgress !== null) {
             const target = pendingProgress, from = present.displayProgress;
@@ -463,12 +483,6 @@ export function createPresenter({ boardY = () => 0, collectionY = () => 0, effec
                 present.displayProgress = p === 1 ? target : from + (target - from) * p;
             }, Ease.out);
           }
-          const fx = { col: b.col, len: b.len, progress: 0 };
-          present.spawnFx.push(fx);
-          tween(360, p => {
-            fx.progress = p;
-            if (p === 1) present.spawnFx = present.spawnFx.filter(active => active !== fx);
-          }, Ease.lin);
         }
         return true;
       }

@@ -93,34 +93,37 @@ function togglePowerButton() {
   savePowerButton(presenter.present.powerButton);
 }
 
-function triggerPowerMode() {
-  if (!presenter.present.powerButton || presenter.busy || presenter.present.menu) return false;
-  const result = engine.dispatch({ type: 'power-mode' });
+function playCommand(command) {
+  if (presenter.busy || presenter.present.menu) return false;
+  const result = engine.dispatch(command);
   if (!result.accepted) return false;
   saveBest(result.state.mode, result.state.best);
   presenter.play(result).catch(error => {
-    console.error('Power mode presentation failed', error);
+    console.error(`${command.type} presentation failed`, error);
     presenter.reset(engine.snapshot());
   });
   return true;
 }
 
+function triggerPowerMode() {
+  if (!presenter.present.powerButton) return false;
+  return playCommand({ type: 'power-mode' });
+}
+
 function slide(id, col) {
-  if (presenter.busy || presenter.present.menu) return false;
-  const result = engine.dispatch({ type: 'slide', id, col });
-  if (!result.accepted) return false;
-  saveBest(result.state.mode, result.state.best);
-  presenter.play(result).catch(error => {
-    console.error('Turn presentation failed', error);
-    presenter.reset(engine.snapshot());
-  });
-  return true;
+  return playCommand({ type: 'slide', id, col });
+}
+
+function useJunior(variant, row, col) {
+  if (!(presenter.present.juniorCollection[variant] > 0)) return false;
+  return playCommand({ type: 'use-junior', variant, row, col });
 }
 
 const input = bindInput(canvas, {
   presenter, modes: engine.modes, moveRange: id => engine.moveRange(id),
   slide, restart, shapeSelection, toggleDifficulty, cyclePlayMode, cycleMap, cycleShape,
-  togglePowerButton, triggerPowerMode, toggleBuildingMode
+  togglePowerButton, triggerPowerMode, toggleBuildingMode, useJunior,
+  juniorTarget: (variant, row, col) => engine.juniorTarget(variant, row, col)
 });
 
 let last = performance.now();

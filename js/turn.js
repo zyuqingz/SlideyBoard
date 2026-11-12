@@ -1,15 +1,20 @@
 // Shared turn lifecycle. Modes supply insertion/preview rules, options add drops.
-import { ROWS, rowSpan, computeGravity, settleBoard, touchingTop, hasMoves,
-  occupiedTileRows, fullRows, heightOf, applyPowerMode } from './board.js';
+import { rowSpan, computeGravity, settleBoard, touchingTop, hasMoves,
+  occupiedTileRows, applyPowerMode } from './board.js';
 import { createTurnScore, awardRows } from './sim.js';
 import { spawnTotem, spawnBuildingTotem } from './totem-spawn.js';
 import { isBuilding, isTetris, usesTotems, tetrisDropInterval,
   isBuildingMode2, buildingTotemsForLevelUp, REFILL_ROWS } from './play-mode.js';
 import { cellsOf } from './block-geometry.js';
+import { applyJuniorPower, JUNIOR_COUNT } from './junior-powers.js';
 
 function scoreSteps(state, emit) {
   const turn = createTurnScore();
   return (type, data) => {
+    if (type === 'totem-collect') {
+      state.juniorCollection ??= Array(JUNIOR_COUNT).fill(0);
+      for (const b of data.blocks) state.juniorCollection[b.adultVariant ?? 0]++;
+    }
     if (type === 'clear') {
       const widths = new Map();
       if (isBuildingMode2(state)) for (const b of data.blocks) for (const cell of cellsOf(b)) {
@@ -62,54 +67,27 @@ export function resolveTurn(state, random, emit, rise, options = {}) {
     settleBoard(state, step);
     if (checkTop && touchingTop(state)) endGame(state, emit, 'top-out');
   };
-  const onFloor = () => state.blocks.some(b =>
-    b.kind === 'totem' && b.row + heightOf(b) - 1 >= ROWS - 1);
-  const hasTotem = () => state.blocks.some(b => b.kind === 'totem');
-  const finishBuilding = () => {
-    let levelDrops = 0, replacementUsed = false;
-    const dropColumns = [];
-    const batchMoves = [];
-    const flushFalls = () => {
-      if (!batchMoves.length) return;
-      step('gravity', { moves: batchMoves.splice(0) });
-    };
-    // Count settled ordinary-tile rows, not stack height or totem rows. Recheck
-    // after every rise: gravity, trimming and clears can change the deficit.
-    const refill = (required = false) => {
-      while (state.phase === 'play'
-        && (required || occupiedTileRows(state) < REFILL_ROWS || !hasMoves(state))) {
-        spawnRows(1);
-        required = false;
-      }
-    };
-    refill(true);
-    while (state.phase === 'play') {
-      const replacement = !hasTotem() && !replacementUsed;
-      const budget = buildingTotemsForLevelUp(startingLevel, state.level);
-      if (!replacement && levelDrops >= budget) break;
-      // Charge before landing. Clears/collections never refund a drop, and
-      // later level-ups cannot grant extra juniors beyond this turn's cap.
-      if (replacement) replacementUsed = true;
-      else levelDrops++;
-      const block = spawnBuildingTotem(state, random, dropColumns);
-      dropColumns.push(block.col);
-      emit('totem-drop', { id: block.id });
-      // Land each tile before choosing the next column, so batches can stack
-      // without overlapping above the board or mistaking entry for a top-out.
-      const moves = computeGravity(state);
-      if (moves.length) batchMoves.push(...moves);
-      if (touchingTop(state)) {
-        flushFalls();
-        return endGame(state, emit, 'top-out');
-      }
-      // Flush before a clear or collect so those events still follow a landing.
-      if (fullRows(state).length || onFloor() || !hasMoves(state)) {
-        flushFalls();
-        settleBoard(state, step);
-        refill();
-      }
+  // Count settled ordinary-tile rows, not stack height or totem rows. Recheck
+  // after every rise: gravity, trimming and clears can change the deficit.
+  const refillBuilding = (required = false) => {
+    while (state.phase === 'play'
+      && (required || occupiedTileRows(state) < REFILL_ROWS || !hasMoves(state))) {
+      spawnRows(1);
+      required = false;
     }
-    flushFalls();
+  };
+  const finishBuilding = (bonus = false) => {
+    if (!bonus) refillBuilding(true);
+    else if (!hasMoves(state)) refillBuilding();
+    if (state.phase !== 'play' || !buildingTotemsForLevelUp(startingLevel, state.level)) return;
+    // Exactly one earned drop. Its clears, collections and refill cannot renew it.
+    const block = spawnBuildingTotem(state, random);
+    emit('totem-drop', { id: block.id });
+    const moves = computeGravity(state);
+    if (moves.length) step('gravity', { moves });
+    if (touchingTop(state)) return endGame(state, emit, 'top-out');
+    settleBoard(state, step);
+    if (!bonus || !hasMoves(state)) refillBuilding();
   };
   const spawnRows = count => {
     for (let i = 0; i < count; i++) {
@@ -121,6 +99,14 @@ export function resolveTurn(state, random, emit, rise, options = {}) {
       settle(false);
     }
   };
+  if (options.juniorPower && building) {
+    const { variant, target } = options.juniorPower;
+    emit('junior-use', applyJuniorPower(state, variant, target));
+    settle();
+    // Tools are bonus actions. Only refill if needed to restore a playable board.
+    if (state.phase === 'play') finishBuilding(true);
+    return;
+  }
   if (options.forcePower && building) {
     step('clear', applyPowerMode(state));
     settleBoard(state, step, true);

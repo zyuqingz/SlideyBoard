@@ -21,10 +21,10 @@ export function celebrateMonster(monster, now) {
 
 export function updateMonster(monster, state, viewOf, boardY, now, ms) {
   monster.dead ||= state.phase === 'over';
-  // Use occupied-cell overlap: only fully above-board arrivals are excluded.
+  // Arrival paths cross the ceiling without threatening it; landed tiles still count.
   const danger = !monster.dead && state.blocks.some(b => {
     const v = viewOf(b);
-    return !v.clearing && facesOf(b).some(face => {
+    return !v.clearing && !v.spawning && facesOf(b).some(face => {
       const row = v.vy + face.row;
       return row < 2 && row + 1 > 0;
     });

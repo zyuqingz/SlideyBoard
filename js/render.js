@@ -2,7 +2,7 @@
 
 import { COLS, ROWS } from './board.js';
 import { facesOf, isCarved } from './block-geometry.js';
-import { W, CELL, PAD, BX, BW, BH, LEVEL_BAR_H, FACE_H, CARVED_PAINT, C, FONT, totemPaint, ADULT_LOOKS, juniorSlot } from './theme.js';
+import { W, CELL, PAD, BX, BW, BH, LEVEL_BAR_H, FACE_H, BOARD_OUTLINE_WIDTH, COLLECTION_SIZE, CARVED_PAINT, C, FONT, totemPaint, ADULT_LOOKS, juniorSlot } from './theme.js';
 import { Ease } from './fx.js';
 import { t } from './i18n.js';
 import { ctx, layout, paintRevision, invalidateCanvas } from './canvas-layout.js';
@@ -16,7 +16,7 @@ const PANEL_R = 20;
 const BLOCK_R = 14;
 // Intervals inside the next-row panel, measured from the panel top.
 const NEXT_SIZE = 16;
-const NEXT_BASELINE = 26;
+const NEXT_BASELINE = 12;
 
 const DECO = [
   [737, .14, 10], [148, .22, 9], [710, .25, 9], [277, .78, 8], [501, .77, 8],
@@ -34,7 +34,6 @@ function loadIcon(src) {
 }
 
 // Phosphor fill icons from assets/, recolored to muted UI purple.
-const modeIcon = loadIcon('assets/game-controller-fill.svg');
 const gearIcon = loadIcon('assets/gear-fill.svg');
 
 function drawIcon(icon, cx, cy, size = 50, light = 0) {
@@ -363,6 +362,10 @@ function drawLevelBar(state, present) {
 }
 
 function drawJuniorCollection(present) {
+  const firstSlot = juniorSlot(0, layout.COLLECTION_Y);
+  t('juniorTools').split('\n').forEach((line, i) =>
+    text(line, firstSlot.x - 24, layout.COLLECTION_Y + firstSlot.size / 2 - 11 + i * 22,
+      22, '#a493b0', 'right', 700));
   ADULT_LOOKS.forEach((_, variant) => {
     const { x, y, size } = juniorSlot(variant, layout.COLLECTION_Y);
     const count = present.juniorCollection?.[variant] ?? 0;
@@ -374,7 +377,8 @@ function drawJuniorCollection(present) {
     }
     // Reuse the grown junior's board sprite, including its identifying accessory.
     ctx.save();
-    const scale = present.juniorScales?.[variant] ?? 1;
+    if (present.drag?.kind === 'junior' && present.drag.variant === variant) ctx.globalAlpha = 0.4;
+    const scale = (present.juniorScales?.[variant] ?? 1) + hoverOf(present, 'junior:' + variant) * 0.06;
     ctx.translate(x + size / 2, y + size / 2); ctx.scale(scale, scale);
     ctx.translate(-size / 2, -size / 2);
     drawBuildingFace(0, 0, size, size, 3, 0, false, false, variant);
@@ -389,6 +393,90 @@ function drawJuniorCollection(present) {
     }
     ctx.restore();
   });
+}
+
+function drawJuniorRange(state, drag) {
+  const row = Math.floor((drag.y - layout.BY) / CELL), col = Math.floor((drag.x - BX) / CELL);
+  if (row < 0 || row >= ROWS) return;
+  const span = state.shape?.rows[row] ?? { left: 0, right: COLS };
+  if (col < span.left || col >= span.right) return;
+  const global = drag.variant === 3, radius = drag.variant === 2 ? 1 : 0;
+  const first = global ? 0 : Math.max(0, row - radius);
+  const last = global ? ROWS - 1 : Math.min(ROWS - 1, row + radius);
+  const bands = [];
+  for (let r = first; r <= last; r++) {
+    const span = state.shape?.rows[r] ?? { left: 0, right: COLS };
+    const wholeRow = global || drag.variant === 0;
+    const left = wholeRow ? span.left : Math.max(span.left, col - radius);
+    const right = wholeRow ? span.right : Math.min(span.right, col + radius + 1);
+    if (left >= right) continue;
+    const previous = bands.at(-1);
+    if (previous && previous.left === left && previous.right === right && previous.end === r)
+      previous.end++;
+    else bands.push({ left, right, row: r, end: r + 1 });
+  }
+  ctx.save();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 4;
+  ctx.setLineDash([10, 14]);
+  ctx.lineCap = 'round';
+  for (const band of bands) {
+    rr(BX + band.left * CELL + 2, layout.BY + band.row * CELL + 2,
+      (band.right - band.left) * CELL - 4, (band.end - band.row) * CELL - 4, BLOCK_R);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawJuniorTool(state, present) {
+  if (present.menu || state.phase !== 'play' || state.playMode !== 'totem-building') return;
+  const drag = present.drag?.kind === 'junior' ? present.drag : null;
+  const variant = drag?.variant ?? (present.hoverKey?.startsWith('junior:')
+    ? Number(present.hoverKey.split(':')[1]) : -1);
+  if (variant < 0 || !present.juniorCollection[variant]) return;
+  const paint = ADULT_LOOKS[variant];
+  if (drag) {
+    ctx.save();
+    ctx.fillStyle = paint.fill;
+    ctx.strokeStyle = paint.fill;
+    ctx.lineWidth = 4;
+    for (const b of state.blocks) if (drag.target?.blockIds.includes(b.id)) {
+      for (const face of facesOf(b)) {
+        const row = b.row + face.row;
+        let left = b.col + face.col, right = left + face.len;
+        if (variant === 2) {
+          if (Math.abs(row - drag.target.row) > 1) continue;
+          left = Math.max(left, drag.target.col - 1);
+          right = Math.min(right, drag.target.col + 2);
+          if (left >= right) continue;
+        }
+        const x = BX + left * CELL + 3;
+        const y = layout.BY + row * CELL + 3;
+        rr(x, y, (right - left) * CELL - 6, CELL - 6, 10);
+        ctx.globalAlpha = 0.25; ctx.fill();
+        ctx.globalAlpha = 1; ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = drag.target ? 1 : 0.7;
+    const size = COLLECTION_SIZE;
+    drawBuildingFace(drag.x - size / 2, drag.y - size / 2, size, size, 3, 0, false, false, variant);
+    ctx.restore();
+    // Keep the destination outline visible above the held junior.
+    drawJuniorRange(state, drag);
+    return;
+  }
+  // Explain tools on hover; keep the board clear while dragging.
+  const w = 590, h = 104;
+  const slot = juniorSlot(variant, layout.COLLECTION_Y);
+  const x = clamp(slot.x + slot.size / 2 - w / 2, 16, W - w - 16);
+  const y = clamp(slot.y - 12 - h, 12, layout.VH - h - 12);
+  ctx.save();
+  ctx.fillStyle = '#19131f'; ctx.strokeStyle = paint.fill; ctx.lineWidth = 2;
+  rr(x, y, w, h, 14); ctx.fill(); ctx.stroke();
+  text(t('juniorPower' + variant), x + w / 2, y + 23, 20, paint.fill, 'center', 800);
+  text(t('juniorDesc' + variant), x + w / 2, y + 51, 20, C.white);
+  text(t('juniorUse'), x + w / 2, y + 80, 17, '#b8a8c4');
+  ctx.restore();
 }
 
 function drawPlayerFace(state, present, warning, now) {
@@ -458,10 +546,6 @@ function drawPlayerFace(state, present, warning, now) {
   ctx.lineTo(x + w, lipY(x + w));
   ctx.strokeStyle = '#412d3a'; ctx.lineWidth = 13; ctx.stroke();
   ctx.strokeStyle = '#936676'; ctx.lineWidth = 8; ctx.stroke();
-  for (const fx of present.spawnFx) {
-    ctx.fillStyle = `rgba(255,239,203,${0.8 * (1 - fx.progress)})`;
-    ctx.fillRect(BX + fx.col * CELL, y - 4, fx.len * CELL, 4);
-  }
   if (warning !== null) {
     ctx.fillStyle = `rgba(230,85,60,${0.5 + 0.5 * warning})`;
     ctx.fillRect(x, y - 4, w, 4);
@@ -487,7 +571,7 @@ function drawBoardWell(state) {
   ctx.closePath();
   ctx.fillStyle = C.line; ctx.fill();
   // Layered, flat-color strokes preserve the soft toy-like art and shaped outline.
-  ctx.strokeStyle = '#1f1823'; ctx.lineWidth = 24; ctx.stroke();
+  ctx.strokeStyle = '#1f1823'; ctx.lineWidth = BOARD_OUTLINE_WIDTH; ctx.stroke();
   ctx.strokeStyle = '#563b49'; ctx.lineWidth = 18; ctx.stroke();
   ctx.strokeStyle = '#936676'; ctx.lineWidth = 10; ctx.stroke();
   for (let r = 0; r < ROWS; r++) {
@@ -514,7 +598,9 @@ function drawOpeningGuide(state, present, now) {
     ctx.globalAlpha = 0.7 + 0.15 * Math.sin(now / 400);
     ctx.font = `700 20px ${FONT}`;
     let y = layout.BY + 65;
-    for (const paragraph of [t('mouthIntro'), hint]) {
+    const paragraphs = [hint];
+    if (playId === 'totem-building') paragraphs.push(t('hintJuniorPowers'));
+    for (const paragraph of paragraphs) {
       let line = '';
       const tokens = paragraph.includes(' ') ? paragraph.split(/(?<= )/) : [...paragraph];
       for (const token of tokens) {
@@ -592,7 +678,6 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   lastRevision = paintRevision;
   lastMenu = present.menu;
   lastState = state;
-  const phase = present.menu || state.phase;
   const { VH, VW, OX, BY, PANEL, PREV_Y, PREV_H } = layout;
   ctx.fillStyle = C.bg;
   ctx.fillRect(-OX, 0, VW, VH);
@@ -607,17 +692,14 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
       ctx.fillRect(x + k * W - s / 2, fy * VH - s / 2 + oy, s, s);
   });
 
-  const modeCx = layout.MODE_BTN.x + layout.MODE_BTN.w / 2;
   const pauseCx = layout.PAUSE_BTN.x + layout.PAUSE_BTN.w / 2;
-  if (phase !== 'pause') drawIcon(modeIcon, modeCx,
-    layout.MODE_BTN.y + layout.MODE_BTN.h / 2, layout.MODE_BTN.h, hoverOf(present, 'icon:mode'));
   drawIcon(gearIcon, pauseCx,
     layout.PAUSE_BTN.y + layout.PAUSE_BTN.h / 2, layout.PAUSE_BTN.h, hoverOf(present, 'icon:pause'));
   const playId = state.playMode || 'standard';
   const slots = hudSlots();
-  text(t('best'), slots.bestX, slots.bestY, 22, C.muted, 'left', 700);
+  text(t('best'), slots.bestX, slots.bestY, 22, '#a493b0', 'left', 700);
   text(String(Math.max(state.best, state.score)),
-    slots.bestX, slots.bestScoreY, 24, C.muted, 'left', 800);
+    slots.bestX, slots.bestScoreY, 24, '#a493b0', 'left', 800);
   if (present.powerButton) {
     const power = layout.POWER_BTN;
     const powerOn = playId === 'totem-building' && state.phase === 'play';
@@ -639,7 +721,6 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
   }
   text(t('score'), W / 2, layout.MODE_Y, 22, '#a493b0', 'center', 700);
   drawScore(present, slots.scoreY);
-  if (playId === 'totem-building') drawJuniorCollection(present);
 
   drawBoardWell(state);
   drawOpeningGuide(state, present, now);
@@ -729,14 +810,9 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
 
   drawPlayerFace(state, present, warning, now);
   drawLevelBar(state, present);
-  // Collection flights cross the mouth and HUD without being hidden by either.
-  for (const { block, view } of present.flyingTotems)
-    drawBlock(block, view, 0, null, now, true);
 
   ctx.fillStyle = C.panel;
   rr(PANEL.x, PANEL.y, PANEL.w, PANEL.h, PANEL_R); ctx.fill();
-  ctx.strokeStyle = '#433447'; ctx.lineWidth = 2;
-  rr(PANEL.x + 1, PANEL.y + 1, PANEL.w - 2, PANEL.h - 2, PANEL_R); ctx.stroke();
   text(t('nextRow'), W / 2, PANEL.y + NEXT_BASELINE, NEXT_SIZE, C.muted, 'center', 800);
   ctx.fillStyle = C.slot;
   const bottom = state.shape?.rows[ROWS - 1] ?? { left: 0, right: COLS };
@@ -755,11 +831,17 @@ export function draw(now, state, viewOf, present, effects, modes, shapeSelection
     ctx.restore();
   }
 
+  if (playId === 'totem-building') drawJuniorCollection(present);
+  // Flights also cross the preview on their way to the collection below it.
+  for (const { block, view } of present.flyingTotems)
+    drawBlock(block, view, 0, null, now, true);
+
   // Keep feedback above the board and particles, but below modal overlays.
   if (present.scoreFx) drawScorePopup(now, present.scoreFx);
   if (present.comboFx && !present.godClearFx) drawCombo(now, present.comboFx);
   if (present.godClearFx) drawGodClear(present.godClearFx);
   if (present.levelUpFx) drawLevelUp(present.levelUpFx, !!present.godClearFx, playId === 'totem-building');
+  drawJuniorTool(state, present);
   ctx.restore();
 
   drawOverlays(now, state, present, modes, shapeSelection);

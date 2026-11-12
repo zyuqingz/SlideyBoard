@@ -3,7 +3,6 @@ import { W, COLORS, C } from './theme.js';
 import { ctx, layout, GO_RESTART } from './canvas-layout.js';
 import { rr, text, hoverOf } from './canvas-draw.js';
 import { modePopup, shapeControl } from './mode-popup.js';
-import { isModeUnlocked, modePasswordDigits } from './mode-lock.js';
 import { settingsPopup } from './settings-popup.js';
 import { getLang, t, modeLabel } from './i18n.js';
 import { isMuted } from './audio.js';
@@ -38,7 +37,7 @@ const MODE_CHROME = {
   'totem-building': { fill: '#7a4db5', ink: C.white, border: '#5a338a' }
 };
 
-function drawField(b, label, hover, fill = C.panel, ink = '#c5adc9', border = '#43374c', arrows = true) {
+function drawSelector(b, label, hover, fill = C.panel, ink = '#c5adc9', border = '#43374c') {
   const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
   const scale = 1 + 0.05 * hover;
   ctx.save();
@@ -53,23 +52,17 @@ function drawField(b, label, hover, fill = C.panel, ink = '#c5adc9', border = '#
   const size = lines.length > 1 ? 22 : label.length > 12 ? 21 : 26;
   lines.forEach((line, index) =>
     text(line, cx, cy + 1 + (index - (lines.length - 1) / 2) * 24, size, ink));
-  if (arrows) {
-    ctx.save();
-    ctx.strokeStyle = ink; ctx.lineWidth = 5;
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    for (const direction of [-1, 1]) {
-      const x = direction < 0 ? b.x + 28 : b.x + b.w - 28;
-      const y = b.y + b.h / 2;
-      ctx.beginPath(); ctx.moveTo(x - direction * 4, y - 9);
-      ctx.lineTo(x + direction * 4, y); ctx.lineTo(x - direction * 4, y + 9); ctx.stroke();
-    }
-    ctx.restore();
+  ctx.save();
+  ctx.strokeStyle = ink; ctx.lineWidth = 5;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const direction of [-1, 1]) {
+    const x = direction < 0 ? b.x + 28 : b.x + b.w - 28;
+    const y = b.y + b.h / 2;
+    ctx.beginPath(); ctx.moveTo(x - direction * 4, y - 9);
+    ctx.lineTo(x + direction * 4, y); ctx.lineTo(x - direction * 4, y + 9); ctx.stroke();
   }
   ctx.restore();
-}
-
-function drawSelector(b, label, hover, fill = C.panel, ink = '#c5adc9', border = '#43374c') {
-  drawField(b, label, hover, fill, ink, border, true);
+  ctx.restore();
 }
 
 function drawShapeControl(modes, selection, present, enabled) {
@@ -111,47 +104,39 @@ export function drawOverlays(now, state, present, modes, shapeSelection) {
     ctx.fillRect(-OX, -OY, VW, VH);
     const pop = modePopup(modes);
     drawCard(pop.card.x, pop.card.y, pop.card.w, pop.card.h);
-    if (!isModeUnlocked()) {
-      text(t('password'), W / 2, pop.passwordTitleY, 36, C.white);
-      const shown = modePasswordDigits().replace(/./g, '•');
-      drawField(pop.passwordBox, shown, hoverOf(present, 'btn:password'),
-        C.panel, '#c5adc9', '#43374c', false);
-      drawButton(pop.passwordBack, t('back'), COLORS[1], 28, hoverOf(present, 'btn:password-back'));
-    } else {
-      text(t('map'), W / 2, pop.titleY, 36, C.white);
-      const current = modes.find(mode => mode.id === state.mode) ?? modes[0];
-      const mapLocked = state.playMode === 'tetris';
-      const mapChrome = MAP_CHROME[current.id] ?? MAP_CHROME.classic;
-      drawSelector(pop.map, modeLabel(current.id, current.label),
-        mapLocked ? 0 : hoverOf(present, 'btn:map'),
-        mapLocked ? '#100d14' : mapChrome.fill,
-        mapLocked ? '#3a3144' : mapChrome.ink,
-        mapLocked ? '#241c2a' : mapChrome.border);
-      drawShapeControl(modes, shapeSelection, present, state.mode === 'shaped');
-      ctx.strokeStyle = '#43374c'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(pop.playMode.x, pop.dividerY);
-      ctx.lineTo(pop.playMode.x + pop.playMode.w, pop.dividerY); ctx.stroke();
-      const playId = state.playMode || 'standard';
-      text(t('mode'), W / 2, pop.modeTitleY, 36, C.white);
-      const modeChrome = MODE_CHROME[playId] ?? MODE_CHROME.standard;
-      drawSelector(pop.playMode, t(playId), hoverOf(present, 'btn:play-mode'),
-        modeChrome.fill, modeChrome.ink, modeChrome.border);
-      const building = playId === 'totem-building';
-      text(t('buildingRules'), pop.buildingMode.x, pop.buildingMode.y - 14, 16, C.muted, 'left');
-      drawSelector(pop.buildingMode, t(state.buildingMode === 2 ? 'buildingMode2' : 'buildingMode1'),
-        building ? hoverOf(present, 'btn:building-mode') : 0,
-        building ? C.panel : '#100d14', building ? '#c5adc9' : '#3a3144');
-      const normal = state.difficulty === 'normal';
-      text(t('difficulty'), pop.difficulty.x, pop.difficulty.y - 14, 16, C.muted, 'left');
-      drawSelector(pop.difficulty, t(normal ? 'normal' : 'easy'), hoverOf(present, 'btn:difficulty'));
-      text(t('powerButton'), pop.powerButton.x, pop.powerButton.y - 14, 16, C.muted, 'left');
-      drawSelector(pop.powerButton, t(present.powerButton ? 'on' : 'off'),
-        hoverOf(present, 'btn:power-toggle'),
-        present.powerButton ? '#7a4db5' : C.panel,
-        present.powerButton ? C.white : '#c5adc9',
-        present.powerButton ? '#5a338a' : '#43374c');
-      drawButton(pop.resume, t('resume'), COLORS[1], 28, hoverOf(present, 'btn:mode-resume'));
-    }
+    text(t('map'), W / 2, pop.titleY, 36, C.white);
+    const current = modes.find(mode => mode.id === state.mode) ?? modes[0];
+    const mapLocked = state.playMode === 'tetris';
+    const mapChrome = MAP_CHROME[current.id] ?? MAP_CHROME.classic;
+    drawSelector(pop.map, modeLabel(current.id, current.label),
+      mapLocked ? 0 : hoverOf(present, 'btn:map'),
+      mapLocked ? '#100d14' : mapChrome.fill,
+      mapLocked ? '#3a3144' : mapChrome.ink,
+      mapLocked ? '#241c2a' : mapChrome.border);
+    drawShapeControl(modes, shapeSelection, present, state.mode === 'shaped');
+    ctx.strokeStyle = '#43374c'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(pop.playMode.x, pop.dividerY);
+    ctx.lineTo(pop.playMode.x + pop.playMode.w, pop.dividerY); ctx.stroke();
+    const playId = state.playMode || 'standard';
+    text(t('mode'), W / 2, pop.modeTitleY, 36, C.white);
+    const modeChrome = MODE_CHROME[playId] ?? MODE_CHROME.standard;
+    drawSelector(pop.playMode, t(playId), hoverOf(present, 'btn:play-mode'),
+      modeChrome.fill, modeChrome.ink, modeChrome.border);
+    const building = playId === 'totem-building';
+    text(t('buildingRules'), pop.buildingMode.x, pop.buildingMode.y - 14, 16, C.muted, 'left');
+    drawSelector(pop.buildingMode, t(state.buildingMode === 2 ? 'buildingMode2' : 'buildingMode1'),
+      building ? hoverOf(present, 'btn:building-mode') : 0,
+      building ? C.panel : '#100d14', building ? '#c5adc9' : '#3a3144');
+    const normal = state.difficulty === 'normal';
+    text(t('difficulty'), pop.difficulty.x, pop.difficulty.y - 14, 16, C.muted, 'left');
+    drawSelector(pop.difficulty, t(normal ? 'normal' : 'easy'), hoverOf(present, 'btn:difficulty'));
+    text(t('powerButton'), pop.powerButton.x, pop.powerButton.y - 14, 16, C.muted, 'left');
+    drawSelector(pop.powerButton, t(present.powerButton ? 'on' : 'off'),
+      hoverOf(present, 'btn:power-toggle'),
+      present.powerButton ? '#7a4db5' : C.panel,
+      present.powerButton ? C.white : '#c5adc9',
+      present.powerButton ? '#5a338a' : '#43374c');
+    drawButton(pop.resume, t('resume'), COLORS[1], 28, hoverOf(present, 'btn:mode-resume'));
   }
   if (phase === 'over') {
     ctx.save();

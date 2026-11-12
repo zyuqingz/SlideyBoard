@@ -4,14 +4,12 @@ import { bindInput } from '../js/input.js';
 import { bindCanvas, layout } from '../js/canvas-layout.js';
 import { createPresenter } from '../js/presenter.js';
 import { createState } from '../js/sim.js';
-import { BX, CELL, W, H } from '../js/theme.js';
-import { passwordBoxControl, passwordBackControl, buildingModeControl } from '../js/mode-popup.js';
-import { MODE_PASSWORD, isModeUnlocked, modePasswordDigits, lockModeUi, setModePasswordDigits } from '../js/mode-lock.js';
+import { BX, CELL, W, H, juniorSlot } from '../js/theme.js';
+import { modeResume, buildingModeControl } from '../js/mode-popup.js';
 
 class Target {
   listeners = new Map();
   style = {};
-  value = '';
   addEventListener(type, fn) {
     if (!this.listeners.has(type)) this.listeners.set(type, []);
     this.listeners.get(type).push(fn);
@@ -19,9 +17,6 @@ class Target {
   emit(type, fields = {}) {
     for (const fn of this.listeners.get(type) ?? []) fn({ preventDefault() {}, ...fields });
   }
-  setAttribute() {}
-  focus() { document.activeElement = this; }
-  blur() { if (document.activeElement === this) document.activeElement = null; }
 }
 
 function setupBrowser(t) {
@@ -64,7 +59,61 @@ test('monster tracks mouse and primary touch input, retaining the last touch loc
   assert.deepEqual(presenter.present.monster.target, { x: 300, y: 500 });
 });
 
-test('Building rules toggle is clickable only in Totem Building after unlocking', t => {
+test('Junior tools hover, hold, target the board, and only activate on a valid release', t => {
+  const { canvas, window, document } = setupBrowser(t);
+  const presenter = createPresenter({ sfx: () => {} });
+  presenter.reset({ ...createState(0, 'easy', 'totem-building'), juniorCollection: [2, 0, 0, 0] });
+  const uses = [];
+  bindInput(canvas, { presenter, modes: [], sfx: () => {},
+    juniorTarget: (variant, row, col) => row === 9 && col === 3 ? { row, col, blockIds: [1] } : null,
+    useJunior: (...args) => uses.push(args) });
+  const slot = juniorSlot(0, layout.COLLECTION_Y);
+  const event = { button: 0, buttons: 1, isPrimary: true, pointerId: 1,
+    pointerType: 'mouse', clientX: slot.x + slot.size / 2, clientY: slot.y + slot.size / 2 };
+  // The pointer is in row 10 while the lifted junior's center is in row 9.
+  const target = { ...event, clientX: BX + CELL * 3.5, clientY: layout.BY + CELL * 10.1 };
+  canvas.emit('pointermove', event);
+  assert.equal(presenter.present.hoverKey, 'junior:0');
+  assert.equal(canvas.style.cursor, 'grab');
+  canvas.emit('pointerdown', event);
+  assert.equal(presenter.present.drag.kind, 'junior', 'holding displays the power before movement');
+  canvas.emit('pointerup', event);
+  assert.deepEqual(uses, [], 'a click cannot spend a tool');
+  canvas.emit('pointerdown', event);
+  canvas.emit('pointermove', target);
+  assert.deepEqual(presenter.present.drag.target, { row: 9, col: 3, blockIds: [1] });
+  assert.equal(Math.floor((presenter.present.drag.y - layout.BY) / CELL), 9);
+  canvas.emit('pointerup', { ...target, pointerId: 2 });
+  assert.deepEqual(uses, [], 'other contacts cannot release the tool');
+  canvas.emit('pointerup', target);
+  assert.deepEqual(uses, [[0, 9, 3]]);
+  uses.length = 0;
+  canvas.emit('pointerdown', event);
+  canvas.emit('pointermove', target);
+  canvas.emit('pointerup', { ...target, clientY: layout.BY + CELL * 9.1 });
+  assert.deepEqual(uses, [], 'release resamples the junior center, even when the pointer is on a valid row');
+  for (const cancel of ['pointercancel', 'lostpointercapture', 'blur', 'resize', 'visibilitychange', 'Escape']) {
+    canvas.emit('pointerdown', { ...event, pointerType: 'touch' });
+    canvas.emit('pointermove', { ...target, pointerType: 'touch' });
+    if (cancel === 'blur' || cancel === 'resize') window.emit(cancel);
+    else if (cancel === 'visibilitychange') { document.hidden = true; document.emit(cancel); }
+    else if (cancel === 'Escape') window.emit('keydown', { key: 'Escape' });
+    else canvas.emit(cancel, { pointerId: 1 });
+    canvas.emit('pointerup', { ...target, pointerType: 'touch' });
+    assert.equal(presenter.present.drag, null);
+    assert.deepEqual(uses, [], `${cancel} does not activate`);
+  }
+  presenter.present.menu = null;
+  canvas.emit('pointerdown', event);
+  canvas.emit('pointermove', target);
+  canvas.emit('pointerup', { ...event, clientX: -20 });
+  assert.deepEqual(uses, [], 'release outside cancels even after previewing a valid target');
+  const empty = juniorSlot(1, layout.COLLECTION_Y);
+  canvas.emit('pointerdown', { ...event, clientX: empty.x + 10 });
+  assert.equal(presenter.present.drag, null, 'empty slots cannot be picked up');
+});
+
+test('Building rules toggle is immediately clickable only in Totem Building', t => {
   const { canvas } = setupBrowser(t);
   const presenter = createPresenter({ sfx: () => {} });
   let toggles = 0;
@@ -72,13 +121,7 @@ test('Building rules toggle is clickable only in Totem Building after unlocking'
   const control = buildingModeControl([]);
   const click = () => canvas.emit('pointerdown', { button: 0, isPrimary: true,
     clientX: control.x + control.w / 2, clientY: layout.OY + control.y + control.h / 2 });
-  lockModeUi();
-  t.after(lockModeUi);
   presenter.reset(createState(0, 'easy', 'totem-building'));
-  presenter.present.menu = 'mode';
-  click();
-  assert.equal(toggles, 0);
-  setModePasswordDigits(MODE_PASSWORD);
   presenter.present.menu = 'mode';
   click();
   assert.equal(toggles, 1);
@@ -244,75 +287,86 @@ test('mouse movement recovers a missed release after capture failure or loss', a
   }
 });
 
-function setupPassword(t) {
+function setupScoreTaps(t) {
   const browser = setupBrowser(t);
-  lockModeUi();
-  t.after(lockModeUi);
   const presenter = createPresenter({ sfx: () => {} });
   presenter.reset(createState());
-  bindInput(browser.canvas, { presenter, modes: [] });
-  const pin = browser.elements.at(-1);
+  bindInput(browser.canvas, { presenter, modes: [], sfx: () => {} });
   const click = (box, overlay = false) => browser.canvas.emit('pointerdown', {
     button: 0, isPrimary: true, pointerId: 1,
     clientX: box.x + box.w / 2,
     clientY: box.y + box.h / 2 + (overlay ? layout.OY : 0)
   });
-  const enter = value => { pin.value = value; pin.emit('input'); };
-  const open = () => click(layout.MODE_BTN);
-  open();
-  return { ...browser, presenter, pin, click, enter, open };
+  const event = { button: 0, isPrimary: true, pointerId: 1, pointerType: 'touch',
+    clientX: W / 2, clientY: layout.SCORE_Y };
+  const tap = (fields = {}) => {
+    browser.canvas.emit('pointerdown', { ...event, ...fields });
+    browser.canvas.emit('pointerup', { ...event, ...fields });
+  };
+  return { ...browser, presenter, click, event, tap };
 }
 
-test('password menu exits clear and blur input without opening another menu', t => {
-  const { window, document, presenter, pin, click, enter, open } = setupPassword(t);
-  for (const exit of ['Escape', 'p', 'Back']) {
-    enter('67');
-    if (exit === 'Back') click(passwordBackControl([]), true);
+test('three score taps open mode controls directly and every reopening needs three taps', t => {
+  const { window, elements, presenter, click, tap } = setupScoreTaps(t);
+  assert.equal(elements.length, 1, 'input binding adds no hidden form fields');
+  for (const exit of ['Escape', 'p', 'Resume']) {
+    tap();
+    tap();
+    assert.equal(presenter.present.menu, null);
+    tap();
+    assert.equal(presenter.present.menu, 'mode');
+    if (exit === 'Resume') click(modeResume([]), true);
     else window.emit('keydown', { key: exit });
     assert.equal(presenter.present.menu, null, `${exit} closes the menu once`);
-    assert.notEqual(document.activeElement, pin);
-    assert.equal(pin.value, '');
-    assert.equal(modePasswordDigits(), '');
-    enter(MODE_PASSWORD);
-    assert.equal(isModeUnlocked(), false, 'late input outside the password screen is ignored');
-    assert.equal(pin.value, '');
-    open();
-    assert.equal(document.activeElement, pin);
-    assert.equal(modePasswordDigits(), '');
+  }
+  tap({ pointerType: 'mouse' });
+  tap({ pointerType: 'mouse' });
+  tap({ pointerType: 'mouse' });
+  assert.equal(presenter.present.menu, 'mode', 'desktop clicks also work');
+});
+
+test('score tap sequence expires and resets on unrelated input or interrupted gestures', t => {
+  const { canvas, window, document, presenter, tap, event } = setupScoreTaps(t);
+  let now = 1000;
+  t.mock.method(Date, 'now', () => now);
+  for (const interruption of ['timeout', 'outside', 'move', 'hold', 'pointercancel', 'blur', 'resize', 'hidden']) {
+    tap();
+    tap();
+    if (interruption === 'timeout') now += 601;
+    else if (interruption === 'outside') tap({ clientX: 5, clientY: 5 });
+    else if (interruption === 'blur' || interruption === 'resize') window.emit(interruption);
+    else if (interruption === 'hidden') { document.hidden = true; document.emit('visibilitychange'); }
+    else {
+      canvas.emit('pointerdown', event);
+      if (interruption === 'move') canvas.emit('pointermove', { ...event, clientX: event.clientX + 30 });
+      else if (interruption === 'hold') now += 601;
+      else canvas.emit('pointercancel', event);
+      canvas.emit('pointerup', event);
+    }
+    tap();
+    tap();
+    assert.equal(presenter.present.menu, null, `${interruption} resets the sequence`);
+    tap();
+    assert.equal(presenter.present.menu, 'mode');
+    window.emit('keydown', { key: 'Escape' });
   }
 });
 
-test('refocusing the password field preserves partial entry and unlocks on completion', t => {
-  const { document, presenter, pin, click, enter } = setupPassword(t);
-  enter('67');
-  pin.blur();
-  click(passwordBoxControl([]), true);
-  assert.equal(document.activeElement, pin);
-  assert.equal(pin.value, '67');
-  assert.equal(modePasswordDigits(), '67');
-  enter(pin.value + '67');
-  assert.equal(isModeUnlocked(), true);
+test('score access ignores secondary contacts and cannot bypass other overlays', t => {
+  const { canvas, presenter, tap, event } = setupScoreTaps(t);
+  tap();
+  tap();
+  tap({ isPrimary: false, pointerId: 2 });
+  canvas.emit('pointerup', { ...event, pointerId: 2 });
+  assert.equal(presenter.present.menu, null);
+  tap();
   assert.equal(presenter.present.menu, 'mode');
-  assert.equal(pin.value, '');
-  assert.equal(modePasswordDigits(), '');
-  assert.notEqual(document.activeElement, pin);
-  enter('12');
-  assert.equal(modePasswordDigits(), '', 'late input after unlocking is ignored');
-});
-
-test('password input normalizes non-digits and allows retry after an incorrect code', t => {
-  const { document, pin, enter } = setupPassword(t);
-  assert.equal(pin.maxLength, MODE_PASSWORD.length);
-  enter('0000');
-  assert.equal(isModeUnlocked(), false);
-  assert.equal(pin.value, '');
-  assert.equal(modePasswordDigits(), '');
-  assert.equal(document.activeElement, pin, 'incorrect entry stays focused for retry');
-  enter('6a76');
-  assert.equal(pin.value, '676', 'non-digits do not consume the remaining input capacity');
-  assert.equal(modePasswordDigits(), '676');
-  enter(pin.value + '7');
-  assert.equal(isModeUnlocked(), true);
+  presenter.present.menu = 'pause';
+  for (let i = 0; i < 3; i++) tap();
+  assert.equal(presenter.present.menu, 'pause');
+  presenter.reset({ ...createState(), phase: 'over' });
+  for (let i = 0; i < 3; i++) tap();
+  assert.equal(presenter.present.menu, null);
 });
 
 test('buttons play click foley and dragging plays scrape foley', async t => {

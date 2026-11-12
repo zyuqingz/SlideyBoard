@@ -74,8 +74,8 @@ export const isBuildingMode2 = state => isBuilding(state) && state.buildingMode 
 export const normalizeBuildingMode = mode => mode === 2 ? 2 : 1;
 
 // Score targets grow with the level, matching the level multiplier on awards.
-// Level L costs BUILDING_SCORE_PER_LEVEL * L (1000, 2000, 3000, …).
-export const BUILDING_SCORE_PER_LEVEL = 1000;
+// Level L costs BUILDING_SCORE_PER_LEVEL * L (2000, 4000, 6000, …).
+export const BUILDING_SCORE_PER_LEVEL = 2000;
 export function buildingScoreProgress(score) {
   const points = Math.max(0, score);
   const level = Math.floor((1 + Math.sqrt(1 + points / (BUILDING_SCORE_PER_LEVEL / 8))) / 2);

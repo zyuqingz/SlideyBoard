@@ -2,6 +2,7 @@
 import { COLS, insertRow, settleBoard } from './board.js';
 import { generateRowCandidate, generateNextRow } from './spawn.js';
 import { normalizeDifficulty } from './difficulty.js';
+import { JUNIOR_COUNT } from './junior-powers.js';
 import {
   resolvePlayMode, tetrisDropInterval, isBuilding, isBuildingMode2, normalizeBuildingMode, buildingScoreProgress,
   levelForBuildingLines, buildingLevelProgress, classicProgressFromLines
@@ -19,6 +20,7 @@ export function createState(best = 0, difficulty = 'easy', playMode = 'standard'
     tetrisDropIn: playMode === 'tetris' ? tetrisDropInterval(1) : 0,
     difficulty: normalizeDifficulty(difficulty),
     blocks: [],
+    juniorCollection: Array(JUNIOR_COUNT).fill(0),
     nextRow: [],
     score: 0,
     best,

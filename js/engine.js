@@ -2,6 +2,7 @@
 import { createState } from './sim.js';
 import { GAME_MODES } from './modes.js';
 import { resolvePlayMode, normalizeBuildingMode } from './play-mode.js';
+import { juniorTarget } from './junior-powers.js';
 
 /**
  * A mode supplies { id, label, reset(state, random, options, emit), moveRange(state, block),
@@ -58,6 +59,21 @@ export function createEngine({ best = 0, random = Math.random, modes = GAME_MODE
 
   function dispatch(command) {
     const reject = reason => ({ accepted: false, reason, events: [], state: snapshot() });
+    if (command?.type === 'use-junior') {
+      if (state.phase !== 'play') return reject('game-over');
+      if (state.playMode !== 'totem-building') return reject('wrong-mode');
+      const { variant, row, col } = command;
+      if (!Number.isInteger(variant) || !(state.juniorCollection[variant] > 0))
+        return reject('unavailable-junior');
+      const target = juniorTarget(state, variant, row, col);
+      if (!target) return reject('invalid-target');
+      const events = [];
+      const emit = (type, data = {}) => events.push(structuredClone({ type, ...data, state }));
+      state.hasMoved = true;
+      mode.resolveTurn(state, random, emit, { juniorPower: { variant, target } });
+      emit('turn-complete');
+      return { accepted: true, events, state: snapshot() };
+    }
     if (command?.type === 'power-mode') {
       if (state.phase !== 'play') return reject('game-over');
       if (state.playMode !== 'totem-building') return reject('wrong-mode');
@@ -89,6 +105,8 @@ export function createEngine({ best = 0, random = Math.random, modes = GAME_MODE
 
   reset(modeId);
   return Object.freeze({ snapshot, reset, moveRange, dispatch,
+    juniorTarget: (variant, row, col) => state.phase === 'play' && state.playMode === 'totem-building'
+      ? juniorTarget(state, variant, row, col) : null,
     opening: () => structuredClone({ accepted: openingEvents.length > 0, events: openingEvents }),
     modes: Object.freeze(modes.map(({ id, label }) => Object.freeze({ id, label }))) });
 }

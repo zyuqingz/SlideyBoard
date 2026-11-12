@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { bindCanvas, layout } from '../js/canvas-layout.js';
 import { createPresenter } from '../js/presenter.js';
 import { createState } from '../js/sim.js';
+import { COLS, ROWS } from '../js/board.js';
 import { W, H, BX, BW, CELL, PAD, COLLECTION_SIZE, LEVEL_BAR_H } from '../js/theme.js';
 
 test('collection and row-score rendering', async t => {
@@ -22,7 +23,8 @@ test('collection and row-score rendering', async t => {
   });
 
   let pose = { x: 0, y: 0, sx: 1, sy: 1, globalAlpha: 1 };
-  const stack = [], labels = [], scores = [], hudLabels = [], fills = [];
+  const stack = [], labels = [], scores = [], hudLabels = [], fills = [], ranges = [];
+  let path = [];
   const ctx = new Proxy({
     save() { stack.push({ ...pose }); },
     restore() { pose = stack.pop(); },
@@ -30,6 +32,16 @@ test('collection and row-score rendering', async t => {
     scale(x, y) { pose.sx *= x; pose.sy *= y; },
     measureText: () => ({ width: 40 }),
     createRadialGradient: () => ({ addColorStop() {} }),
+    beginPath() { path = []; },
+    moveTo(x, y) { path.push([x, y]); },
+    arcTo(x1, y1, x2, y2) { path.push([x1, y1], [x2, y2]); },
+    setLineDash(dash) { pose.dash = dash; },
+    stroke() {
+      if (!pose.dash?.length || !path.length) return;
+      ranges.push({ left: Math.min(...path.map(p => p[0])), top: Math.min(...path.map(p => p[1])),
+        right: Math.max(...path.map(p => p[0])), bottom: Math.max(...path.map(p => p[1])),
+        dash: pose.dash, color: this.strokeStyle, width: this.lineWidth });
+    },
     fillRect(x, y, w, h) { fills.push({ x, y, w, h }); },
     fillText(label, x, y) {
       hudLabels.push({ label, x: pose.x + x * pose.sx, y: pose.y + y * pose.sy,
@@ -84,8 +96,13 @@ test('collection and row-score rendering', async t => {
     assert.equal(bar.x + bar.w, BX + BW, 'label and bar fill the board width');
     assert.equal(label.color, '#d6c7df');
     assert.ok(bar.h < 28, 'progress bar remains thin');
+    assert.ok(bar.y >= layout.PAUSE_BTN.y + layout.PAUSE_BTN.h + 16,
+      'progress bar clears the top-right buttons');
+    assert.equal(layout.PREV_H, CELL / 2, 'preview tiles keep their original dimensions');
+    assert.ok(layout.PANEL.h < 75, 'preview panel trims padding rather than scaling tiles');
     assert.equal(COLLECTION_SIZE, CELL - 2 * PAD);
-    assert.ok(layout.COLLECTION_Y + COLLECTION_SIZE * 1.22 < bar.y, 'bouncing collection row clears the progress bar');
+    assert.ok(layout.COLLECTION_Y > layout.PREV_Y + layout.PREV_H, 'collection is below the preview');
+    assert.ok(layout.COLLECTION_Y + COLLECTION_SIZE * 1.11 < layout.VH, 'bouncing collection fits the viewport');
 
     presenter.present.juniorCollection = [1, 0, 12, 2];
     hudLabels.length = 0;
@@ -106,5 +123,53 @@ test('collection and row-score rendering', async t => {
       assert.equal(label.y, origin.y);
       assert.equal(label.globalAlpha, 1);
     }
+  });
+  await t.test('tooltips explain hovered juniors and hide during dragging and in menus', () => {
+    presenter.present.juniorCollection = [1, 1, 1, 1];
+    for (let variant = 0; variant < 4; variant++) {
+      presenter.present.hoverKey = 'junior:' + variant;
+      hudLabels.length = 0;
+      draw(1000, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
+      assert.ok(hudLabels.some(item => item.label.includes('One use each')));
+    }
+    presenter.present.hoverKey = null;
+    presenter.present.drag = { kind: 'junior', variant: 1, x: 300, y: 600,
+      target: { row: 4, col: 3, blockIds: [] } };
+    hudLabels.length = 0;
+    draw(1000, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
+    assert.ok(!hudLabels.some(item => item.label === 'SPROUT · GROWTH'));
+    assert.ok(!hudLabels.some(item => item.label.includes('Release to use')));
+    presenter.present.drag = null;
+    presenter.present.hoverKey = 'junior:1';
+    presenter.present.menu = 'pause';
+    hudLabels.length = 0;
+    draw(1000, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
+    assert.ok(!hudLabels.some(item => item.label === 'SPROUT · GROWTH'));
+  });
+  await t.test('junior drag outlines show each tool range, including empty targets and board edges', () => {
+    presenter.reset({ ...createState(0, 'easy', 'totem-building'), blocks: [], nextRow: [],
+      juniorCollection: [1, 1, 1, 1] });
+    const preview = (variant, row, col) => {
+      presenter.present.drag = { kind: 'junior', variant,
+        x: BX + (col + 0.5) * CELL, y: layout.BY + (row + 0.5) * CELL, target: null };
+      ranges.length = 0;
+      draw(1000, presenter.state, presenter.viewOf, presenter.present, presenter.effects, []);
+      return [...ranges];
+    };
+    const bounds = (left, top, right, bottom) => ({
+      left: BX + left * CELL + 2, top: layout.BY + top * CELL + 2,
+      right: BX + right * CELL - 2, bottom: layout.BY + bottom * CELL - 2,
+      dash: [10, 14], color: '#ffffff', width: 4
+    });
+    assert.deepEqual(preview(0, 5, 3), [bounds(0, 5, COLS, 6)], 'crown covers the row');
+    assert.deepEqual(preview(1, 5, 3), [bounds(3, 5, 4, 6)], 'sprout marks the target cell');
+    assert.deepEqual(preview(2, 5, 3), [bounds(2, 4, 5, 7)], 'horns cover a 3 × 3 area');
+    assert.deepEqual(preview(3, 5, 3), [bounds(0, 0, COLS, ROWS)], 'bow covers the board');
+    assert.deepEqual(preview(2, 0, 0), [bounds(0, 0, 2, 2)], 'blast range stops at board edges');
+    assert.deepEqual(preview(0, -1, 3), [], 'outside the board has no range');
+    presenter.state.shape = { rows: Array.from({ length: ROWS }, () => ({ left: 2, right: 6 })) };
+    assert.deepEqual(preview(2, 5, 2), [bounds(2, 4, 4, 7)], 'range respects shaped-board edges');
+    assert.deepEqual(preview(3, 5, 2), [bounds(2, 0, 6, ROWS)], 'bow respects shaped-board edges');
+    assert.deepEqual(preview(0, 5, 1), [], 'shape cutouts have no range');
   });
 });

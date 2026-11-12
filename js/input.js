@@ -1,19 +1,18 @@
 // Browser gestures become grid-space commands. Only presentation data is edited.
 import { COLS, ROWS } from './board.js';
 import { cellsOf } from './block-geometry.js';
-import { CELL, BX } from './theme.js';
+import { CELL, BX, ADULT_LOOKS, JUNIOR_DRAG_LIFT, juniorSlot } from './theme.js';
 import { createDrag, followDrag } from './drag.js';
 import { layout, toLogical, toOverlay, hit, GO_RESTART, invalidateCanvas } from './canvas-layout.js';
 import { mapControl, modeResume, shapeControl, difficultyControl, playModeControl,
-  powerButtonControl, buildingModeControl, passwordBoxControl, passwordBackControl } from './mode-popup.js';
-import { MODE_PASSWORD, isModeUnlocked, modePasswordDigits,
-  setModePasswordDigits, resetModePassword } from './mode-lock.js';
+  powerButtonControl, buildingModeControl } from './mode-popup.js';
 import { settingsPopup } from './settings-popup.js';
 import { setLang } from './i18n.js';
 import { unlockAudio, isMuted, setMuted, playSfx } from './audio.js';
 
 export function bindInput(canvas, { presenter, modes, moveRange, slide, restart, shapeSelection,
   toggleDifficulty, cyclePlayMode, cycleMap, cycleShape, togglePowerButton, triggerPowerMode, toggleBuildingMode,
+  juniorTarget, useJunior,
   sfx = playSfx }) {
   const { present, viewOf } = presenter;
   const click = () => sfx('click');
@@ -32,44 +31,17 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     invalidateCanvas();
   }, options);
 
-  const pinInput = document.createElement('input');
-  pinInput.type = 'tel';
-  pinInput.inputMode = 'numeric';
-  pinInput.autocomplete = 'off';
-  pinInput.maxLength = MODE_PASSWORD.length;
-  pinInput.setAttribute('aria-label', 'password');
-  Object.assign(pinInput.style, {
-    position: 'fixed', left: '0', top: '0', width: '1px', height: '1px',
-    opacity: '0', border: '0', padding: '0', margin: '0', pointerEvents: 'none'
-  });
-  document.body.appendChild(pinInput);
-
-  function syncPinField() {
-    if (present.menu === 'mode' && !isModeUnlocked()) {
-      pinInput.value = modePasswordDigits();
-      pinInput.focus({ preventScroll: true });
-    } else {
-      pinInput.blur();
-      pinInput.value = '';
-    }
+  const SCORE_TAP_MS = 600;
+  let scoreTap = null, scoreTaps = 0, lastScoreTap = 0;
+  function resetScoreTaps() {
+    scoreTap = null;
+    scoreTaps = 0;
+    lastScoreTap = 0;
   }
 
   function closeMenu() {
     present.menu = null;
-    resetModePassword();
-    syncPinField();
-  }
-
-  function applyPinValue(value) {
-    if (present.menu !== 'mode' || isModeUnlocked()) {
-      syncPinField();
-      return;
-    }
-    const result = setModePasswordDigits(value);
-    pinInput.value = modePasswordDigits();
-    if (result === true) {
-      pinInput.blur();
-    }
+    resetScoreTaps();
   }
 
   function hoverTarget(e) {
@@ -84,11 +56,6 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
       return null;
     }
     if (present.menu === 'mode') {
-      if (!isModeUnlocked()) {
-        if (hit(passwordBoxControl(modes), op)) return 'btn:password';
-        if (hit(passwordBackControl(modes), op)) return 'btn:password-back';
-        return null;
-      }
       if (hit(difficultyControl(modes), op)) return 'btn:difficulty';
       if (hit(powerButtonControl(modes), op)) return 'btn:power-toggle';
       if (hit(playModeControl(modes), op)) return 'btn:play-mode';
@@ -105,9 +72,10 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
       if (present.overlayA > 0.5 && hit(GO_RESTART, op)) return 'btn:go-restart';
       return null;
     }
-    if (hit(layout.MODE_BTN, p)) return 'icon:mode';
     if (hit(layout.PAUSE_BTN, p)) return 'icon:pause';
     if (present.powerButton && hit(layout.POWER_BTN, p)) return 'btn:power';
+    const variant = juniorAt(p);
+    if (variant >= 0) return 'junior:' + variant;
     if (presenter.busy) return null;
     const b = blockAt(p);
     return b ? 'block:' + b.id : null;
@@ -117,7 +85,8 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     present.hoverKey = e ? hoverTarget(e) : null;
     const key = present.hoverKey;
     if (!present.drag) {
-      canvas.style.cursor = key?.startsWith('block:') ? 'grab' : key ? 'pointer' : 'default';
+      canvas.style.cursor = key?.startsWith('block:') || key?.startsWith('junior:')
+        ? 'grab' : key ? 'pointer' : 'default';
     }
   }
 
@@ -141,12 +110,21 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     });
   }
 
+  function juniorAt(p) {
+    if (presenter.state.playMode !== 'totem-building') return -1;
+    return ADULT_LOOKS.findIndex((_, variant) => {
+      const { x, y, size } = juniorSlot(variant, layout.COLLECTION_Y);
+      return present.juniorCollection[variant] > 0 && hit({ x, y, w: size, h: size }, p);
+    });
+  }
+
   function releasePointer(drag) {
     try { canvas.releasePointerCapture(drag.id); } catch {}
     canvas.style.cursor = 'default';
   }
 
   function cancelDrag() {
+    resetScoreTaps();
     const drag = present.drag;
     if (!drag) return;
     present.drag = null;
@@ -159,6 +137,14 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
   function moveDrag(e) {
     const drag = present.drag;
     if (!drag || e.pointerId !== drag.id) return;
+    if (drag.kind === 'junior') {
+      const p = toLogical(e);
+      drag.x = p.x;
+      drag.y = p.y - JUNIOR_DRAG_LIFT;
+      drag.target = juniorTarget?.(drag.variant,
+        Math.floor((drag.y - layout.BY) / CELL), Math.floor((drag.x - BX) / CELL)) ?? null;
+      return;
+    }
     const b = presenter.state.blocks.find(b => b.id === drag.blockId);
     if (!b) { cancelDrag(); return; }
     const p = toLogical(e);
@@ -182,6 +168,12 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     e.preventDefault();
     unlockAudio();
     const p = toLogical(e), op = toOverlay(p);
+    if (!present.menu && presenter.state.phase !== 'over' && hit(layout.SCORE_TEXT, p)) {
+      if (Date.now() - lastScoreTap > SCORE_TAP_MS) scoreTaps = 0;
+      scoreTap = { id: e.pointerId, x: p.x, y: p.y, at: Date.now() };
+      return;
+    }
+    resetScoreTaps();
     if (present.menu === 'pause') {
       const pop = settingsPopup();
       if (hit(pop.resume, op)) { click(); closeMenu(); }
@@ -195,18 +187,6 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
       return;
     }
     if (present.menu === 'mode') {
-      if (!isModeUnlocked()) {
-        if (hit(passwordBackControl(modes), op)) {
-          click();
-          closeMenu();
-          return;
-        }
-        if (hit(passwordBoxControl(modes), op)) {
-          click();
-          syncPinField();
-        }
-        return;
-      }
       if (hit(playModeControl(modes), op)) {
         click();
         cyclePlayMode();
@@ -246,13 +226,6 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
       if (present.overlayA > 0.5 && hit(GO_RESTART, op)) { click(); restart(); }
       return;
     }
-    if (hit(layout.MODE_BTN, p)) {
-      click();
-      present.menu = 'mode';
-      cancelDrag();
-      syncPinField();
-      return;
-    }
     if (hit(layout.PAUSE_BTN, p)) {
       click();
       present.menu = 'pause';
@@ -266,6 +239,15 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
       return;
     }
     if (presenter.busy) return;
+    const variant = juniorAt(p);
+    if (variant >= 0) {
+      present.hoverKey = null;
+      present.drag = { kind: 'junior', variant, id: e.pointerId,
+        pointerType: e.pointerType, x: p.x, y: p.y - JUNIOR_DRAG_LIFT, target: null };
+      canvas.style.cursor = 'grabbing';
+      try { canvas.setPointerCapture(e.pointerId); } catch {}
+      return;
+    }
     const b = blockAt(p);
     if (!b) return;
     const range = moveRange(b.id);
@@ -282,6 +264,10 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
 
   on(canvas, 'pointermove', e => {
     lookAt(e);
+    if (scoreTap?.id === e.pointerId) {
+      const p = toLogical(e);
+      if (Math.hypot(p.x - scoreTap.x, p.y - scoreTap.y) > 12) resetScoreTaps();
+    }
     if (!present.drag) {
       setHover(e.pointerType === 'touch' ? null : e);
       return;
@@ -297,11 +283,35 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
     lookAt(e);
     // Touch browsers may grant audio activation only on release.
     unlockAudio();
+    if (scoreTap?.id === e.pointerId) {
+      const p = toLogical(e), now = Date.now();
+      const valid = !present.menu && presenter.state.phase !== 'over'
+        && hit(layout.SCORE_TEXT, p) && now - scoreTap.at <= SCORE_TAP_MS
+        && Math.hypot(p.x - scoreTap.x, p.y - scoreTap.y) <= 12;
+      scoreTap = null;
+      if (!valid) { resetScoreTaps(); return; }
+      scoreTaps = now - lastScoreTap <= SCORE_TAP_MS ? scoreTaps + 1 : 1;
+      lastScoreTap = now;
+      if (scoreTaps === 3) {
+        resetScoreTaps();
+        click();
+        present.menu = 'mode';
+        present.hoverKey = null;
+        canvas.style.cursor = 'default';
+      }
+      return;
+    }
     const drag = present.drag;
     if (!drag || e.pointerId !== drag.id) return;
     moveDrag(e);
     present.drag = null;
     releasePointer(drag);
+    if (drag.kind === 'junior') {
+      if (drag.target && !present.menu && !presenter.busy)
+        useJunior?.(drag.variant, drag.target.row, drag.target.col);
+      setHover(e.pointerType === 'touch' ? null : e);
+      return;
+    }
     const b = presenter.state.blocks.find(b => b.id === drag.blockId);
     if (!b) return;
     setHover(e.pointerType === 'touch' ? null : e);
@@ -331,6 +341,7 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
   });
 
   on(canvas, 'pointercancel', e => {
+    if (scoreTap?.id === e.pointerId) resetScoreTaps();
     if (present.drag?.id === e.pointerId) cancelDrag();
   });
   on(canvas, 'lostpointercapture', e => {
@@ -338,7 +349,6 @@ export function bindInput(canvas, { presenter, modes, moveRange, slide, restart,
   });
   on(window, 'blur', cancelDrag);
   on(window, 'resize', cancelDrag);
-  on(pinInput, 'input', () => applyPinValue(pinInput.value));
   on(document, 'visibilitychange', () => { if (document.hidden) cancelDrag(); });
   on(canvas, 'contextmenu', e => e.preventDefault());
   on(document, 'touchmove', e => e.preventDefault(), { passive: false });

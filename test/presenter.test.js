@@ -989,7 +989,7 @@ test('totem-building row clear eases the level bar', async () => {
 test('Mode 2 collection leaves score and level progress unchanged through takeoff and arrival', async () => {
   const totem = { id: 1, row: 5, col: 3, len: 1, height: 1, kind: 'totem', smile: 3, color: 0 };
   const initial = { ...createState(0, 'easy', 'totem-building', 2),
-    blocks: [totem], score: 700, levelProgress: 0.7 };
+    blocks: [totem], score: 700, levelProgress: 0.35 };
   const after = structuredClone(initial);
   after.blocks = [];
   const presenter = createPresenter({ sfx: () => {} });
@@ -1039,7 +1039,7 @@ test('level completion fills before drops, then cascades keep HUD progress in sy
     assert.equal(presenter.present.displayProgress, 1, 'bar visibly reaches full before resetting');
     assert.equal(presenter.present.displayLevel, 2);
     assert.ok(presenter.present.levelUpFx);
-    assert.deepEqual(presenter.present.spawnFx, [], 'drop waits for the full-bar beat');
+    assert.ok(!presenter.state.blocks.some(b => b.id === totem.id), 'drop waits for the full-bar beat');
     presenter.present.menu = 'pause';
     const frozen = structuredClone(presenter.present);
     await advance(presenter, 1000);
@@ -1047,13 +1047,13 @@ test('level completion fills before drops, then cascades keep HUD progress in sy
     presenter.present.menu = null;
     await advance(presenter, 180);
     assert.equal(presenter.present.displayProgress, 1, 'bar remains full during the refill');
-    assert.deepEqual(presenter.present.spawnFx, []);
+    assert.ok(!presenter.state.blocks.some(b => b.id === totem.id));
     await advance(presenter, 210);
     await advance(presenter, 120);
     assert.equal(presenter.present.displayProgress, 1, 'extra clears preserve the full bar until spawn');
     await advance(presenter, 120);
-    assert.deepEqual(presenter.present.spawnFx.map(fx => fx.col), [3],
-      'bar source matches the authoritative spawn column');
+    assert.equal(presenter.state.blocks.find(b => b.id === totem.id).col, 3,
+      'Junior appears in the authoritative spawn column');
     assert.equal(presenter.viewOf(totem).vy, -1, 'face begins behind the bar');
     assert.equal(presenter.present.displayProgress, 1, 'unfill begins with the drop, never earlier');
     await advance(presenter, 90);
@@ -1072,7 +1072,6 @@ test('level completion fills before drops, then cascades keep HUD progress in sy
     assert.equal(presenter.present.displayProgress, 0.4);
     assert.equal(presenter.present.displayLevel, 2);
     assert.equal(presenter.present.levelUpFx, null);
-    assert.deepEqual(presenter.present.spawnFx, []);
     assert.deepEqual(presenter.state, final);
     assert.deepEqual(result, saved);
 
@@ -1084,14 +1083,13 @@ test('level completion fills before drops, then cascades keep HUD progress in sy
       await drain(presenter, step);
       assert.equal(await cancelled, false);
       assert.equal(presenter.present.levelUpFx, null);
-      assert.deepEqual(presenter.present.spawnFx, []);
       assert.equal(presenter.present.displayLevel, 1);
       assert.equal(presenter.present.displayProgress, 0.8);
     }
   }
 });
 
-test('a real Building drop wave flashes every column and pauses and resets together', async () => {
+test('a real Building level-up drop arrives in its column and supports pause and reset', async () => {
   const initial = { ...createState(0, 'easy', 'totem-building'), nextId: 100,
     lines: buildingLinesTo(5) - 1, level: 4, levelProgress: (BUILDING_LINES_BASE + 3 * BUILDING_LINES_STEP - 1) / (BUILDING_LINES_BASE + 3 * BUILDING_LINES_STEP),
     blocks: [{ id: 1, row: 9, col: 0, len: 8, color: 0 }] };
@@ -1102,24 +1100,26 @@ test('a real Building drop wave flashes every column and pauses and resets toget
   events.push({ type: 'turn-complete', state: structuredClone(state) });
   const columns = events.filter(e => e.type === 'totem-drop')
     .map(e => e.state.blocks.find(b => b.id === e.id).col);
-  assert.equal(columns.length, 2, 'fixture exercises replacement plus one extra');
+  assert.equal(columns.length, 1, 'fixture earns one junior from filling the bar');
   const presenter = createPresenter({ sfx: () => {} });
+  const arrivals = () => presenter.state.blocks.filter(b => presenter.viewOf(b).spawning);
   for (const reset of [false, true]) {
     presenter.reset(initial);
     const done = presenter.play({ accepted: true, events });
-    for (let i = 0; i < 500 && !presenter.present.spawnFx.length; i++) await advance(presenter, 16);
-    assert.deepEqual(presenter.present.spawnFx.map(fx => fx.col), columns);
+    for (let i = 0; i < 500 && !arrivals().length; i++) await advance(presenter, 16);
+    assert.deepEqual(arrivals().map(b => b.col), columns);
     await advance(presenter, 100);
-    const frozen = structuredClone(presenter.present.spawnFx);
-    assert.ok(frozen.every(fx => fx.progress > 0 && fx.progress < 1));
+    const positions = () => arrivals().map(b => presenter.viewOf(b).vy);
+    const frozen = positions();
+    assert.ok(frozen.some(row => row > -1), 'the junior has begun falling into the board');
     presenter.present.menu = 'pause';
     await advance(presenter, 1000);
-    assert.deepEqual(presenter.present.spawnFx, frozen);
+    assert.deepEqual(positions(), frozen);
     if (reset) presenter.reset(initial);
     else presenter.present.menu = null;
     await drain(presenter, 16);
     assert.equal(await done, !reset);
-    assert.deepEqual(presenter.present.spawnFx, []);
+    assert.deepEqual(arrivals(), []);
     assert.deepEqual(presenter.state, reset ? initial : state);
   }
 });

@@ -130,14 +130,14 @@ export function hasMoves(state) {
   });
 }
 
-function takeNextId(state) {
+export function takeNextId(state) {
   const numeric = state.blocks.map(block => block.id).filter(Number.isInteger);
   if (!Number.isInteger(state.nextId) || numeric.includes(state.nextId))
     state.nextId = (numeric.length ? Math.max(...numeric) : 0) + 1;
   return state.nextId++;
 }
 
-function connectedGroups(cells) {
+export function connectedGroups(cells) {
   const key = cell => `${cell.row}:${cell.col}`;
   const index = new Map(cells.map(cell => [key(cell), cell]));
   const seen = new Set(), groups = [];

@@ -64,24 +64,19 @@ cleared.
 Totem Building drops an independent 1×1 tile at opening. Resolve any completed
 rows and collection immediately, scoring only Mode 2 ordinary-tile clears, then refill only if
 needed to restore a legal first slide. Opening playback uses engine events
-for the fall, clears, collection and refill. A collected opening tile waits until
-the first player turn for replacement. Each turn allows at most
-one replacement when no totems remain, plus **one level-up drop** when the Next
-Junior bar fills. Cascaded levels in the same turn still share that one-drop
-budget. The maximum is **two drops per turn including replacement**;
-existing live totems do not count toward this spawn cap. Replacement is chosen
-on its own and is not a recent column for later extras. Every drop spends its
-allowance even if it immediately clears or collects, and further level-ups during
-drop cascades cannot reset the cap. If all drops collect, replacement becomes
-eligible again next turn. Drops wait until refill rows have risen and settled.
+for the fall, clears, collection and refill. After opening, a new junior spawns
+only when the Next Junior bar fills. Having no totems on the board does not
+trigger a replacement. Each turn allows at most **one level-up drop**; cascaded
+levels in the same turn still share that one-drop budget. Existing live totems
+do not count toward this spawn cap. Every drop spends its allowance even if it
+immediately clears or collects, and further level-ups during drop cascades
+cannot reset the cap. Drops wait until refill rows have risen and settled.
 Among reachable below-ceiling columns, rank ordinary-tile landing height from
 highest to lowest, including columns one row lower than the tallest tile stack.
-Live totems do not add height, but a drop may still land on them. Break remaining
-ties by greater distance from earlier level-up drops this turn. Pick randomly
-among the matching columns, or between the two farthest when extras already
-dropped. Resolve each tile before ranking the next drop. Mode 1 collects floor
+Live totems do not add height, but a drop may still land on them. Pick randomly
+among the matching columns. Mode 1 collects floor
 drops; Mode 2 keeps them until stage 3, then collects before gravity or cascades.
-Mode 2 levels use ordinary-tile score, with `1000 × current level` points needed
+Mode 2 levels use ordinary-tile score, with `2000 × current level` points needed
 for each level; Mode 1 uses cleared-row progression. Creature collections award
 no bonus points and cannot generate level-up drops.
 Both rulesets share the same capped bonus-drop budget. Drops may complete
@@ -90,13 +85,18 @@ row rise reaching row zero ends the game immediately, before clears; temporary
 above-board drop positions do not count. Below-ceiling boards without slides
 advance another row rather than ending with `no-moves`.
 
-Building refills use one settled-board rule: rise at least once per turn, then
+Building slide and Power Mode refills use one settled-board rule: rise at least once, then
 continue until three distinct rows contain ordinary tiles and a slide is available.
 With no intervening clears, 0/1/2+ occupied tile rows get 3/2/1 incoming rows.
 Totems do not count; smiling shards count only the rows their cells actually occupy.
 Recheck after every rise and after drop-induced clears/collections, so gravity,
 shaped trimming and cascades cannot leave a stale refill count. Ceiling contact
 stops the refill immediately.
+
+Junior tools are bonus actions: refill only when no legal slide remains, both
+after the tool settles and after any earned drop resolves. Natural clears caused
+by tools still grant the turn's single level-up Junior, even without a refill.
+Any required refill precedes that drop; drop cascades cannot renew the allowance.
 
 A completed row touching any Totem cell removes the entire piece in Tetris mode,
 but clears and scores only the completed row. Cells outside that row detach and

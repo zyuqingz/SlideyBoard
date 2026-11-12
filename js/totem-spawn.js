@@ -1,5 +1,6 @@
 // Tetris pieces and Building tile drops. Row previews remain owned by the mode.
 import { COLS, rowSpan, buildGrid, fitsBlock, copyBoard, computeGravity, fullRows } from './board.js';
+import { JUNIOR_COUNT } from './junior-powers.js';
 
 const SHAPES = [
   ['###', '.#.'], ['.#.', '###'], ['##.', '.##'], ['.##', '##.'],
@@ -10,7 +11,7 @@ const SHAPES = [
   cells: rows.flatMap((row, r) => [...row].flatMap((cell, c) =>
     cell === '#' ? [{ row: r, col: c }] : [])) }));
 
-export function spawnBuildingTotem(state, random, recentColumns = []) {
+export function spawnBuildingTotem(state, random) {
   const grid = buildGrid(state);
   const tileGrid = buildGrid({ ...state, blocks: state.blocks.filter(b => b.kind !== 'totem') });
   const candidates = [];
@@ -31,19 +32,14 @@ export function spawnBuildingTotem(state, random, recentColumns = []) {
     tileGrid.some(row => row[candidate.block.col]));
   // Land on ordinary tiles. An empty board still uses the floor.
   const grounded = tiled.length ? tiled : pool;
-  // A group drop spreads across unused columns. Stack only when every
-  // reachable column already took a tile this wave.
-  const unused = grounded.filter(candidate => !recentColumns.includes(candidate.block.col));
-  const source = unused.length ? unused : grounded;
-  const minRank = Math.min(...source.map(candidate => candidate.rankRow));
+  const minRank = Math.min(...grounded.map(candidate => candidate.rankRow));
   // Include columns one row lower than the tallest remaining tile stack.
-  const band = source.filter(candidate => candidate.rankRow <= minRank + 1);
-  const spacing = candidate => recentColumns.length
-    ? Math.min(...recentColumns.map(col => Math.abs(candidate.block.col - col))) : 0;
-  const ranked = band.slice().sort((a, b) =>
-    spacing(b) - spacing(a) || a.rankRow - b.rankRow);
-  const picks = recentColumns.length ? ranked.slice(0, Math.min(2, ranked.length)) : ranked;
-  const block = picks[Math.floor(random() * picks.length)].block;
+  const picks = grounded.filter(candidate => candidate.rankRow <= minRank + 1)
+    .sort((a, b) => a.rankRow - b.rankRow);
+  // The fractional part supplies an independent identity without an extra RNG draw.
+  const roll = random() * picks.length;
+  const block = picks[Math.floor(roll)].block;
+  block.adultVariant = Math.floor((roll % 1) * JUNIOR_COUNT);
   state.nextId++;
   state.blocks.push(block);
   return block;

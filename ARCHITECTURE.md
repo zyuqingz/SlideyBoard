@@ -22,6 +22,7 @@ owns a separate copy of the state currently on screen, which may trail the engin
 | Module | Owns |
 | --- | --- |
 | `js/engine.js` | Authoritative state, base-state reset, command validation, snapshots, per-mode best scores/options |
+| `js/junior-powers.js` | Four Junior tool identities, target previews and single-use effects |
 | `js/modes.js` | Classic/Shaped map registry and Classic's turn adapter |
 | `js/play-mode.js` | Standard / Tetris / Totem Building identifiers and progression tuning |
 | `js/turn.js` | Shared settling, scoring, rescue timing, refills and optional Totem drops |
@@ -46,8 +47,7 @@ owns a separate copy of the state currently on screen, which may trail the engin
 | `js/mode-popup.js` | Mode card layout, vertically centered on the design canvas |
 | `js/settings-popup.js` | Settings card layout, language buttons, restart and resume |
 | `js/i18n.js` | English/Chinese UI strings and language persistence |
-| `js/input.js` | Browser gestures, hit testing, drag preview, menu interaction |
-| `js/mode-lock.js` | Session-local mode-menu unlock state and password entry |
+| `js/input.js` | Browser gestures, hit testing, drag preview, menu interaction; three quick total-score taps open mode controls |
 | `js/drag.js` | Horizontal intent lock, resisted drag travel, cell hysteresis and bounded landing preview |
 | `js/audio.js` | Sound cues, guarded browser-storage access, mute persistence |
 | `js/storage.js` | Per-map best scores and shared difficulty/play-mode preferences |
@@ -90,9 +90,9 @@ the engine snapshot already contains the fully resolved opening and score.
 
 Classic and Shaped are maps (board outlines), registered in `GAME_MODES`. Play
 modes are `standard`, `tetris`, and `totem-building`. Tetris keeps one live drop.
-Totem Building drops independent 1×1 totems, replacing them and adding one extra
+Totem Building starts with one independent 1×1 totem, then drops a new one only
 when the Next Junior bar fills.
-Clears improve totem smiles; collection adds them to the cosmetic HUD without bonus points. An
+Clears improve totem smiles; collection adds single-use Junior tools without bonus points. An
 all-totem row activates Power Mode: every totem reaches max smile, all ordinary
 blocks are cleared, then totems fall and collect through the normal floor sequence.
 Neither play mode blasts rows when a totem reaches the top.
@@ -127,6 +127,7 @@ Every event has `type` and a detached `state` **after** that logical step.
 | `shaped-rise` | `blocks` (pre-trim, destination coordinates), `trimmed` (discarded spans) | Animate original spans upward, emit chips, adopt surviving geometry |
 | `totem-drop` | `id` | Introduce the incoming totem above the board; subsequent gravity animates its fall |
 | `totem-collect` | collected `blocks` | Compress and rebound, adopt the snapshot at takeoff, then fly each intact creature into its matching collection slot |
+| `junior-use` | `variant`, `row`, `col`, `blockIds`, removed `blocks`, affected `rows`, optional `displayBlocks` for blast fragments or `splitBlocks` for Bow pieces | Spend one visible use, animate food removal, splitting or Junior growth, then play settling events |
 | `game-over` | `blockIds` | Bank score, show danger feedback, reveal result |
 | `turn-complete` | — | Finish score feedback and adopt final snapshot |
 
@@ -164,7 +165,7 @@ Reuse board primitives and scoring/setup functions only where the rules match.
 Classic's spawn search specifically models Classic's gravity/rise turn order;
 a mode with different rules should supply its own preview policy.
 
-The current command is a horizontal `slide`. A genuinely new action (for example,
+Commands include horizontal `slide`, `power-mode`, and `use-junior`. A genuinely new action (for example,
 rotation) needs an explicit command validation/resolution path and tests. A new
 kind of visible event needs a presenter handler; the engine still supplies only
 the event's data. Extend those contracts when needed rather than placing new
@@ -303,7 +304,7 @@ Mode 2 overrides collection, scoring, and expression placement:
   one combo step, including partial rows in a power wipe. Growing and collecting
   creatures adds no bonus points or score popups.
 - The level bar uses ordinary-tile score. Level L starts at
-  `500 × L × (L - 1)` points and requires `1000 × L` points to advance.
+  `1000 × L × (L - 1)` points and requires `2000 × L` points to advance.
   Collections do not advance the bar or grant level-up drops.
 - Stage 1 faces sit in the bottom half, stage 2 in the middle, and stage 3 keeps
   its original position. Upgrades interpolate smoothly between these positions.
@@ -317,21 +318,17 @@ Mode 2 overrides collection, scoring, and expression placement:
   Refill only if needed to restore a legal first slide; an immediately
   collected opening face is not repeatedly replaced. The presenter plays the
   engine's opening events, including the fall, clears, collections and refill.
-- When no totems remain, allow one replacement per turn after refilling/settling.
-  This is separate from level-up extras. Clearing or collecting a drop spends its
-  allowance; an exhausted replacement allowance becomes available again next turn.
-- Filling the Next Junior bar grants one extra junior, even if several levels
-  cascade in the same turn (two drops with replacement).
-  The budget is calculated from the turn's starting level to its current level,
-  with already-spawned extras deducted. Replacement is not a recent column for
-  extras. Refill and drop cascades cannot renew it.
-  Each drop lands and resolves before the next is chosen. There is no persistent
+- When no totems remain, wait for the Next Junior bar to fill; there is no
+  automatic replacement.
+- Filling the Next Junior bar grants one junior after refilling/settling, even if
+  several levels cascade in the same turn (at most one drop per turn).
+  Compare the turn's starting level to its level after settling and any required
+  refill, then resolve the single earned drop. Collection, refill and drop cascades
+  cannot renew it. There is no persistent
   spawn queue or waiting-for-space state; the cap limits drops, not live totems.
 - Drops rank reachable below-ceiling columns by ordinary-tile landing height,
   including columns one row lower than the tallest tile stack. Live totems do
-  not add height; a drop may still land on them. Randomly choose among that
-  band, using distance from earlier extras this turn when more than one extra
-  has already dropped. Recalculate after each drop settles.
+  not add height; a drop may still land on them. Randomly choose among that band.
   Floor drops collect normally. Row-completing
   drops resolve normal clears and smile upgrades. If only ceiling landings remain,
   the tile lands and ends the game instead of deferring.
@@ -375,14 +372,54 @@ Mode 2 overrides collection, scoring, and expression placement:
   celebration shares the pause/reset clock and can outlive board motion.
   Creature growth and collection never create a score popup or score impact.
 
+### Collected Junior tools
+
+The four collection slots sit below the next-row preview. Each collected creature
+adds one charge to its matching type in authoritative `state.juniorCollection`:
+
+| Variant | Adult accessory | Power |
+| --- | --- | --- |
+| 0 | Crown | Remove every ordinary food tile touching the selected row |
+| 1 | Sprout | Grow the selected Junior by one stage, capped at three |
+| 2 | Horns | Cut ordinary food cells inside the 3×3 area centered on the drop |
+| 3 | Bow | Split every food tile into two near-equal pieces; single cells stay intact |
+
+Sprout requires dropping on a Junior below stage three.
+Bow targets all multi-cell food tiles from any playable drop cell, preserving every
+food cell and assigning fresh IDs to both pieces. Its `junior-use` event includes
+`splitBlocks` for a brief split pulse before gravity and normal clears resolve.
+Food powers preserve Juniors. Crown removes whole food tiles; Horns keeps
+the out-of-range portions as independent connected fragments. Direct tool removals
+grant no score or line progress; resulting natural clears score normally and grant
+one Junior if they cross a level threshold. Tools settle gravity, clears and
+collections without a mandatory rise. An immovable or empty result uses the normal
+Building refill lifecycle to restore play before the earned drop. The drop resolves
+normally, with another refill only if its result is unplayable; further levels in
+that cascade cannot grant a second drop.
+
+`engine.juniorTarget(variant, row, col)` returns detached affected block IDs for
+the drag highlight, or null. `dispatch({ type: 'use-junior', variant, row, col })`
+validates mode, phase, stock, playable shape cells and a nonempty effect before
+spending exactly one charge. Invalid drops change neither inventory nor RNG.
+Mouse hover shows localized descriptions; holding and dragging show the tool and
+its target range without a tooltip. Only releasing a held tool over a
+valid target activates it; leaving the board or cancelling the gesture keeps it.
+
+Building drops store `adultVariant` in their block data. The fractional remainder
+of the placement RNG draw selects a uniformly distributed type without changing
+the number of gameplay RNG draws. Presentation uses this identity through growth,
+collection flights and resets. Logical stock increments at collection; visible
+stock increments only on arrival. Spending decrements visible stock once at the
+`junior-use` event, so overlapping flights cannot refund spent charges. Reset from
+an authoritative snapshot restores its inventory; a new run starts empty.
+
 ## Playback and lifecycle
 
 - A thick level bar follows the playable top edge, with its level label inside.
   Clear progress fills on the same visual clock; crossing a level holds a full
   bar and pops a centered level-up label. When a Building drop follows, the bar
   stays full through intervening events and resets as that totem spawns.
-  Building drops flash the bar's lower edge at every incoming column, including
-  simultaneous drops, and emerge below its opaque mask. The ceiling warning
+  Building drops emerge below the bar's opaque mask. The ceiling warning
   strip is drawn inside the bar above its fill. Drops retain their
   engine-defined order and positions. Power wipes run top-down.
 - `state.phase` describes gameplay (`play` / `over`). Pause and mode menus live in
@@ -403,7 +440,9 @@ Mode 2 overrides collection, scoring, and expression placement:
   renew a brief upside-down-U eye smile, with no celebration movement of the mouth or cheeks.
   Expressions switch immediately without fading; pointer tracking remains eased.
   Panic retains a subtle nervous lip wave. Visible occupied cells in the top two rows override the smile with
-  panic, excluding departing clears and cells still above the board. Game-over
+  panic, excluding departing clears, cells still above the board, and spawning Juniors
+  until their first landing. Arrival flags survive batched drop snapshots and pause;
+  landed Juniors participate in danger checks normally. Game-over
   playback immediately replaces the irises with red Xs before the result overlay.
   Gaze and expressions share the paused visual clock and reset with the presenter.
 - Drags require horizontal intent beyond a 0.12-cell dead zone; vertical starts

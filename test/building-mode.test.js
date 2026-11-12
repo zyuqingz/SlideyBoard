@@ -51,13 +51,13 @@ test('Mode 2 collections add no score, progress, or level-up spawn bonus', () =>
   const collect = result.events.find(e => e.type === 'totem-collect');
   assert.equal(clear.award.pts, 70);
   assert.equal(clear.state.score, 720);
-  assert.equal(clear.state.levelProgress, 0.72);
+  assert.equal(clear.state.levelProgress, 0.36);
   assert.equal(collect.award, undefined);
   assert.equal(collect.state.score, 720);
   assert.equal(collect.state.best, clear.state.best);
   assert.equal(collect.state.level, 1);
-  assert.equal(collect.state.levelProgress, 0.72);
-  assert.equal(result.events.filter(e => e.type === 'totem-drop').length, 1, 'only the empty-board replacement');
+  assert.equal(collect.state.levelProgress, 0.36);
+  assert.equal(result.events.filter(e => e.type === 'totem-drop').length, 0, 'the bar has not filled');
 });
 
 test('Mode 2 power upgrades every totem, scores the wipe, and collects each once in place', () => {
